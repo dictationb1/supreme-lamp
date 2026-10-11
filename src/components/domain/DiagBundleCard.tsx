@@ -1,11 +1,30 @@
-// [F96 §2.2/§2.3] DOWNLOAD DIAGNOSTIC BUNDLE + AT-A-GLANCE STRIP.
+// [F96 §2.2/§2.3] -> [R2 §7] DIAGNOSTIC EXPORT + AT-A-GLANCE STRIP.
 //
 // The operator's constraint, stated in every F93-F95 report: they can paste
-// JSON, they cannot paste code or read a log. So this card is deliberately the
-// FIRST thing on Overview - one button that fetches /api/diag/comprehensive,
-// merges the browser half, and downloads f96-diag-<stamp>.json, plus a compact
-// four-subsystem strip (Launcher | Watcher | WS | Logon) that names which one is
-// broken without opening anything.
+// JSON, they cannot paste code or read a log. So one button fetches
+// /api/diag/comprehensive, merges the browser half and downloads
+// f96-diag-<stamp>.json, next to a compact four-subsystem strip
+// (Launcher | Watcher | WS | Logon) that names which one is broken without
+// opening anything.
+//
+// TWO R2 REPAIRS, both visible defects the operator reported:
+//
+//  1. SURFACE. The root used to be `<div className="glass rounded-xl ...">`.
+//     A bare `.glass` class carries no `data-glass-samples` attribute, so
+//     NEITHER globals.css selector matched: no backdrop-filter was applied and
+//     `--glass-alpha` fell back to 1 - i.e. this card rendered FULLY OPAQUE on
+//     every browser, including ones that composite blur perfectly. It is now a
+//     `GlassContainer` with `surface="nested"`, so it paints on the shared
+//     backdrop like every other card and the translucency is real.
+//
+//  2. WORDING. The label read "Download Diagnostic Bundle (for Claude)". An
+//     assistant-specific name on a product action is wrong regardless of who
+//     reads the file: the button exports a diagnostic bundle. It is now
+//     "Export diagnostics" (i18n `diagBundle.export`), and the follow-up
+//     message says what the file IS rather than who to paste it to.
+//
+// WEIGHT. It is no longer the visual centre of the Overview - it is a compact
+// secondary strip under the troubleshooting summary, with a ghost button.
 //
 // Copy-only by construction: the button performs exactly one GET and one local
 // Blob download. Nothing here executes on the runner, reads a credential, or
@@ -14,6 +33,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Download, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { Drawer } from "@/components/primitives/Collapse";
+import GlassContainer from "@/components/primitives/GlassContainer";
 import { diagAtGlance, downloadDiagBundle, fetchComprehensiveDiag, type DiagBundle, type GlanceColor } from "@/api/diag";
 
 function Dot({ color, id }: { color: GlanceColor; id: string }) {
@@ -53,18 +73,27 @@ export function DiagBundleCard() {
   }, [busy, t]);
 
   return (
-    <div id="f96.diagBundle" className="glass rounded-xl border border-default p-4 mb-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <GlassContainer
+      as="section"
+      surface="nested"
+      variant="tinted"
+      radius="lg"
+      id="f96.diagBundle"
+      aria-label={t("diagBundle.export")}
+      data-testid="overview-diag-bundle"
+      className="mb-3 p-3"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           data-testid="overview-download-diag"
           id="f96.downloadDiag"
           type="button"
           onClick={onDownload}
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-fg disabled:opacity-60"
+          className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-secondary hover:bg-raised hover:text-primary disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Download size={16} aria-hidden="true" />
-          {busy ? t("diagBundle.fetching") : t("diagBundle.download")}
+          <Download size={14} aria-hidden="true" />
+          {busy ? t("diagBundle.fetching") : t("diagBundle.export")}
         </button>
         <span className="text-xs text-tertiary">{t("diagBundle.hint")}</span>
       </div>
@@ -127,6 +156,6 @@ export function DiagBundleCard() {
           </Drawer>
         </div>
       ) : null}
-    </div>
+    </GlassContainer>
   );
 }

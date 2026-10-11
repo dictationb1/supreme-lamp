@@ -15,7 +15,17 @@
   --color-border-strong: #cbd5e1;      /* slate-300 */
   --color-text-primary: #0f172a;       /* slate-900 */
   --color-text-secondary: #475569;     /* slate-600 */
-  --color-text-tertiary: #64748b;      /* slate-500 */
+  /* [R2 §P3 / #214] LIGHT tertiary contrast repair (computed, WCAG 1.4.3).
+     #64748b (slate-500) measured 4.344:1 on --color-bg-surface-raised (#f1f5f9)
+     - below the 4.5:1 AA bar for the normal-size text it is used for (card row
+     keys, hints, timestamps, `Row`'s 12px uppercase labels). It passed on the
+     white surface (4.759) and on the base (4.548), which is why the defect
+     survived a surface-only audit. #566274 measures 6.186 / 5.912 / 5.646 on
+     surface / base / raised: the minimum is 5.646, and it stays visibly lighter
+     than --color-text-secondary (#475569 = 7.58 / 7.24 / 6.92) so the
+     secondary/tertiary hierarchy still reads. scripts/check-contrast.mjs pins
+     all three ratios, on both themes, so this cannot regress silently. */
+  --color-text-tertiary: #566274;
   --color-text-mono: #334155;          /* slate-700 */
   /* [F45-R/#214] LIGHT accent contrast repair (measured, WCAG 1.4.3):
      #0ea5e9 (sky-500) read 2.77:1 as text on --color-bg-surface and 2.65:1
@@ -28,10 +38,39 @@
   --color-accent: #0369a1;             /* sky-700 - 5.93:1 on the white surface */
   --color-accent-hover: #075985;       /* sky-800 - 7.56:1 on the white surface */
   --color-accent-fg: #ffffff;          /* text ON a --color-accent fill (5.93:1) */
-  --color-success: #059669;            /* emerald-600 - the ONLY green */
-  --color-warning: #d97706;            /* amber-600 */
-  --color-danger: #dc2626;             /* red-600 */
-  --color-danger-hover: #b91c1c;       /* red-700 */
+  /* [R2 §P3 / #214] SUCCESS and DANGER as TEXT. Both were failing WCAG 1.4.3 on
+     the raised surface and neither appeared in the reported defect list -
+     scripts/check-contrast.mjs found them by recomputing every text token
+     against every surface token of the same theme:
+       #059669 (emerald-600) measured 3.440:1 on --color-bg-surface-raised
+       #dc2626 (red-600)     measured 4.408:1 on --color-bg-surface-raised
+     Both are rendered as body text (Chip tone="success"/"danger" -> text-success
+     / text-danger, StatCard tone, status rows). The thresholds were NOT lowered;
+     the tokens were moved to values that clear 4.5:1 on ALL FOUR surfaces:
+       #047857 (emerald-700) 5.484 / 5.241 / 5.006  - still the sanctioned green
+       #c81e1e               5.737 / 5.483 / 5.237
+     --color-danger-fg stays #ffffff: 5.737:1 on the new fill (was 5.93:1 on the
+     old one), so the solid danger buttons keep their legibility. */
+  --color-success: #047857;            /* emerald-700 - the ONLY green, 5.006:1 min */
+  /* [R2 §P3 / #214] WARNING colour, classified. #d97706 (amber-600) was used for
+     BOTH classes and only satisfied one of them: it measures 3.186:1 on
+     --color-bg-surface and 3.045:1 on --color-bg-base, which clears the WCAG
+     1.4.11 3:1 bar for a non-text control (the two solid `bg-warning` sites in
+     this repo are both 8px status dots) but FAILS the 1.4.3 4.5:1 bar for the
+     63 `text-warning` / `color: var(--color-warning)` text sites that share the
+     token (Chip tone="warning", #f94.autoLoginBlocked, DiagnosticsDrawer verdicts,
+     ...). The classification is now explicit instead of incidental:
+       --color-warning        TEXT-SAFE and control-safe. amber-700 measures
+                              5.024 / 4.796 / 4.581 on surface / base / raised,
+                              so one token satisfies both bars and no call site
+                              has to be audited for which class it belongs to.
+       --color-warning-accent DECORATION ONLY - dots, 10% fills, 40% borders and
+                              icon glyphs. Never set as a text colour; the
+                              contrast script fails the build if it is. */
+  --color-warning: #b45309;            /* amber-700 - 4.581:1 minimum, text-safe */
+  --color-warning-accent: #d97706;     /* amber-600 - non-text decoration only */
+  --color-danger: #c81e1e;             /* 5.237:1 min - text-safe, see above */
+  --color-danger-hover: #b91c1c;       /* red-700 - darker, so hover never dips */
   --color-danger-fg: #ffffff;          /* text ON a --color-danger fill */
   /* Focus rings are non-text UI (WCAG 1.4.11, 3:1): #0ea5e9 measured 2.77:1
      on the light surface, so the light ring follows the repaired accent. */
@@ -106,7 +145,13 @@ html[data-theme="dark"] {
   --color-accent-hover: #38bdf8;       /* sky-400 */
   --color-accent-fg: #04121f;
   --color-success: #10b981;            /* emerald-500 */
-  --color-warning: #f59e0b;            /* amber-500 */
+  /* [R2 §P3] Dark theme needs no warning repair: #f59e0b measures 8.31 / 6.81 /
+     5.94 / 8.72 on bg-base / bg-surface / bg-surface-raised / bg-sunken, so it
+     already clears BOTH the 4.5:1 text bar and the 3:1 control bar. The
+     accent alias is published for parity so `--color-warning-accent` resolves
+     on both themes and no dark-only fallback is needed. */
+  --color-warning: #f59e0b;            /* amber-500 - 5.94:1 minimum, text-safe */
+  --color-warning-accent: #fbbf24;     /* amber-400 - non-text decoration only */
   /* [R-UX/#214] #ef4444 on --color-bg-surface-raised was 3.89:1 - below AA
      for the 14px status text 54 call sites render it at. red-400 is 5.28:1.
      The two SOLID danger buttons keep their legibility through the paired

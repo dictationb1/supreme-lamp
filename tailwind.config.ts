@@ -31,7 +31,13 @@ export default {
         "accent-hover": "var(--color-accent-hover)",
         "accent-fg": "var(--color-accent-fg)",
         success: "var(--color-success)",
+        // [R2 §P3] `warning` is the TEXT-SAFE token (>=4.5:1 on every light and
+        // dark surface). `warning-accent` is decoration only - dots, 10% fills,
+        // 40% borders, icon glyphs - and must never be set as a text colour;
+        // scripts/check-contrast.mjs fails the build if `text-warning-accent`
+        // appears in the source.
         warning: "var(--color-warning)",
+        "warning-accent": "var(--color-warning-accent)",
         danger: "var(--color-danger)",
         "danger-hover": "var(--color-danger-hover)",
         "danger-fg": "var(--color-danger-fg)",
