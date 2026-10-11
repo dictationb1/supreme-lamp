@@ -33,6 +33,9 @@ import { useExplorerQueueStore } from "@/lib/explorer/queueStore";
 import { useToastStore } from "@/stores/toastStore";
 import { copyText } from "@/lib/clipboard";
 import { PageHeader } from "@/components/primitives/PageHeader";
+import { hasDashToken } from "@/lib/dashToken";
+import { useListing } from "@/lib/explorer/useListing";
+import { ExplorerListingState } from "./file-explorer/ExplorerListingState";
 
 interface Crumb {
   id: string;
@@ -67,7 +70,10 @@ export default function FileExplorer() {
   const push = useToastStore((s) => s.push);
   const [view, setView] = useState<ViewMode>("list");
   const [location, setLocation] = useState<TreeNode>(() => (fixture.thisPc as TreeNode[])[1]);
-  const [rows, setRows] = useState<FixtureRow[]>(() => fixture.rows as FixtureRow[]);
+  // [R-FILES / #217] The sample is the INITIAL value only in sample mode. In
+  // live mode the list starts EMPTY, so no frame of this page can ever show
+  // checked-in sample rows while a runner read is in flight or has failed.
+  const [rows, setRows] = useState<FixtureRow[]>(() => (hasDashToken() ? [] : (fixture.rows as FixtureRow[])));
   const [fetchedFiles, setFetchedFiles] = useState<FixtureRow[]>([]);
   const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION);
   const [clipboard, setClipboard] = useState<{ mode: "copy" | "cut"; entries: FixtureRow[] } | null>(null);
@@ -90,6 +96,25 @@ export default function FileExplorer() {
   const readOnly = atFetched || atTrash;
   const visibleRows: FixtureRow[] = atFetched ? fetchedFiles : atTrash ? [] : rows;
   const selected = useMemo(() => selectedRows(visibleRows, selection), [visibleRows, selection]);
+
+  // [R-FILES / #217] LIVE LISTING. `live` is true exactly when the dashboard
+  // was opened with its dash token (the state DashTokenGate already explains
+  // when it is missing), because that is the only condition under which the
+  // runner's GET /api/fx/list can answer at all. In live mode the rows below
+  // come from that endpoint and NOWHERE else: a failed listing renders its own
+  // state with a retry, it never falls back to the sample below.
+  const live = useMemo(() => hasDashToken(), []);
+  const listing = useListing({ locationPath: location.path, live });
+  const listingSettled = listing.status === "ready" || listing.status === "empty";
+  const showListingState = live && !atFetched && !atTrash && !listingSettled;
+
+  useEffect(() => {
+    if (!live) return;
+    if (listing.status !== "ready" && listing.status !== "empty") return;
+    // The server's projection wins over the local optimistic copy after a
+    // (re)load - that is what makes Refresh mean "read the runner again".
+    setRows(listing.rows);
+  }, [live, listing.rows, listing.status]);
 
   // [F56-d §4] The Fetched-root empty state is replaced by a FILE-ARRIVAL event, never
   // by a UI file-API poll: the watcher's post-fetch notify rides the existing /ws
@@ -321,7 +346,13 @@ export default function FileExplorer() {
           doUndo();
           break;
         case "refresh": {
-          setRows(fixture.rows as FixtureRow[]);
+          // [R-FILES / #217] Refresh re-reads the LIVE source in live mode. It
+          // used to re-seed `fixture.rows` unconditionally, which reported
+          // "refreshed" while reading a local sample - the exact defect the
+          // provenance investigation traced. The sample is re-seeded only in
+          // sample mode, where the page already says the data is synthetic.
+          if (live) listing.reload();
+          else setRows(fixture.rows as FixtureRow[]);
           setSelection(EMPTY_SELECTION);
           useTrashStore.getState().sweep();
           void useExplorerQueueStore.getState().run();
@@ -341,7 +372,7 @@ export default function FileExplorer() {
           break;
       }
     },
-    [doUndo, location.path, openRow, paste, push, selection.ids, softDelete, t, visibleRows]
+    [doUndo, listing, live, location.path, openRow, paste, push, selection.ids, softDelete, t, visibleRows]
   );
 
   const onSelect = useCallback(
@@ -479,9 +510,17 @@ export default function FileExplorer() {
         subtitle={t("files.page.description")}
         testId="page-files"
         status={
-          <Chip id="page-files-access" tone={readOnly ? "warning" : "neutral"}>
-            {readOnly ? t("files.page.readOnly") : t("files.page.readWrite")}
-          </Chip>
+          <>
+            <Chip id="page-files-access" tone={readOnly ? "warning" : "neutral"}>
+              {readOnly ? t("files.page.readOnly") : t("files.page.readWrite")}
+            </Chip>
+            {/* [R-FILES / #217] The data's provenance is stated, not implied: an
+                operator must never have to guess whether these rows came from
+                the runner or from a checked-in sample. */}
+            <Chip id="page-files-provenance" tone={live ? "success" : "accent"} data-testid="explorer-provenance">
+              {live ? t("files.listing.provenance.live") : t("files.listing.provenance.sample")}
+            </Chip>
+          </>
         }
       />
 
@@ -508,7 +547,44 @@ export default function FileExplorer() {
         onCommand={(c) => dispatch(c)}
       />
 
-      <div className="flex flex-wrap items-start gap-3">
+      {/* [R-FILES / #217] The four counts, each under its own name, so a
+          windowed render can never be mistaken for the folder's size. */}
+      <div
+        id="f57.explorer.counts"
+        data-testid="explorer-counts"
+        data-live={live ? "true" : "false"}
+        data-indexed-total={listing.counts ? String(listing.counts.indexedTotal) : ""}
+        data-indexed-in-root={listing.counts ? String(listing.counts.indexedInRoot) : ""}
+        data-children-in-dir={listing.counts ? String(listing.counts.childrenInDir) : live ? "" : String(visibleRows.length)}
+        data-invalid={listing.counts ? String(listing.counts.invalid.length) : "0"}
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tertiary"
+      >
+        <span data-testid="count-indexed-total">
+          {listing.counts ? t("files.listing.count.indexed", { count: listing.counts.indexedTotal }) : t("files.listing.count.unknown")}
+        </span>
+        <span aria-hidden className="text-tertiary">·</span>
+        <span data-testid="count-indexed-root">
+          {listing.counts ? t("files.listing.count.root", { count: listing.counts.indexedInRoot, root: listing.projection?.root || "—" }) : t("files.listing.count.unknown")}
+        </span>
+        <span aria-hidden className="text-tertiary">·</span>
+        <span data-testid="count-children">
+          {listing.counts
+            ? t("files.listing.count.folder", { count: listing.counts.childrenInDir })
+            : live
+            ? t("files.listing.count.unknown")
+            : t("files.listing.count.sample", { count: visibleRows.length })}
+        </span>
+        {listing.counts && listing.counts.invalid.length > 0 ? (
+          <span data-testid="count-invalid" className="text-warning">
+            {t("files.listing.count.invalid", { count: listing.counts.invalid.length })}
+          </span>
+        ) : null}
+      </div>
+
+      {/* [R-FILES / #217] Stacked on phones, three columns from `md` up. The
+          single unwrapped row this replaces gave the results list 104px at
+          390px, which is where the name span collapsed to zero width. */}
+      <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-start gap-3">
         <ExplorerTree
           activePath={location.path}
           onSelect={(n) => {
@@ -557,6 +633,11 @@ export default function FileExplorer() {
               </p>
             </section>
           )
+        ) : showListingState ? (
+          // [R-FILES / #217] One branch per outcome, and none of them paints a
+          // row: loading / not-indexed / unauthorized / unavailable / failed
+          // each explain themselves and offer a recovery action.
+          <ExplorerListingState state={listing} onRetry={listing.reload} />
         ) : atTrash ? (
           <ExplorerTrashView
             entries={trashEntries}
@@ -600,6 +681,17 @@ export default function FileExplorer() {
             readOnly={readOnly}
           />
         )}
+        {/* [R-FILES / #217] An answered-but-empty directory says so in words;
+            the results list renders zero rows, never placeholder files. */}
+        {live && listing.status === "empty" && !atFetched && !atTrash ? (
+          <p
+            id="f57.explorer.listingEmptyNote"
+            data-testid="explorer-empty-note"
+            className="w-full md:flex-1 min-w-0 text-xs text-tertiary"
+          >
+            {t("files.listing.empty.detail", { root: listing.projection?.root || "—", dir: listing.projection?.dir || "/" })}
+          </p>
+        ) : null}
         <ExplorerPreview entry={previewTarget ? { id: previewTarget.id, name: previewTarget.name, sizeBytes: previewTarget.sizeBytes } : null} />
       </div>
 

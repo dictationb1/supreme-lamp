@@ -994,7 +994,7 @@
         "folder": "Folder",
         "file": "File"
       },
-      "windowed": "Showing {{shown}} of {{total}} (windowed)"
+      "windowed": "Showing {{shown}} of {{total}} in this folder (windowed)"
     },
     "view": {
       "list": "List view",
@@ -1136,6 +1136,54 @@
         "name-taken": "A file with that name already exists",
         "invalid-name": "That name is not allowed",
         "unsupported": "That operation is not supported"
+      }
+    },
+    "listing": {
+      "provenance": {
+        "live": "Live runner index",
+        "sample": "Sample data (synthetic)"
+      },
+      "count": {
+        "indexed": "{{count}} indexed",
+        "root": "{{count}} in {{root}}",
+        "folder": "{{count}} in this folder",
+        "invalid": "{{count}} record(s) rejected",
+        "unknown": "index not read yet",
+        "sample": "{{count}} sample rows (synthetic)"
+      },
+      "retry": "Retry",
+      "evidence": "Evidence",
+      "field": {
+        "status": "status",
+        "phase": "phase",
+        "http": "http",
+        "detail": "detail",
+        "attempts": "attempts"
+      },
+      "loading": {
+        "title": "Reading the runner index",
+        "body": "Waiting for GET /api/fx/list for the selected folder."
+      },
+      "empty": {
+        "title": "No indexed children",
+        "body": "The runner answered for this folder and it has no indexed files or folders.",
+        "detail": "{{root}}{{dir}} answered with 0 children. It is empty, not still loading."
+      },
+      "not-indexed": {
+        "title": "Not in the indexed roots",
+        "body": "The watcher indexes Downloads, Desktop, Documents, Temp and RDP-Storage. This location is outside them, so there is nothing to list."
+      },
+      "unauthorized": {
+        "title": "Listing refused",
+        "body": "The runner refused the read (missing or rejected dashboard key). Reopen the dashboard with ?key= or paste the key from the run log."
+      },
+      "unavailable": {
+        "title": "Runner unreachable",
+        "body": "The listing request did not complete. The rows below are NOT shown from a sample: nothing is displayed until the runner answers."
+      },
+      "failed": {
+        "title": "Listing did not match the index contract",
+        "body": "The runner answered, but the body is not a schemaVersion 2 index. A v1 or partial body means the runner needs a restart; nothing was substituted."
       }
     }
   },

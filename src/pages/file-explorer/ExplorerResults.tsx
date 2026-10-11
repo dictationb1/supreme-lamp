@@ -382,7 +382,7 @@ export function ExplorerResults(props: ExplorerResultsProps) {
       onDragOver={(e) => onDragOverTarget("container", e)}
       onDragLeave={onDragLeaveTarget}
       onDrop={(e) => onDropTarget("container", e)}
-      className="bg-surface border border-default rounded-md p-2 flex flex-col gap-2 flex-1 min-w-0"
+      className="bg-surface border border-default rounded-md p-2 flex flex-col gap-2 w-full md:w-auto md:flex-1 min-w-0"
     >
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-semibold text-primary">{t("files.results.label")}</h2>
@@ -567,14 +567,14 @@ function Row(props: {
         onClick={(e) => props.onSelect(r, { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey })}
         onDoubleClick={() => props.onOpen(r)}
         className={
-          "w-full h-11 px-2 rounded-md text-left text-sm flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+          "w-full h-11 px-2 rounded-md text-left text-sm flex items-center gap-2 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
           (selected ? "bg-accent/10 text-accent" : "text-primary hover:bg-raised")
         }
       >
         <Icon className="size-4 shrink-0 text-tertiary" aria-hidden />
         <span className="truncate flex-1 min-w-0">{r.name}</span>
         <span className="text-xs text-tertiary shrink-0">{isFolder ? t("files.results.kind.folder") : t("files.results.kind.file")}</span>
-        <span className="text-xs font-mono text-secondary shrink-0 w-20 text-right">{r.sizeBytes != null ? String(r.sizeBytes) : "—"}</span>
+        <span className="text-xs font-mono text-secondary shrink-0 w-14 sm:w-20 text-right">{r.sizeBytes != null ? String(r.sizeBytes) : "—"}</span>
         <span className="text-xs font-mono text-tertiary shrink-0 w-24 text-right hidden md:inline">{r.modified.slice(0, 10)}</span>
       </button>
     </div>

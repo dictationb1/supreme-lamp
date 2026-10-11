@@ -175,7 +175,7 @@ test("MH-c: both i18n catalogs parse, carry no duplicate key at any depth, and t
   const expected = Number((parity.match(/const EXPECTED_FLAT_KEYS = (\d+)/) || [])[1]);
   assert.equal(Object.keys(en).length, expected, "the count lock must equal the measured catalog size (never previous + delta)");
   // measured 2026-10-07 at HEAD e6dc5bd + this repair: the union of #173 (1010) and #174 (1022)
-  assert.equal(expected, 1213, "literal pin: the repaired union (1030) + 20 R-METRICS/R-SEARCH/R-FILES/R-DL keys + 24 R-GLASS/R-UX keys + 86 R2 keys (overview/connState/issues) + 48 V3 keys (sidebar.group/topbar.status/pages.*.purpose/files.page.purpose, then search.phase.*/search.results.shown/files.page.readOnly+readWrite/health.probing+unreachable/about.*) = 1213 keys in BOTH catalogs");
+  assert.equal(expected, 1241, "literal pin: the repaired union (1030) + 20 R-METRICS/R-SEARCH/R-FILES/R-DL keys + 24 R-GLASS/R-UX keys + 86 R2 keys (overview/connState/issues) + 48 V3 keys (sidebar.group/topbar.status/pages.*.purpose/files.page.purpose, then search.phase.*/search.results.shown/files.page.readOnly+readWrite/health.probing+unreachable/about.*) + 28 files.listing keys (live-listing provenance, the four counts, retry/evidence, diagnostic field labels, the six named non-ready states and the unknown/sample fallbacks) = 1241 keys in BOTH catalogs");
 });
 
 test("MH-d: the retired step-6 DVR variant stays retired - one implementation, one session list, one testid", () => {

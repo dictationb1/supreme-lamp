@@ -40,6 +40,12 @@ export function ExplorerPreview({ entry }: { entry: PreviewEntry | null }) {
 
   const sizeText = entry && entry.sizeBytes != null ? String(entry.sizeBytes) + " B" : "";
 
+  // [R-FILES / #217] Width rule: full width below `lg`, the frozen 288px column
+  // from `lg` up. The panel used to force 288px at EVERY width, which is one of
+  // the two columns (with the 224px tree) that crushed the results list to
+  // 104px at 390px and zeroed the file-name span. `md` is not enough for three
+  // columns: measured at 768px the results list still only got 184px and the
+  // name span measured 0px wide, so the preview takes its own row until `lg`.
   return (
     <aside
       id="f57.explorer.preview"
@@ -47,7 +53,7 @@ export function ExplorerPreview({ entry }: { entry: PreviewEntry | null }) {
       aria-label={t("files.preview.label")}
       data-renderer={state.renderer}
       data-status={state.status}
-      className="w-72 shrink-0 bg-surface border border-default rounded-md p-3 self-start flex flex-col gap-2"
+      className="w-full lg:w-72 lg:shrink-0 bg-surface border border-default rounded-md p-3 self-start flex flex-col gap-2"
     >
       <h2 className="text-sm font-semibold text-primary">{t("files.preview.label")}</h2>
       <p className="text-sm text-secondary truncate" data-testid="preview-selected">
