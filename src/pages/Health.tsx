@@ -111,6 +111,12 @@ export function HealthPage() {
     .filter((k) => k.startsWith("search:"))
     .sort();
   const sys = ["launcher:status", "download:writable", "streaming:proxy", "version:match"];
+  // [V3-05 / #202] ANSWERED-BUT-EMPTY IS ITS OWN STATE. The F106 guard above
+  // stops the crash, but a body with no `checks` map still produced two headers
+  // and zero rows - a page that looks broken while saying nothing about why.
+  // The rows come from the SELF-TEST's own payload, so the honest reading is
+  // "this runner returned no checks", with the action that changes it.
+  const noChecks = Object.keys(checks).length === 0;
   return (
     <div data-testid="health-page" data-overall={d.status ?? "unknown"}>
       <PageHeader
@@ -149,6 +155,14 @@ export function HealthPage() {
           </tr>
         </thead>
         <tbody>
+          {noChecks ? (
+            <tr data-testid="health-no-checks">
+              <td colSpan={5} className="p-3 font-sans text-xs text-secondary">
+                {t("health.noChecks")}
+                <span className="mt-1 block text-tertiary">{t("health.noChecksDetail")}</span>
+              </td>
+            </tr>
+          ) : null}
           {sites.map((k) => {
             const c = f92First(checks[k]);
             if (!c) return null;
@@ -178,10 +192,16 @@ export function HealthPage() {
             if (!c) return null;
             return (
               <tr key={k} className={cls(c.status)} data-testid={"health-row-" + k} data-status={c.status}>
-                <td>{k}</td>
-                <td>{c.status}</td>
-                <td>{String(c.observedValue ?? "")}</td>
-                <td>
+                {/* [V3-05] The system table has no header row, so an
+                    auto-laid-out long value used to wrap and drag the label
+                    cell with it: `download:writable` broke across two lines and
+                    its value landed under `status`. Pin the label and status
+                    columns (nowrap) and align every cell to the top, so the
+                    value column is the only one that wraps. */}
+                <td className="w-px whitespace-nowrap pr-3 align-top">{k}</td>
+                <td className="whitespace-nowrap pr-3 align-top">{c.status}</td>
+                <td className="break-all align-top">{String(c.observedValue ?? "")}</td>
+                <td className="align-top">
                   {c.output ? <pre className="whitespace-pre-wrap text-sm">{c.output}</pre> : null}
                 </td>
               </tr>

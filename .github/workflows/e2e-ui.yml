@@ -214,6 +214,29 @@ jobs:
           path: screenshots/
           if-no-files-found: error
           retention-days: 14
+      # [V3-07 / #225] The v3 acceptance spec writes screenshots/v3-acceptance/*
+      # plus a manifest that names its own evidence class. Same reasoning as the
+      # R2 step above: an artifact nobody can open is not evidence, so the count
+      # and the honesty fields travel through the one channel the agent sandbox
+      # can read, and a spec that ran while writing NOTHING fails the lane.
+      - name: Publish v3 acceptance proof (annotations)
+        if: always()
+        shell: bash
+        run: |
+          set -eo pipefail
+          n=$(ls -1 screenshots/v3-acceptance/*.png 2>/dev/null | wc -l | tr -d ' ')
+          echo "v3 acceptance screenshots written: $n"
+          if [ -f screenshots/v3-acceptance/manifest.json ]; then
+            echo "---- v3-acceptance/manifest.json ----"
+            cat screenshots/v3-acceptance/manifest.json
+          fi
+          names=$(ls -1 screenshots/v3-acceptance/*.png 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-360) || true
+          echo "::notice::V3-ACCEPTANCE-COUNT::${n} v3 acceptance screenshots. ${names}"
+          if [ "$n" -lt 20 ]; then
+            echo "::error::V3-ACCEPTANCE-MISSING::expected at least 20 v3 acceptance screenshots, found ${n}. The v3-acceptance spec did not complete - do not read a green lane as route coverage."
+            exit 1
+          fi
+
       - name: Publish screenshot download link
         if: always() && steps.screenshots.outputs.artifact-url != ''
         env:
