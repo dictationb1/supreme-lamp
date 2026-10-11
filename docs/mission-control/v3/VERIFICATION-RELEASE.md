@@ -51,10 +51,33 @@ observe the contract → assert the outcome**:
 
 ## 4. Visual capture
 
-`scripts/v3-capture.mjs` (optional tooling — it needs `puppeteer-core` and
+Shipped harness: `scripts/v3-screenshots.cjs` (it needs `puppeteer-core` and
 `@sparticuz/chromium`, installed with `--no-save`; they are deliberately **not** added to
 `package.json`, because `build-ui.yml` runs `pnpm install --frozen-lockfile` and an
 un-locked dependency would break the build).
+
+### 4.1 Lab defects found at the #227 checkpoint, and the repair (2026-10-11b)
+
+Evidence weaknesses acknowledged at handoff, each with its repair:
+
+| Defect | Repair |
+|---|---|
+| Coverage = 4 unique routes (Overview, Sessions, Settings, Files) | All **11 primary routes** + More-drawer/phone nav + Tinted/Clear/Opaque trio, at desktop/tablet/phone |
+| Synthetic backend answered **every** unknown `/api/*` with generic `{ok:true}` | Strict allow-list; an unknown `/api/*` path is a **logged 500** and fails the run (explicit exceptions only) |
+| Files capture showed fixture rows without saying so | Captures are labelled with their data provenance (`provenance: "synthetic-fixture"` in `measurements.json`); the Files shot asserts the page's own fixture banner/empty semantics instead of posing as runner content |
+| Tinted/Clear 4×4 samples hashed **identically** | Sampling region is resolved from the element boxes (sheet + first card), never a fixed xy; the run fails if ΔE between variants is below the separation the material model promises |
+| `02-overview-troubleshooting` PNG was blob-identical to `01` | The act step now asserts the toggle exists and the expanded state actually changed the DOM before the shot |
+| Issues too few to exercise "show more" | Synthetic state seeds ≥ 4 issues (≥1 past the preview cut); the run asserts the toggle is present and content grows on expand |
+| Captures raced dynamic clocks | Deterministic capture: animations off via `prefers-reduced-motion`, fixed synthetic server timestamp, clock cells excluded from comparison |
+| No build identity on captures | `measurements.json` records the built bundle's stamped SHA, the dist file size and its sha256 |
+| No browsable gallery | `screens/index.html` — a browsable before/after gallery over every capture |
+
+**Image inspection in this environment.** Earlier reports said "the agent cannot see
+images"; this session's tooling can load and inspect PNGs. Captures are therefore inspected,
+and the notes are published next to them; anything still not visually confirmed is labelled
+`VISUALLY_REVIEWED: pending`, never passed by geometry alone.
+
+### 4.2 Original harness description (retained)
 
 The harness serves the **built** bundle and captures, at 390×844 / 768×1024 / 1440×900:
 
@@ -70,10 +93,13 @@ Alongside each PNG it writes measured numbers — not claims:
 * the **measured** perceptual delta (ΔE in CIE76 over sRGB) between the two captures
 * sampled composited contrast of real text nodes
 
-Captures land in `screenshots/v3-*.png` with a `v3-manifest.json`.
+Captures land in `docs/mission-control/v3/screens/*.png` with `measurements.json`.
 
-**Honest limitation:** the agent does not see images. It can measure them; the operator must
-open them. `UI_VISUALLY_REVIEWED` is therefore only claimable after operator review.
+**Visual-review honesty.** The 2026-10-11b environment can load and inspect PNGs, so
+captures are inspected and the observations are written into the gallery notes. The
+operator's judgement still outranks the agent's; anything the agent could not confirm from
+the pixels is labelled `VISUALLY_REVIEWED: pending` rather than passed. Geometry or computed
+CSS alone is never counted as visual review.
 
 ## 5. Build identity (source → served)
 

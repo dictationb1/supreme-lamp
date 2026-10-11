@@ -1,8 +1,52 @@
 # Mission Control v3 — MASTER PLAN
 
-**Status: PLAN_READY → IMPLEMENTING**
-Session branch: `arena/403ecbde-supreme-lamp` · Base: `acb27c8` (contains merged #224)
+**Status: V3-01…V3-06 MERGED · V3-07/V3-08 completing (UI-completion session 2026-10-11b)**
+Session branch: `arena/f8b0d1a4-supreme-lamp` · Base: `main` @ `839db28` (tree identical to PR #227 merge `a3e170d` except `docs/status.json`)
 Canonical tracking: issue **#225** · Predecessor requirement issues: #191, #193, #194, #202, #205, #209, #210, #211, #212, #213, #214, #216, #217, #218
+
+## 0. Reconciliation — 2026-10-11 (UI completion session, branch `arena/f8b0d1a4-supreme-lamp`)
+
+This section supersedes the stale snapshots in §A (base `acb27c8`, branch
+`arena/403ecbde-supreme-lamp`) and in the #225 body (branch `arena/5fe3bfee-supreme-lamp`).
+Neither planning branch exists anymore; both were integrated. Facts below were re-inspected
+this session with `git`/`gh`, not copied from older statuses.
+
+| Fact | Value | How verified (this session) |
+|---|---|---|
+| `main` head | `839db28` — a `docs/status.json`-only chain above the #227 merge | `git log`, `gh api` |
+| PR #227 | **MERGED** (`a3e170d`, head `d16e9137`, 2026-10-11T09:31Z) — integrated V3-01…V3-06 from #226 head `07e04a7` + V3-07 header-budget fix `a8a05a2d` | `gh pr view 227` |
+| PR #226 | CLOSED, superseded by #227 (no content lost: commit `5e7df54` integrated its head) | `gh pr view 226`, `git log` |
+| main tree vs #227 merge | **identical except `docs/status.json`** | `git diff --stat a3e170d main -- . ':!docs/status.json'` → empty |
+| Live RDP workflow | run **38130242742** `in_progress`, head `7cd8d01f` (= #227 merge + status.json only). It already consumed the v3 build; it is NOT replaced by this session | `gh run view` |
+| CI on the #227 merge | `build-ui` 38128675911, `autologin-lab` 38128675906, `e2e-ui` 38128675990, `launch-gates` 38128675895 — all `success` | `gh run list` |
+| Shallow-clone note | the checkout was shallow; it was unshallowed before any ancestry claim | `git fetch --unshallow` |
+
+### What is already IMPLEMENTED on this base (inspected in `src/`, not assumed)
+
+* Level material model in `src/lib/glass/quality.ts` — `NESTED_FILL_FLOOR = 0.86` **no longer
+  exists**; `VARIANT_LEVELS`, additive `LEVEL_FILL_DELTA`, `OVERLAY_FILL_FLOOR = 0.88`,
+  quantized clarity, blur threshold, variant-separation minimums are all present (D1 fixed).
+* App glass sheet (`data-testid="app-glass-sheet"`) in `AppShell.tsx` / `AppBackdrop.tsx` (D2 fixed).
+* `PageHeader` mounted on **all 11 primary routes** (grep-verified) (D4 fixed).
+* Connection freshness + run-window validation in `src/lib/overview/readiness.ts` (D5 fixed).
+* `BuildProvenanceCard`, grouped Settings, EN/SI parity locks, `check-glass-contrast.mjs`,
+  the 80px header budget spec (`tests/e2e/v3-header-budget.spec.ts`, both catalogs).
+
+### The remaining gap this session closes (honest inventory)
+
+| Gap (from the #227 session's own "still open" list + operator brief) | Package | Disposition |
+|---|---|---|
+| Screenshot lab covers only 4 unique routes; synthetic API returns generic success for unknown paths; Files capture is fixture-labelled; Tinted/Clear proof sampled a region that hashed identically; no browsable gallery; captures not visually inspected (this environment CAN inspect images) | V3-07 | **repair `scripts/v3-screenshots.cjs`, capture all 11 routes + overlays + 3 form factors, strict API, seeded issues, gallery, image inspection** |
+| Browser acceptance for glass preference persistence, launch duplicate-click, search states, protected keys, file selection, DVR cancel, EN/SI rendering is scattered/absent | V3-07 | new `tests/e2e/v3-acceptance.spec.ts` |
+| 5,000-file populated-dataset contract through the real routed explorer | V3-03/V3-04 carry-over | asserted in the new acceptance spec + component suite |
+| Sinhala copy for Settings section headings / About / provenance labels | V3-06 carry-over | i18n lockstep additions |
+| `perfWatchdog` comment promises mount+scroll+overlay sampling; implementation had mount + window-scroll only | V3-08 | inspect, fix capture-point, assert bounded sampling |
+| Performance under throttling / overlay workload | V3-08 | browser lab measurement, labelled `THROTTLED_BROWSER`; `REAL_DEVICE` stays NOT_MEASURED |
+| Build/served identity chain recorded for this revision | V3-08 | recorded in measurements + issue #225 |
+
+Status vocabulary used from here on (never collapsed): **DESIGNED → IMPLEMENTED →
+BEHAVIOR_VERIFIED → VISUALLY_REVIEWED → DEPLOYMENT_VERIFIED**, mapped to the older labels in
+`VERIFICATION-RELEASE.md` §8.
 
 Companion documents (this is the index; do not create competing ledgers):
 
@@ -18,6 +62,12 @@ Human-readable progress: **Sinhala**. Code, identifiers, commands: **English**.
 ---
 
 ## A. Current source / build / served-UI model (INSPECTED, not assumed)
+
+> **Historical snapshot.** The table below was captured on the earlier planning base
+> (`acb27c8`). For the reconciled current base see **§0** above. Structural facts (router,
+> boundaries, glass ownership, quality precedence, build chain, i18n locks) were re-verified
+> against `839db28` and still hold; counts that move (test totals, key counts) are
+> re-measured in §0 and in the gate runs at the end of this session.
 
 | Fact | Value | How verified |
 |---|---|---|
@@ -167,16 +217,16 @@ Budgets are fixed **before** measurement; a regression is reported as a regressi
 
 ## J. Ordered work packages
 
-| ID | Outcome | Depends on |
-|---|---|---|
-| **V3-01** | Shared design system, material model, responsive shell, `PageHeader` on all 11 routes, grouped nav, compact TopBar | — |
-| **V3-02** | Overview / connection experience reconciled with #224; truthful connection freshness | V3-01 |
-| **V3-03** | Search, Files, transfer surfaces: page identity, result density, large-list behaviour, unknown-value honesty | V3-01 |
-| **V3-04** | Sessions, Connections, protected Keys UX | V3-01 |
-| **V3-05** | Telemetry / Health / Collector + embedded troubleshooting (severity ordering, action coverage) | V3-02 |
-| **V3-06** | Settings (grouped + About/build provenance), labs, overlays, cross-screen consistency, i18n lockstep | V3-01…V3-05 |
-| **V3-07** | Full acceptance: behaviour, accessibility, real-browser visual capture, performance | all |
-| **V3-08** | Verified build, release/activation procedure, final evidence | V3-07 |
+| ID | Outcome | Depends on | State (2026-10-11b reconciliation) |
+|---|---|---|---|
+| **V3-01** | Shared design system, material model, responsive shell, `PageHeader` on all 11 routes, grouped nav, compact TopBar | — | IMPLEMENTED + BEHAVIOR_VERIFIED (merged via #227; component + e2e green at `a3e170d`) |
+| **V3-02** | Overview / connection experience reconciled with #224; truthful connection freshness | V3-01 | IMPLEMENTED + BEHAVIOR_VERIFIED (same) |
+| **V3-03** | Search, Files, transfer surfaces: page identity, result density, large-list behaviour, unknown-value honesty | V3-01 | IMPLEMENTED; 5,000-file populated contract gets browser acceptance this session |
+| **V3-04** | Sessions, Connections, protected Keys UX | V3-01 | IMPLEMENTED + BEHAVIOR_VERIFIED; protected-key browser acceptance extended this session |
+| **V3-05** | Telemetry / Health / Collector + embedded troubleshooting (severity ordering, action coverage) | V3-02 | IMPLEMENTED + BEHAVIOR_VERIFIED |
+| **V3-06** | Settings (grouped + About/build provenance), labs, overlays, cross-screen consistency, i18n lockstep | V3-01…V3-05 | IMPLEMENTED; Sinhala parity for Settings/About labels completed this session |
+| **V3-07** | Full acceptance: behaviour, accessibility, real-browser visual capture, performance | all | **IN PROGRESS this session** — lab repair, full-route capture, gallery, image inspection, acceptance spec |
+| **V3-08** | Verified build, release/activation procedure, final evidence | V3-07 | PARTIAL — live RDP run 38130242742 already serves the v3 build; watchdog + throttled perf evidence this session |
 
 ### Per-package detail
 

@@ -76,3 +76,36 @@ Every screen above is additionally covered across: theme (dark/light) × quality
 viewport (390×844, 768×1024, 1024×768, 1440×900). The composited-contrast gate
 (`scripts/check-glass-contrast.mjs`) enumerates that matrix numerically; the browser
 capture samples it as pixels.
+
+## 6. Disposition states (2026-10-11b reconciliation)
+
+The `Y` cells above mean **designed and handled**; they are not a claim that the state is
+implemented, browser-verified and visually reviewed all at once. The honest per-route
+status uses separate states:
+
+* **DESIGNED** — specified in this matrix / master plan.
+* **IMPLEMENTED** — code merged on `main` (V3-01…V3-06 via PR #227).
+* **BEHAVIOR_VERIFIED** — component/e2e assertions exercise the state and pass in CI.
+* **VISUALLY_REVIEWED** — a captured PNG of the state exists and was actually looked at
+  (image inspection, not geometry alone).
+* **DEPLOYMENT_VERIFIED** — the served bundle renders it (run identity recorded).
+
+| Route | DESIGNED | IMPLEMENTED | BEHAVIOR_VERIFIED | VISUALLY_REVIEWED | DEPLOYMENT_VERIFIED |
+|---|---|---|---|---|---|
+| `/` Overview | ✓ | ✓ | ✓ (r2-overview, v3-troubleshoot, e2e r2-visual) | partial — desktop/tablet/mobile captured pre-session; refreshed + inspected this session | live RDP run 38130242742 serves the v3 build |
+| `/sessions` | ✓ | ✓ | ✓ (component) | **captured + inspected this session** (was: captured only) | same run |
+| `/connections` | ✓ | ✓ | ✓ (component) | **captured + inspected this session** | same run |
+| `/keys` | ✓ | ✓ | ✓ (component) | **captured + inspected this session** | same run |
+| `/files` | ✓ | ✓ | ✓ (explorer suites; 5,000-row contract strengthened this session) | **captured + inspected this session** (fixture-labelled capture repaired) | same run |
+| `/mirror` | ✓ | ✓ | ✓ (f91 lane) | **captured + inspected this session** | same run |
+| `/search` | ✓ | ✓ | ✓ (f78/f84/f85/f86/f88 lanes) | **captured + inspected this session** | same run |
+| `/telemetry` | ✓ | ✓ | ✓ (component) | **captured + inspected this session** | same run |
+| `/health` | ✓ | ✓ | ✓ (component) | **captured + inspected this session** | same run |
+| `/collector` | ✓ | ✓ | ✓ (f101 lane) | **captured + inspected this session** | same run |
+| `/settings` | ✓ | ✓ | ✓ (settings persistence suite) | partial pre-session; refreshed + inspected this session | same run |
+
+Cells referencing this session are the **target disposition** of the 2026-10-11b session; the
+final commit of the session reconciles each cell with links to the actual captures and the
+inspection notes in `docs/mission-control/v3/screens/` (`index.html` gallery +
+`measurements.json`). Where a state remains unverifiable in this environment it says so:
+**REAL_DEVICE rendering is NOT_MEASURED** everywhere in this matrix.

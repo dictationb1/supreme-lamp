@@ -422,3 +422,43 @@ gitignored `node_modules`, leaving the PR dependency surface and CI's `--frozen-
 populated-dataset contract · **V3-07** real-device evidence · **V3-08** perf budget, **NOT_MEASURED**
 — no CPU throttling and no low-end device was used. F45-B / yt-dlp were not touched and are not
 claimed. No workflow was dispatched, merged, closed or deployed; no RDP session was restarted.
+
+---
+
+## Mission Control v3 — UI completion + verified lab (session 2026-10-11b, branch `arena/f8b0d1a4-supreme-lamp`)
+
+**Purpose.** Close the gap between the merged v3 implementation and the operator-requested
+Mornye-inspired experience by (a) reconciling the plan against the actual merged base, and
+(b) repairing the screenshot/verification lab so the visual evidence is trustworthy, then
+delivering the remaining screen/state coverage and acceptance. This session does **not**
+restart from scratch: V3-01…V3-06 are already MERGED via #227; what is repaired is the
+*evidence* and the *remaining screens/states*, plus the Sinhala Settings/About copy and the
+perfWatchdog sampling.
+
+### Reconciled facts (re-inspected this session, not copied)
+
+| Fact | Value | Tier |
+|---|---|---|
+| `main` head | `839db28` (status.json-only chain above #227 merge `a3e170d`) | INSPECTION (git + gh api) |
+| Shallow-clone repaired | `git fetch --unshallow` before any ancestry claim | REPRO |
+| PR #227 | MERGED `a3e170d` (head `d16e9137`) — integrates V3-01…V3-06 + header-budget fix | INSPECTION (gh) |
+| Live RDP | run `38130242742` `in_progress`, head `7cd8d01f` (= #227 merge + status.json). NOT replaced | INSPECTION (gh run view) |
+| CI on #227 merge | build-ui `38128675911`, autologin-lab `38128675906`, e2e-ui `38128675990`, launch-gates `38128675895` — all success | INSPECTION (gh run list) |
+
+### Scope this session closes (carried from the #227 "still open" list)
+
+* Repair `scripts/v3-screenshots.cjs` evidence weaknesses (coverage, strict API, fixture
+  honesty, Tinted/Clear ΔE proof, issue seeding, build identity, gallery). See
+  `VERIFICATION-RELEASE.md` §4.1.
+* Image inspection: this environment CAN read PNGs; captures are inspected, not just measured.
+* Remaining screen/state coverage across the 11 routes + overlays, recorded per-cell in
+  `SCREEN-STATE-MATRIX.md` §6 with separate disposition states.
+* Sinhala parity for Settings section headings + About/provenance labels (V3-06 carry-over).
+* `perfWatchdog` overlay/scroll-container sampling repair + bounded-sampling assertion.
+* Browser acceptance spec `tests/e2e/v3-acceptance.spec.ts`.
+
+### Status vocabulary (never collapsed into "done")
+
+DESIGNED → IMPLEMENTED → BEHAVIOR_VERIFIED → VISUALLY_REVIEWED → DEPLOYMENT_VERIFIED.
+`REAL_DEVICE` stays **NOT_MEASURED** (no physical device attached); Playwright/puppeteer
+Chromium emulation is labelled as emulation, never promoted.
