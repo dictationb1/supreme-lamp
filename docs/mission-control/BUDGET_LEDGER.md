@@ -47,3 +47,61 @@ produce a number that looks compliant.
 - **No further #203 fix was attempted** after the tally identified the failure set:
   fixing a slow e2e step needs the step log or a browser, and neither is obtainable
   here. Reporting the finding beats guessing at a fix that cannot be verified.
+
+---
+
+# BUDGET_LEDGER — v3 `e2e-ui` root-cause and header-budget session
+
+**Date**: 2026-10-11 · **Branch**: `arena/88d52e64-supreme-lamp` · **Fix commit**: `a8a05a2d`
+**Rule of record**: cap 20%; **stop before 18%** when measurable, otherwise report `UNKNOWN`.
+
+## Axes that CAN be measured here — and their real numbers
+
+| Axis | Meter | Reading | Verdict |
+|---|---|---|---|
+| Dependency delta | `git diff --stat d5e7df54 a8a05a2d -- package.json pnpm-lock.yaml package-lock.json` | **0** — all three byte-identical | measured. `@sparticuz/chromium` and `puppeteer-core` were installed **outside** the tree and symlinked into gitignored `node_modules`, so CI's `--frozen-lockfile` is unaffected |
+| Source delta | `git diff --stat d5e7df54 a8a05a2d -- src/ scripts/ tests/` | **4 files, +246 / −11** — 2 components (57 lines), 1 new spec (178 lines), 1 launcher repair (22 lines) | measured. No component deleted, no gate weakened |
+| Bundle delta | `pnpm run build` output | **1,201.33 kB → 1,201.80 kB (+0.47 kB)** | measured. The added bytes are the `line-clamp-2` / `sr-only` rules and the `aria-label`, not new dependencies |
+| i18n key delta | flat-key parity lock | **0** — 1213 keys per catalog, unchanged | measured. The six pin files did not need bumping |
+| Test-count delta | `pnpm run e2e` (`CI=true`) | **135 → 144 passed**, 11 skipped, **0 failed** (5.0 m) | measured. `+9` is exactly the new spec; nothing moved from pass to skip |
+| Baseline gate drift | vitest / node / contrast | **103 files / 1351**, **835 (809 pass, 26 skip, 0 fail)**, **1432 checks** — all identical to the recorded baseline at `07e04a7` | measured. Nothing was traded away for this fix |
+| Layout budget | built bundle, Chromium 153, 4 viewports × 2 catalogs | **8/8 under the unchanged `<80` ceiling**; si phone **100 → 72 px**; slack en **2 → 151 px** | measured |
+| GitHub Actions minutes, this branch | `gh run list --branch arena/88d52e64-supreme-lamp` | **0** — no run exists yet | measured. No workflow was dispatched; `CI_VERIFIED` is therefore **NOT** claimed |
+
+## Axes that CANNOT be measured here — reported as UNKNOWN, not estimated
+
+| Axis | Why it is unknown |
+|---|---|
+| Agent context-window share for this session | no harness counter is exposed to the agent in this session; **UNKNOWN** — no denominator will be invented to produce a compliant-looking figure |
+| Monetary spend / API-dollar cost | no billing or usage API is reachable from this sandbox; **UNKNOWN** |
+| Per-model token accounting | not exposed; **UNKNOWN** |
+| `REAL_DEVICE` layout | no physical Android/iOS device is reachable; **NOT_MEASURED**. Chromium viewport emulation is not a phone |
+| V3-08 perf budget | no CPU throttling and no low-end device was used; **NOT_MEASURED** |
+| Whether the CI runner's Chromium now passes | the fix removes a 2 px font-metric sensitivity by a ~75× margin and is verified locally in 8 combinations, but **only a lane run on the fix SHA can prove it**. Not claimed until then |
+
+## What the budget went to
+
+| Work | Share (qualitative) |
+|---|---|
+| Reconciling a handoff whose branch, tree and v3 content did not match this session, then verifying a safe integration path | medium |
+| Finding the failing spec through check-run annotations after the log host proved unreachable | small, and the highest-value step — it unblocked everything after it |
+| Reproducing a failure that only appeared on CI: measuring the layout, discovering the Sinhala case, and identifying the 2 px slack as the mechanism | large |
+| The fix, the new 9-test gate, and the revert-and-fail regression proof | medium |
+| Re-running all five gates and refreshing the 10 screenshots + `measurements.json` | medium |
+| Repairing the screenshot launcher (Chromium 153 + puppeteer-core 25) | small, but it needed three attempts and was bounded rather than open-ended |
+| This ledger, the tracker section and the Sinhala addendum | small |
+
+## Deliberate stops (to stay inside the budget)
+
+- **The `<80` ceiling was not raised.** It would have been the cheapest possible green lane. The
+  measurement said the header should be 56 px, so 84 px was a defect and the gate was right.
+- **The screenshot launcher was given a bounded number of attempts**, then an explicit arg list with
+  **no silent fallback chain** — a browser that will not start must fail the script, never produce a
+  pixel sample from a half-initialised compositor.
+- **`variantProof` was re-checked against the committed values rather than trusted**, because the
+  launcher change altered the GL flags. It reproduces them byte-for-byte (0.745→0.61 sheet,
+  0.824→0.69 card, Δ0.135), which is what makes the refreshed evidence usable.
+- **V3-03, V3-04, V3-07 (real device) and V3-08 were not started**, and are recorded as unfinished
+  rather than omitted. F45-B / yt-dlp were not touched and are not claimed as fixed.
+- **No workflow was dispatched, no PR merged or closed, no RDP session restarted**, and no credential
+  or auth policy was altered. Activation remains an operator decision that has **not** been requested.

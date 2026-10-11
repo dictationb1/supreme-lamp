@@ -1,10 +1,14 @@
 # Mission Control v3 — වාර්තාව (Sinhala)
 
 **දිනය:** 2026-10-11
-**ශාඛාව:** `arena/403ecbde-supreme-lamp`
+**ශාඛාව:** `arena/403ecbde-supreme-lamp` (මුල් වටය) → `arena/88d52e64-supreme-lamp` (පසු වටය, **§10 addendum එක බලන්න**)
 **PR:** https://github.com/dekarita/supreme-lamp/pull/226
 **Tracking issue:** #225
-**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` (අර්ධ — V3-01…V3-06) · `BROWSER_VERIFIED` (අර්ධ) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ⚠️ **අර්ධයි — `e2e-ui` FAIL (විසඳී නැත)** · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
+**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` ✅ (V3-01…V3-06 + header-budget නිවැරදි කිරීම) · `BROWSER_VERIFIED` ⚠️ අර්ධ (Chromium emulation පමණයි; `REAL_DEVICE` = **NOT_MEASURED**) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ❌ **තවම නොවේ — `07e04a7` හි `e2e-ui` FAIL විය; නිවැරදි කිරීමේ commit එකේ කිසිදු lane එකක් තවම ධාවනය වී නැත** · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
+
+> **§1–§9 යනු `07e04a7` (PR #226) වටයේ මුල් වාර්තාවයි — එය එලෙසම තබා ඇත.**
+> `e2e-ui` අසාර්ථකත්වයේ මූල හේතුව සොයාගෙන නිවැරදි කළේ ඊට පසුව, **§10** හි දී ය.
+> §5 හි "`e2e-ui` FAIL — විසඳී නැත" යනුවෙන් ලියා ඇති තැන දැන් §10 මගින් අභිබවයි.
 
 ---
 
@@ -229,5 +233,178 @@
 | **තිරපිටපත්** | ✅ 10 + measurements.json |
 | **V3-03, V3-04, V3-07, V3-08** | ⏳ **කර නැත** — සඟවා නැත |
 | **Sinhala වාර්තාව** | ✅ මෙය |
+| **දෙවන වටය — `e2e-ui` විශ්ලේෂණය** | ✅ `a8a05a2d` — annotations මාර්ගයෙන් අසාර්ථක spec එක හඳුනාගත්තා (§10.2); මූල හේතුව **මැන** තහවුරු කළා (§10.3) |
+| **දෙවන වටය — header-budget නිවැරදි කිරීම** | ✅ `a8a05a2d` — si phone 100→72px; viewport×catalog 8ම `<80`; slack en 2→151px |
+| **දෙවන වටය — අලුත් gate** | ✅ `v3-header-budget.spec.ts` (9) — **ආපසු හැරවූ විට 9ම අසමත්** බව ඔප්පු කළා |
+| **දෙවන වටය — Gates නැවත** | ✅ build 1,201.80 kB · vitest 1351 · node 809/26 · contrast 1432 · e2e **144 passed / 11 skipped / 0 failed** |
+| **දෙවන වටය — සාක්ෂි නැවුම් කිරීම** | ✅ තිරපිටපත් 10 + `measurements.json`; `variantProof` byte-සමාන, `docHeight` −28px |
+| **V3-07 (අර්ධ)** | ⚠️ header geometry Chromium emulation මත මැනුවා. **`REAL_DEVICE` = NOT_MEASURED** |
+| **V3-03, V3-04, V3-08** | ⏳ **තවම කර නැත** — සඟවා නැත (§10.10) |
+| **`CI_VERIFIED`** | ❌ **නොවේ** — මෙම commit එකේ කිසිදු lane එකක් ධාවනය වී නැත |
 
 **හිතාමතාම නොකළ දේ:** overview-only patch, CI-only වැඩ, token-only වෙනස්කම්, පර්යේෂණ-පමණක්, demo app එකක්, backend redesign එකක්, පුළුල් issues (#191/#213/#214) overview වෙනසක් මත වැසීම, මිනුමෙන් පසු සීමාවන් වෙනස් කිරීම, assertions දුර්වල කිරීම, වෙනත් SHA එකක සාක්ෂි භාවිතය.
+
+---
+
+## 10. Addendum — `e2e-ui` මූල හේතුව සොයාගෙන නිවැරදි කිරීම (දෙවන වටය)
+
+**ශාඛාව:** `arena/88d52e64-supreme-lamp` · **Commit:** `a8a05a2d`
+**සම්පූර්ණ තාක්ෂණික වාර්තාව:** `docs/mission-control/v3-e2e-ui-ROOT-CAUSE.md`
+
+### 10.1 මුලින්ම — මෙම වටය ආරම්භ වූයේ වෙනත් ශාඛාවකිනි
+
+මෙම session එක `arena/88d52e64-supreme-lamp` ට බැඳී ඇති අතර, එහි ආරම්භක tree එකේ
+(`881f26b`) **v3 වැඩ කිසිවක් තිබුණේ නැත** — `PageHeader.tsx` නැත, `docs/mission-control/v3/`
+නැත, `NESTED_FILL_FLOOR` තාම තිබුණා. PR #226 එකේ head branch එකට push කිරීමටද අවසර නැත.
+
+ඔබගේ තීරණය අනුව v3 delta එක මෙම ශාඛාවට ගෙනවුත් නව PR එකක් සකස් කිරීමට කටයුතු කළා.
+**අන්ධ ලෙස merge නොකළා** — යෙදීමට පෙර තහවුරු කළා:
+
+- `881f26b`, `origin/main` (`a26aa9c`) සහ v3 පාදය `acb27c8` අතර වෙනස **`docs/status.json`
+  timestamp එක පමණයි** → `main` හි කිසිදු වැඩක් අහිමි වන්නේ නැත.
+- Delta එක (ගොනු 67) `docs/status.json` ස්පර්ශ කරන්නේ නැත; මගේ පිටපත byte-for-byte රැඳුණා.
+- `git diff --binary acb27c8 07e04a7` ලෙස 3-way යෙදුවා — සෑම hunk එකක්ම පිරිසිදුව.
+- ප්‍රතිඵල tree එක = `07e04a7` tree එක + `docs/status.json` + වාර්තා ලේඛනය.
+
+### 10.2 අසාර්ථක spec එක හඳුනාගත්තා — logs නොමැතිවම
+
+§5 හි "CI logs කියවිය නොහැක" යන්න සත්‍යයි. නමුත් **workflow එකේ check-run annotations
+කියවිය හැක** — `tests/f203-e2e-lane.test.js` (නීතිය F203-f) හරියටම මේ සඳහා සලස්වා ඇති මාර්ගය:
+
+```
+gh api repos/dekarita/supreme-lamp/check-runs/114420650385/annotations
+```
+
+```
+F79-E2E-FAIL1:: 1) [chromium] › tests/e2e/r2-visual.spec.ts:67:9 ›
+  R2 visual acceptance › 1. Overview at phone (390x844) ::
+  Error: the header must be compact, not a hero :: Expected: < 80 | Received: 84
+```
+
+**එක spec එකයි අසමත් වුණේ** (`F79-E2E-FAIL1` පමණයි; FAIL2 නැත). Run `38122739344`,
+job `114420650385`, SHA `07e04a7`, step 8.
+
+### 10.3 මූල හේතුව — මිනුමෙන්, අනුමානයෙන් නොවේ
+
+V3-01 Overview එකේ තනි පේළියේ header එක හවුල් `PageHeader` එකෙන් ප්‍රතිස්ථාපනය කළා.
+එය title + status + actions **එක `flex-wrap` පේළියක** තබා, ඊට **පහළින්** අරමුණු පේළියක්
+එකතු කරයි. 390px දී ඒ පේළියේ ඉතිරි ඉඩ **2px** පමණයි — actions link එක gutter එකට
+හරියටම ගැටී තිබුණා (`x=374`, viewport 390, gutter 16).
+
+එබැවින් **font metric වෙනසක් පමණක්** ඒ පේළිය wrap කරවයි. CI runner එකේ Chromium එකේ
+දී එය සිදු විය; මෙම sandbox එකේ Chromium එකේ දී නොවීය. **පෙර වටයේ දේශීය ධාවන සියල්ල
+හරිත වී CI රතු වූයේ මෙහෙමයි** — browser binary එක ප්‍රධාන සැකකරු ලෙස පෙනුණේ ඒ නිසායි.
+
+Wrap එකේ වියදම CI අගයට හරියටම සමානයි: `20 + 8 + 36 = 64` (title row) `+ 4` (gap)
+`+ 16` (අරමුණු පේළිය) = **84**.
+
+**මෙය CI-only දෝෂයක් නොවේ.** සිංහල catalog එකේ දී එම header එක **කිසිදු font වෙනසකින්
+තොරව** wrap වේ: `64 + 4 + 32 = `**`100px`** — සීමාවට වඩා 25%ක් ඉහළින්, සෑම browser
+එකකම. කිසිදු gate එකක් එය අල්ලා ගත්තේ නැත, මන්ද `r2-visual.spec.ts` කිසි විටෙකත්
+`ghrdp:lang` සකසන්නේ නැත — **ඔබ කියවන භාෂාවෙන්ම වැඩි-බජට් header එකක් නොපෙනී ගොස් තිබුණා.**
+
+### 10.4 Gate එක නිවැරදියි — එය ස්පර්ශ කළේ නැත
+
+`<80` සීමාව එලෙසම තිබේ. `DESIGN-SYSTEM.md` අනුව අනුකූල header එකක් යනු 36px පාලක
+පේළියක් + 4 + අරමුණු පේළිය = **56px**. 84 සහ 100 දෙකම **අරමුණු නොවූ wrap එකකින්
+නිර්මාණය වූ අමතර පේළියකි** — ඒ නිසා සීමාව 85 ට ඉහළ නැංවීම "මිනුමෙන් පසු threshold
+වෙනස් කර regression එකක් සැඟවීම" වනු ඇත. එය කළේ නැත.
+
+### 10.5 නිවැරදි කිරීම
+
+- **`PageHeader.tsx`** — අරමුණු පේළිය පේළි දෙකකට සීමා කළා (`line-clamp-2`), සම්පූර්ණ
+  පෙළ `title` හරහා නිරාවරණය කළා. පෙළ DOM එකේ රැඳේ — `v3-shell.test.tsx` මාර්ග 11
+  සඳහා පරීක්ෂා කරන්නේ හරියටම ඒකයි.
+- **`OverviewHeader.tsx`** — `sm` ට පහළින් paint වන සාරාංශය ඉවත් කර link එක icon-only
+  කළා (`sr-only … sm:not-sr-only`). **කිසිවක් ඉවත් කළේ නැත**: සාරාංශය DOM එකේ රැඳී
+  link එකේ `aria-label` එකට එක් වේ — දුරකථනයක සිටින ඔබට ක්‍රියාත්මක presentation එක
+  කුමක්දැයි තවමත් ඇසෙන අතර Settings වෙත එකම මාර්ගය තවමත් තිබේ.
+
+i18n key එකක් එකතු හෝ ඉවත් කළේ නැත → 1213 flat-key parity lock එක නොවෙනස්ය, එබැවින්
+pin ගොනු හය bump කිරීමට අවශ්‍ය වූයේ නැත.
+
+### 10.6 මිනුම් (සාදන ලද bundle එකෙන්, Chromium 153)
+
+| Catalog | viewport | header | title row | අරමුණු පේළිය | wrapped | `<80` |
+|---|---|---|---|---|---|---|
+| en | phone 390×844 | 56 | 36 | 16 | නැත | ✅ |
+| si | phone 390×844 | **72** (100 සිට) | 36 | 32 | නැත | ✅ |
+| en/si | phoneLandscape · tablet · desktop | 56 | 36 | 16 | නැත | ✅ |
+
+**සියලුම viewport × catalog සංයෝජන 8 සමත්.** `overflowX = 0` සෑම තැනකම.
+
+Actions slot එකට ඉදිරියෙන් ඉතිරි ඉඩ (390px): en **2px → 151px**, si **ඍණ (wrap) → 100px**.
+CI පෙරළූ font-සංවේදීතාව pixel එකක ආන්තියකින් නොව, දෙගුණයක පරිමාණයකින් ඉවත් වී ඇත.
+
+`scripts/v3-screenshots.cjs` නැවත ධාවනය කිරීමෙන් **ස්වාධීනව තහවුරු විය**:
+`07-overview-mobile` `.docHeight` **2555 → 2527 (−28px)** — wrap delta එකට හරියටම සමානයි;
+එහි `bodyText` **වෙනස් වී නැත** (paint එකෙන් ඉවත් විය, ලේඛනයෙන් නොවේ); `variantProof`
+committed සාක්ෂියට **byte-for-byte සමානයි** (sheet 0.745→0.61, card 0.824→0.69, Δ0.135) —
+වීදුරු ද්‍රව්‍ය පද්ධතියට බලපෑමක් නැත.
+
+### 10.7 අලුත් gate එක සහ regression සාක්ෂිය
+
+`tests/e2e/v3-header-budget.spec.ts` — tests 9. `<80` සීමාව **එම R2 අංකයම, hard-coded**:
+වත්මන් build එකේ මිනුමෙන් නැවත ව්‍යුත්පන්න කළ budget එකක් budget එකක් නොවේ. එය pin කරන්නේ
+උස, wrap යාන්ත්‍රණය සෘජුවම, header එක **මකා දැමීමෙන්** කුඩා කළේ නැති බව, paint එකෙන්
+ඉවත් කළ සාරාංශය DOM එකේද accessible නාමයේද රැඳෙන බව, overflow නොමැති බව, සහ
+`html[lang]` ඇත්තටම ඉල්ලූ catalog එක අනුගමනය කරන බවයි.
+
+**Regression සාක්ෂිය (අනිවාර්යයි — සිදු කළා):** component ගොනු දෙකම `07e04a7` තත්ත්වයට
+ආපසු හැරවූවා, bundle එක නැවත සැදුවා → **9ම අසමත්**, `si/phone` **උස budget එකෙන්ම** අසමත්
+වෙමින්. නිවැරදි කිරීම යළි තබා suite එක නැවත හරිත විය.
+
+**අවංක සටහන:** ආපසු හැරවූ විට EN phone *උස* assertion එක දේශීයව අසමත් **නොවේ**
+(මෙහි 56px). EN 84px පුනරාවර්තනය වන්නේ CI runner එකේ Chromium එකේ පමණයි. දේශීයව EN
+අවස්ථාව අල්ලා ගන්නේ accessible-name, `title` සහ paint assertion මගිනි.
+
+### 10.8 Gates — සියල්ල නිවැරදි කිරීමේ commit එකේදී නැවත ධාවනය කළා
+
+| Gate | ප්‍රතිඵලය |
+|---|---|
+| `pnpm run build` (tsc + vite) | ✅ `ui/dist/index.html` **1,201.80 kB** |
+| `pnpm exec vitest run` | ✅ **103 ගොනු / 1351 tests**, 0 fail |
+| `node --test tests/*.test.js` | ✅ **835 tests, 809 pass, 26 skip, 0 fail** |
+| `node scripts/check-glass-contrast.mjs` | ✅ 1432 checks, නරකම පෙළ **4.97:1** |
+| `pnpm run e2e` (`CI=true`) | ✅ **144 passed, 11 skipped, 0 failed** (5.0m) |
+
+`144 = 135` (`07e04a7` පාද රේඛාව) `+ 9` (අලුත් spec එක). පාද රේඛාවේ vitest / node /
+contrast අගයන් **වෙනස් වී නැත** — එනම් මෙම නිවැරදි කිරීම වෙනුවෙන් කිසිවක් උකස් තබා නැත.
+
+### 10.9 පරිසර සටහන — `scripts/v3-screenshots.cjs` අලුත්වැඩියාවක්
+
+`@sparticuz/chromium` එකේ Lambda arg ලැයිස්තුව Chromium 153 + puppeteer-core 25 යටතේ
+CDP handshake එකට පෙර browser එක මරා දමයි (WS close 1006 → 30s `Target.setDiscoverTargets`
+timeout). `mod.args` ලෙසත්, `--single-process` ඉවත් කරත් අසමත් විය. දැන් launcher එක
+**පැහැදිලිව ලේඛනගත කළ arg ලැයිස්තුවක්** යවයි — **නිශ්ශබ්ද fallback chain එකක් නැත**:
+browser එක පටන් ගත නොහැකි නම් script එක අසමත් වේ, එබැවින් අර්ධ-ආරම්භක compositor එකකින්
+pixel සාම්පලයක් කිසි විටෙකත් නිර්මාණය විය නොහැක.
+
+`@sparticuz/chromium` සහ `puppeteer-core` මෙම repo එකේ **dependences නොවේ** — ඒවා
+`package.json` හෝ `pnpm-lock.yaml` ට එකතු කළේ නැත. Tree එකෙන් පිටත ස්ථාපනය කර
+gitignored `node_modules` ට symlink කළා, එබැවින් PR එකේ dependency පෘෂ්ඨය සහ CI හි
+`--frozen-lockfile` වෙනස් වී නැත.
+
+### 10.10 තත්ත්වය — වෙනම, අවංකව
+
+| තත්ත්වය | අගය |
+|---|---|
+| `PLAN_READY` | ✅ |
+| `UI_IMPLEMENTED` | ✅ V3-01…V3-06 + මෙම header-budget නිවැරදි කිරීම |
+| `BROWSER_VERIFIED` | ⚠️ අර්ධ — Chromium viewport + UA emulation (සංයෝජන 8). `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium යනු iPhone එකක් නොවේ |
+| `UI_VISUALLY_REVIEWED` | ⏳ **ඔබ අවශ්‍යයි** — agent එකට රූප දැකිය නොහැක; මෙහි සෑම දෘශ්‍ය ප්‍රකාශයක්ම `measurements.json` සහ ගණනය කළ ජ්‍යාමිතියෙන් |
+| `CI_VERIFIED` | ❌ **තවම නොවේ** — දේශීය gates 5 හරිතයි, නමුත් **මෙම commit එකේ කිසිදු CI lane එකක් ධාවනය වී නැත** |
+| `DEPLOYED` / `LIVE_VERIFIED` | ආරම්භ කර නැත |
+
+**තවමත් නිම නොකළ දේ — සඟවා නැත:** **V3-03** (Settings section headings සහ
+About/provenance ලේබල සඳහා සිංහල ආවරණ සමානතාවය — හිතාමතාම English-only, තවම
+නැවත සලකා නැත); **V3-04** (ගොනු 5,000 File Explorer contract එක); **V3-07**
+(සැබෑ උපාංග සාක්ෂිය — Chromium emulation පමණයි); **V3-08** (perf budget —
+**NOT_MEASURED**, CPU throttling හෝ low-end උපාංගයක් භාවිතා කළේ නැත).
+
+**සටහන:** §1–§9 හි සඳහන් commit SHA (`1fc3051`, `fce3f8c`, `a514a06`, `88061f2`,
+`2acf416`, `07e04a7`) PR #226 ශාඛාවේ ඉතිහාසයේ පවතී. මෙම ශාඛාවේ ඒවා **ඒකක තනි
+commit එකකට** (`d5e7df54`) ගෙන ඇති බැවින් එම SHA එහි ඉතිහාසයෙන් ළඟා විය නොහැක —
+අන්තර්ගතය සමානයි, ඉතිහාසය නොවේ.
+
+මෙම වාර්තාව සඳහා කිසිදු workflow එකක් dispatch, merge, close හෝ deploy කළේ නැත.
