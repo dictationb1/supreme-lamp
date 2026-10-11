@@ -122,7 +122,7 @@ export function Card({
       as="section"
       level="card"
       surface="nested"
-      variant={variant || "tinted"}
+      variant={variant}
       id={id}
       aria-labelledby={titleId}
       className={cn(padding === "sm" ? "p-3" : padding === "md" ? "p-4" : "p-5", className)}

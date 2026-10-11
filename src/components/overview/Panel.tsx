@@ -18,7 +18,7 @@ export function Panel({
   icon,
   actions,
   labelledBy,
-  variant = "tinted",
+  variant,
   dense = false,
   className,
   children,

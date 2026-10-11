@@ -96,7 +96,6 @@ export function Modal({
         ref={panelRef}
         level="overlay"
         surface="backdrop"
-        variant="tinted"
         radius="overlay"
         escapeScope
         role="dialog"

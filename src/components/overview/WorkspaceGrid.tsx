@@ -35,9 +35,8 @@ function Tile({
   return (
     <GlassContainer
       as="li"
-      level="card"
+      level="row"
       surface="nested"
-      variant="clear"
       radius="md"
       className="list-none"
     >
@@ -75,7 +74,6 @@ export function WorkspaceGrid() {
       as="section"
       level="card"
       surface="nested"
-      variant="tinted"
       radius="lg"
       aria-label={t("overview.workspace.title")}
       data-testid="overview-workspace"

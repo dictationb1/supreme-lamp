@@ -22,6 +22,7 @@ import {
   resolveQuality,
   variantSeparation,
   SATURATED_FILL,
+  VARIANT_LEVELS,
 } from "@/lib/glass/quality";
 
 function cs(el: Element): CSSStyleDeclaration & Record<string, string> {
@@ -96,7 +97,9 @@ describe("R-GLASS-a: clarity is bounded and quantized", () => {
   it("Tinted vs Clear is a real, measurable difference on CONTENT levels", () => {
     // The defect this file now guards: separation used to be exactly 0 on every
     // nested surface, at every clarity, in both qualities.
-    for (const level of ["sheet", "overlap", "card", "row"] as const) {
+    // VARIANT_LEVELS is the workspace: overlay is excluded because its fill
+    // floor exists to stop content bleeding through a modal.
+    for (const level of VARIANT_LEVELS) {
       for (const quality of ["frosted", "clear"] as const) {
         for (const clarity of [0.25, 0.5, 0.75, 1] as const) {
           const sep = variantSeparation(level, quality, clarity);
@@ -130,7 +133,8 @@ describe("R-GLASS-a: clarity is bounded and quantized", () => {
       const p = glassPaint({ level: "overlay", requested: quality, variant: "clear", surface: "backdrop", clarity: 1, env: { supports: true } });
       expect(p.fillAlpha).toBeGreaterThanOrEqual(OVERLAY_FILL_FLOOR);
     }
-    // and a content level at the same settings is NOT floored
+    // and a content level at the same settings is NOT floored (the reason the
+    // variant difference is visible on content at all)
     const card = glassPaint({ level: "card", requested: "clear", variant: "clear", surface: "nested", clarity: 1, env: { supports: true } });
     expect(card.fillAlpha).toBeLessThan(OVERLAY_FILL_FLOOR);
   });

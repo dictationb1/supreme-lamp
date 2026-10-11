@@ -47,9 +47,16 @@ difference survives into the content instead of being flattened by a floor.
 | `row` | rows / strips inside a card | no | +0.14 |
 | `overlay` | palette, drawers, modals, toasts | **yes** (transient) | +0.30, floor 0.88 |
 
-Why a floor is legitimate for `overlay` but was not for content: page content genuinely
+**Why a floor is legitimate for `overlay` and was not for content:** page content genuinely
 scrolls behind an overlay, so a low fill would bleed text through it. Nothing scrolls behind
 the sheet — its backdrop is the fixed decorative field.
+
+**A stated boundary, not an exemption.** `overlay` is excluded from the Tinted/Clear separation
+requirement, because its floor pins both variants to the same opaque value. That boundary is
+encoded once — `VARIANT_LEVELS = ["sheet", "overlap", "card", "row"]` in `quality.ts` — and both
+`scripts/check-glass-contrast.mjs` and `src/tests/smoke/r-glass-container.test.tsx` read it from
+there, so the requirement cannot be quietly narrowed in one place and not the other. The
+requirement is about the *workspace*; a modal over scrolling text is not the workspace.
 
 ### 2.3 Layers
 
@@ -172,3 +179,24 @@ Sinhala rendering is exercised on every i18n-parity run; EN/SI catalogs move in 
 * Hover uses the raised-surface token; hover is never the only affordance.
 * Every overlay: Escape closes, Tab is trapped, focus returns to the opener.
 * Icon-only controls carry an `aria-label`; a `title` attribute is never the accessible name.
+
+## 8. Measured, not asserted (BROWSER_VALIDATED)
+
+`scripts/check-glass-contrast.mjs` composites the real stack — all four backdrop radials at full
+strength, the veil at its weakest, then the sheet fill and the level fill — and recomputes WCAG
+ratios for every (theme × quality × variant × clarity × level) combination. It reads the alphas
+out of `quality.ts` and the paint channels out of `tokens.css`, so a token edit that breaks
+contrast fails the build rather than shipping.
+
+Last run (this session, 1432 composited checks):
+
+| Metric | Value |
+|---|---|
+| Worst composited text ratio | **4.97:1** — `--color-danger` on the light theme, clear/clear, clarity 1, sheet level |
+| Worst composited non-text control | **5.14:1** — same combination (bar is 3:1) |
+| Bar | text ≥ 4.5:1 (WCAG 1.4.3), control ≥ 3:1 (WCAG 1.4.11) |
+| Tinted-vs-Clear separation | ≥ 0.135 at the default clarity, 0.18 at clarity 1, on every workspace level |
+
+That worst case is more pessimistic than any real pixel: it assumes all four radials overlap at
+full strength, which their positions (opposite corners) make impossible, and it takes the weaker
+of the two veil ends.

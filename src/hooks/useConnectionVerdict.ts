@@ -22,6 +22,9 @@ export function useConnectionVerdict(): ConnVerdict {
   const helloWatchArmedAt = useSessionStore((s) => s.helloWatchArmedAt);
   const native = useSessionStore((s) => s.native);
   const serverNow = useTelemetryStore((s) => s.serverNow);
+  // [V3-02 / D5] The run start is what lets the verdict place a logon INSIDE
+  // the current run instead of promoting a previous session's 4624.
+  const runStartedAtMs = useTelemetryStore((s) => s.runStartedAtMs);
 
   const s = native || {};
   const rl = s.rdpListener || null;
@@ -40,6 +43,7 @@ export function useConnectionVerdict(): ConnVerdict {
     authEventTs: row.eventTs || "",
     authScanTs: row.scanTs || "",
     collectorDead: !!row.dead,
+    runStartedAtMs,
     nowMs: Date.now(),
   });
 }

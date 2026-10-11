@@ -10,6 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # [V3-01] The composited glass stack is checked on every PR, not only on
+      # the build lane: a fill alpha that drops real text below 4.5:1 is a
+      # defect regardless of whether the bundle still compiles.
+      - name: V3 composited glass contrast + token contrast
+        run: |
+          set -euo pipefail
+          node scripts/check-contrast.mjs
+          node scripts/check-glass-contrast.mjs
       - name: F31/F33 persisted-key ACL and served-certificate gates
         shell: bash
         run: |

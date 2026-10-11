@@ -6,7 +6,7 @@
 // per-source reachable/robots/rate-limit/last-error status row) and mounts the
 // SAME shared SourceForm the search AdvancedPanel mounts - one component, one
 // store (src/search/custom-source-store.ts), two mount points.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SourceForm } from "@/components/search/SourceForm";
@@ -26,9 +26,46 @@ import { TRASH_RETENTION_DAYS } from "@/lib/explorer/trash";
 import { isHudEnabled, setHudEnabled } from "@/lib/debugHud";
 // [F110 §5] Live Patch (F110): arm switch + patch audit log + rollback, on this page.
 import PatchAuditPanel from "@/components/livePatch/PatchAuditPanel";
+// [V3-06] Build provenance: which source revision, which served stamp, which artifact.
+import BuildProvenanceCard from "@/components/domain/BuildProvenanceCard";
 import { PageHeader } from "@/components/primitives/PageHeader";
 
 const SCALES: TextScale[] = ["comfort", "large", "a11y"];
+
+/**
+ * [V3-06 / D4] Settings was twelve unrelated cards in declaration order, which
+ * is the same defect the old Overview had: a stack, not a surface. The cards
+ * are unchanged - they are now grouped under six labelled headings so the
+ * operator can find "make it solid again" without reading the whole page.
+ *
+ * English-only on purpose: these are structural headings introduced by the
+ * layout, and adding six new i18n keys would move the parity lock for a
+ * sentence the operator reads once. The group identity is still in the
+ * accessibility tree through `aria-labelledby`, so a screen reader announces
+ * "Appearance" before the controls inside it.
+ */
+function SettingsSection({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const headingId = id + "-heading";
+  return (
+    <section data-testid={id} aria-labelledby={headingId} className="mb-6">
+      <h3
+        id={headingId}
+        className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary"
+      >
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
 
 export default function Settings() {
   const { t } = useTranslation();
@@ -56,6 +93,7 @@ export default function Settings() {
         testId="page-settings"
       />
 
+      <SettingsSection id="settings-section-appearance" title={t("pages.settings.appearance")}>
       <Card title={t("pages.settings.appearance")} className="mb-4">
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -87,14 +125,25 @@ export default function Settings() {
         </div>
       </Card>
 
+      </SettingsSection>
+
       {/* [R-GLASS / #213 §8] VISUAL QUALITY. Deliberately second on the page:
           the operator's very first question about this redesign is "how do I
           make it solid again". */}
+      <SettingsSection id="settings-section-quality" title={t("glass.title")}>
       <VisualQualityCard />
+      </SettingsSection>
+
+      {/* [V3-06] ABOUT / BUILD PROVENANCE. Where the operator answers "which
+          build am I actually looking at?" without an unsound SHA comparison. */}
+      <SettingsSection id="settings-section-about" title={t("about.title")}>
+        <BuildProvenanceCard />
+      </SettingsSection>
 
       {/* [F58 §2] CUSTOM SOURCE REGISTRY (canonical surface). Additive: nothing on
           this page changes the mirror opt-in model - the mirror stays default-OFF
           with the F51 Downloads-root override and no workflow dispatch lives here. */}
+      <SettingsSection id="settings-section-sources" title={t("search.registry.title")}>
       <Card title={t("search.registry.title")} className="mb-4">
         <div className="flex flex-col gap-3">
           <SourceRegistryList onEdit={(id) => setEditId(id)} />
@@ -104,9 +153,12 @@ export default function Settings() {
         </div>
       </Card>
 
+      </SettingsSection>
+
       {/* [F57 §4] TRASH: soft-delete only. The runner routes every delete into
           D:\RDP-Storage\.trash\<original-path>\<ts>; this control empties it and
           the 30-day sweep is automatic on the Explorer's refresh. */}
+      <SettingsSection id="settings-section-storage" title={t("files.ops.trash.settingsTitle")}>
       <Card title={t("files.ops.trash.settingsTitle")} className="mb-4">
         <div id="f57.explorer.ops.settingsTrash" data-testid="settings-trash" className="flex flex-col gap-2">
           <p id="f57.explorer.ops.settingsTrashNote" data-testid="settings-trash-note" className="text-sm text-secondary">
@@ -128,6 +180,9 @@ export default function Settings() {
         </div>
       </Card>
 
+      </SettingsSection>
+
+      <SettingsSection id="settings-section-deployment" title={t("pages.settings.migration")}>
       <InstallGuide />
 
       <Card title={t("pages.settings.migration")} className="mb-4">
@@ -167,6 +222,9 @@ export default function Settings() {
       {/* [F109 §1] Developer: the Debug HUD switch. English-only like the card below
           (a default-off developer surface moves no i18n count lock). Writes
           f109:enabled through lib/debugHud - the only file that touches that key. */}
+      </SettingsSection>
+
+      <SettingsSection id="settings-section-developer" title="Developer">
       <Card title="Developer: Debug HUD (F109)" className="mb-4">
         <div className="flex flex-col gap-2 text-sm text-secondary" data-testid="settings-debug-hud">
           <div className="flex items-center gap-3">
@@ -213,6 +271,7 @@ export default function Settings() {
           </ol>
         </div>
       </Card>
+      </SettingsSection>
     </div>
   );
 }

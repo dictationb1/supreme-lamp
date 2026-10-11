@@ -1495,7 +1495,9 @@
       "none": "all clear",
       "count": "{{n}} open",
       "allClear": "No actionable issues right now. Probes are still running; this list fills in when a producer reports a failure.",
-      "diagnose": "Diagnose"
+      "diagnose": "Diagnose",
+      "showAll": "Show all {{n}}",
+      "showFewer": "Show fewer"
     },
     "activity": {
       "title": "Activity",
@@ -1528,7 +1530,9 @@
     "requested": "Launch requested",
     "launched": "Launcher ran (not yet connected)",
     "connected": "Connected",
-    "failed": "Connection failed"
+    "failed": "Connection failed",
+    "historical": "Login seen, before this run",
+    "unverified": "Logon evidence unverified"
   },
   "issues": {
     "severity": {

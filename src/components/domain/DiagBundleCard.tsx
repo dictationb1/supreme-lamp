@@ -77,7 +77,6 @@ export function DiagBundleCard() {
       as="section"
       level="card"
       surface="nested"
-      variant="tinted"
       radius="lg"
       id="f96.diagBundle"
       aria-label={t("diagBundle.export")}

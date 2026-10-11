@@ -93,6 +93,8 @@ jobs:
           node scripts/check-fx-ids.mjs
           node scripts/check-no-neon-green.mjs ui/dist/index.html
           node scripts/check-bottom-bar-time.mjs
+          node scripts/check-contrast.mjs
+          node scripts/check-glass-contrast.mjs
           LEN=$(wc -c < ui/dist/index.html)
           echo "[F59 build-ui] bundle bytes=$LEN for ${VITE_BUILD_SHA}"
           if [ "$LEN" -le 51200 ]; then echo 'ui-v2.html staging failed - build artifact missing'; exit 1; fi

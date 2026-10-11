@@ -191,6 +191,31 @@ export function deriveIssues(input: IssueInput): Issue[] {
   return out;
 }
 
+/**
+ * [V3-05 / #202] Deterministic severity ordering.
+ *
+ * The list used to render `deriveIssues(...).slice(0, 3)` - the first three in
+ * PRODUCER order. Because `deriveIssues` pushes in the order it checks
+ * subsystems (reachability, websocket, runner, launch, session), a critical
+ * reachability failure could be pushed last and then cut away by a `.slice`,
+ * leaving the operator looking at three infos. Sorting is the fix, and it is
+ * STABLE: within a severity the producer's own order survives, so the list
+ * does not shuffle between renders.
+ */
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
+
+export function orderIssues(issues: Issue[]): Issue[] {
+  return issues
+    .map((issue, index) => ({ issue, index }))
+    .sort((a, b) => SEVERITY_RANK[a.issue.severity] - SEVERITY_RANK[b.issue.severity] || a.index - b.index)
+    .map((entry) => entry.issue);
+}
+
+/** The action ids the renderer must be able to honour. Kept next to the Issue
+ *  type so adding a producer action is a TYPE ERROR until the UI handles it -
+ *  the gap #202 named (producers emitting actions the renderer ignores). */
+export type IssueActionId = NonNullable<Issue["actionId"]>;
+
 export function worstSeverity(issues: Issue[]): Severity | "none" {
   if (issues.some((i) => i.severity === "critical")) return "critical";
   if (issues.some((i) => i.severity === "warning")) return "warning";

@@ -74,6 +74,18 @@ export const GLASS_LEVELS: readonly GlassLevel[] = ["sheet", "overlap", "card", 
 /** The only levels allowed to own a `backdrop-filter`. */
 export const SAMPLING_LEVELS: readonly GlassLevel[] = ["sheet", "overlay"];
 
+/**
+ * The levels the Tinted/Clear requirement applies to.
+ *
+ * `overlay` is deliberately EXCLUDED, and that is a boundary, not an
+ * exemption: an overlay keeps a fill floor because page content scrolls behind
+ * it, so both variants clamp to the same opaque value there. Asking "is Clear
+ * more transparent than Tinted?" of a modal sitting over scrolling text is
+ * asking for text bleed-through. The requirement is about the WORKSPACE, and
+ * the workspace is sheet / overlap / card / row.
+ */
+export const VARIANT_LEVELS: readonly GlassLevel[] = ["sheet", "overlap", "card", "row"];
+
 /** Backdrop blur per level and quality, in CSS px. PROPOSED — a Flutter sigma
  *  is not a px, so these are this repo's hypotheses, measured in the browser
  *  lab and published in DESIGN-SYSTEM.md §3.3. */

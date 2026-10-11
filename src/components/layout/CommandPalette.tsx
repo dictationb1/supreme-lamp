@@ -49,7 +49,6 @@ export function CommandPalette() {
         id="f56.search.paletteCommand"
         level="overlay"
         surface="backdrop"
-        variant="tinted"
         radius="overlay"
         escapeScope
         role="dialog"

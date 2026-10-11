@@ -137,7 +137,6 @@ function TopBar() {
       as="header"
       level="overlap"
       surface="nested"
-      variant="tinted"
       radius="none"
       role="banner"
       data-testid="app-topbar"
@@ -260,11 +259,17 @@ function TopBar() {
       </div>
 
       {/* The producers, unchanged - same ids, same wording, same evidence. They
-          moved out of the always-on row, not out of the product. */}
+          moved out of the always-on row, not out of the product.
+
+          The id below is the one `aria-controls` names. It used to be a fixed
+          literal that the disclosure did NOT point at, so a collapsed
+          disclosure referenced a node that was never the panel - a dangling
+          `aria-controls` that assistive tech reports as broken. The stable
+          `data-testid` is what tests and the evidence scripts key on. */}
       <div
         role="status"
         aria-live="polite"
-        id="topbarChips"
+        id={statusPanelId}
         data-testid="topbar-chips"
         hidden={!statusOpen}
         className={cn(
@@ -457,7 +462,6 @@ function Sidebar() {
         as="aside"
         level="overlap"
         surface="nested"
-        variant="tinted"
         radius="none"
         aria-label={t("sidebar.nav")}
         data-testid="sidebar"
@@ -573,7 +577,6 @@ function MobileNav() {
       as="nav"
       level="overlap"
       surface="nested"
-      variant="tinted"
       radius="none"
       aria-label={t("nav.primary")}
       data-testid="mobile-nav"
@@ -667,7 +670,6 @@ function BottomBar() {
       as="footer"
       level="overlap"
       surface="nested"
-      variant="tinted"
       radius="none"
       role="contentinfo"
       data-testid="app-bottombar"
