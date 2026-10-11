@@ -412,7 +412,7 @@ gitignored `node_modules`, leaving the PR dependency surface and CI's `--frozen-
 | `UI_IMPLEMENTED` | met — V3-01…V3-06 plus the header height budget |
 | `BROWSER_VERIFIED` | **partial** — Chromium viewport + UA emulation across 8 combinations. `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium is not an iPhone |
 | `UI_VISUALLY_REVIEWED` | **operator required** — the agent cannot see images; every visual claim comes from `measurements.json` and computed geometry |
-| `CI_VERIFIED` | **NOT met** — five local gates are green but no CI lane has run on the fix commit |
+| `CI_VERIFIED` | **met at SHA `8d9d390d`** — PR #227, **10/10 checks PASS**: `e2e-ui` 6m21s (step 8, the exact step that failed at `07e04a7`, now `success`), `gates` 4m34s, `windows-native` 12m4s, `build-ui-prebuilt` 45s, `proof` 4m38s, 4 labs. The green `e2e-ui` job emitted **zero** `F79-E2E-FAIL` / `F79-E2E-TALLY` annotations. Correction to a pre-push claim of mine: `autologin-lab.yml`'s push path filter does include `src/**`, so that Windows lane ran too — verified harmless (ephemeral `windows-latest`, synthetic `*.tailnet-lab.ts.net` FQDNs mapped to loopback, fixture IP `100.118.42.7`; the live host `100.125.76.40` appears nowhere in it, no `self-hosted` label, no `RunCommand`). It passed |
 | `DEPLOYED` / `LIVE_VERIFIED` | not started |
 
 ### Still open, unchanged by this session

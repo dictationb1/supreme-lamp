@@ -11,7 +11,9 @@
 This session is bound to `arena/88d52e64-supreme-lamp`, whose starting tree
 (`881f26b`) contained **none** of the v3 work. It cannot push to PR #226's head
 branch. The operator chose to bring the v3 delta onto this branch and open a
-successor PR rather than leave the fix unlanded.
+successor PR rather than leave the fix unlanded. That successor PR is
+**[#227](https://github.com/dekarita/supreme-lamp/pull/227)**; it is green on all
+10 checks at SHA `8d9d390d` (§10).
 
 Integration was verified before applying, not assumed:
 
@@ -278,7 +280,7 @@ unaffected.
 | `UI_IMPLEMENTED` | ✅ V3-01…V3-06 plus this header-budget fix |
 | `BROWSER_VERIFIED` | ⚠️ partial — Chromium viewport + UA emulation on 8 viewport×catalog combinations. `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium is not an iPhone |
 | `UI_VISUALLY_REVIEWED` | ⏳ **operator required** — the agent cannot see images; every visual claim here comes from `measurements.json` and computed geometry |
-| `CI_VERIFIED` | ❌ **NOT met** — the five local gates are green, but no CI lane has run on the fix commit yet. `07e04a7`'s `e2e-ui` was FAIL and `windows-native` was pending |
+| `CI_VERIFIED` | ✅ **met at SHA `8d9d390d`** — PR #227, **10/10 checks PASS**: `e2e-ui` 6m21s (the lane that failed at `07e04a7`, step 8 now `success`), `gates` 4m34s, `windows-native` 12m4s, `build-ui-prebuilt` 45s, `proof` 4m38s, 4 labs. Runs `38125710741` / `38125710745`. The green `e2e-ui` job emitted **zero** `F79-E2E-FAIL` / `F79-E2E-TALLY` annotations |
 | `DEPLOYED` / `LIVE_VERIFIED` | not started |
 
 Still unfinished, named rather than omitted: **V3-03** Sinhala copy parity for

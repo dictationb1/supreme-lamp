@@ -66,7 +66,8 @@ produce a number that looks compliant.
 | Test-count delta | `pnpm run e2e` (`CI=true`) | **135 → 144 passed**, 11 skipped, **0 failed** (5.0 m) | measured. `+9` is exactly the new spec; nothing moved from pass to skip |
 | Baseline gate drift | vitest / node / contrast | **103 files / 1351**, **835 (809 pass, 26 skip, 0 fail)**, **1432 checks** — all identical to the recorded baseline at `07e04a7` | measured. Nothing was traded away for this fix |
 | Layout budget | built bundle, Chromium 153, 4 viewports × 2 catalogs | **8/8 under the unchanged `<80` ceiling**; si phone **100 → 72 px**; slack en **2 → 151 px** | measured |
-| GitHub Actions minutes, this branch | `gh run list --branch arena/88d52e64-supreme-lamp` | **0** — no run exists yet | measured. No workflow was dispatched; `CI_VERIFIED` is therefore **NOT** claimed |
+| GitHub Actions minutes, this branch | `gh run list --branch arena/88d52e64-supreme-lamp` | **≈ 36 min** across 5 completed runs — `launch-gates` 12m07s (PR) + 11m55s (push), `e2e-ui` 6m25s, `autologin-lab` 4m41s, `build-ui` 0m50s | measured. `launch-gates` ran twice because the workflow triggers on both `push` and `pull_request`; that is the repo's own config, not a re-dispatch. No workflow was dispatched by hand |
+| CI outcome on the fix SHA | `gh pr checks 227` at head `8d9d390d` | **10 / 10 PASS** — `e2e-ui` 6m21s, `gates` 4m34s, `windows-native` 12m4s, `build-ui-prebuilt` 45s, `proof` 4m38s, 4 labs | measured. The green `e2e-ui` job emitted **zero** `F79-E2E-FAIL` / `F79-E2E-TALLY` annotations, so no spec failed |
 
 ## Axes that CANNOT be measured here — reported as UNKNOWN, not estimated
 
@@ -77,7 +78,7 @@ produce a number that looks compliant.
 | Per-model token accounting | not exposed; **UNKNOWN** |
 | `REAL_DEVICE` layout | no physical Android/iOS device is reachable; **NOT_MEASURED**. Chromium viewport emulation is not a phone |
 | V3-08 perf budget | no CPU throttling and no low-end device was used; **NOT_MEASURED** |
-| Whether the CI runner's Chromium now passes | the fix removes a 2 px font-metric sensitivity by a ~75× margin and is verified locally in 8 combinations, but **only a lane run on the fix SHA can prove it**. Not claimed until then |
+| ~~Whether the CI runner's Chromium now passes~~ | **RESOLVED — no longer unknown.** The lane ran on the fix SHA `8d9d390d` and passed: `e2e-ui` step 8 `success`, 10/10 checks green, zero failure annotations. Moved to the measured table above |
 
 ## What the budget went to
 

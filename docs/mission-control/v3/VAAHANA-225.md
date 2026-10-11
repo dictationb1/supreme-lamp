@@ -2,9 +2,9 @@
 
 **දිනය:** 2026-10-11
 **ශාඛාව:** `arena/403ecbde-supreme-lamp` (මුල් වටය) → `arena/88d52e64-supreme-lamp` (පසු වටය, **§10 addendum එක බලන්න**)
-**PR:** https://github.com/dekarita/supreme-lamp/pull/226
+**PR:** https://github.com/dekarita/supreme-lamp/pull/226 (මුල් වටය) → **https://github.com/dekarita/supreme-lamp/pull/227** (මෙම වටය)
 **Tracking issue:** #225
-**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` ✅ (V3-01…V3-06 + header-budget නිවැරදි කිරීම) · `BROWSER_VERIFIED` ⚠️ අර්ධ (Chromium emulation පමණයි; `REAL_DEVICE` = **NOT_MEASURED**) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ❌ **තවම නොවේ — `07e04a7` හි `e2e-ui` FAIL විය; නිවැරදි කිරීමේ commit එකේ කිසිදු lane එකක් තවම ධාවනය වී නැත** · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
+**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` ✅ (V3-01…V3-06 + header-budget නිවැරදි කිරීම) · `BROWSER_VERIFIED` ⚠️ අර්ධ (Chromium emulation පමණයි; `REAL_DEVICE` = **NOT_MEASURED**) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ✅ **SHA `8d9d390d` හි — PR #227 හි checks 10ම PASS** · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
 
 > **§1–§9 යනු `07e04a7` (PR #226) වටයේ මුල් වාර්තාවයි — එය එලෙසම තබා ඇත.**
 > `e2e-ui` අසාර්ථකත්වයේ මූල හේතුව සොයාගෙන නිවැරදි කළේ ඊට පසුව, **§10** හි දී ය.
@@ -240,7 +240,7 @@
 | **දෙවන වටය — සාක්ෂි නැවුම් කිරීම** | ✅ තිරපිටපත් 10 + `measurements.json`; `variantProof` byte-සමාන, `docHeight` −28px |
 | **V3-07 (අර්ධ)** | ⚠️ header geometry Chromium emulation මත මැනුවා. **`REAL_DEVICE` = NOT_MEASURED** |
 | **V3-03, V3-04, V3-08** | ⏳ **තවම කර නැත** — සඟවා නැත (§10.10) |
-| **`CI_VERIFIED`** | ❌ **නොවේ** — මෙම commit එකේ කිසිදු lane එකක් ධාවනය වී නැත |
+| **`CI_VERIFIED`** | ✅ SHA `8d9d390d` — PR #227, checks **10/10 PASS** (§10.8). `e2e-ui` 6m21s, `windows-native` 12m4s |
 
 **හිතාමතාම නොකළ දේ:** overview-only patch, CI-only වැඩ, token-only වෙනස්කම්, පර්යේෂණ-පමණක්, demo app එකක්, backend redesign එකක්, පුළුල් issues (#191/#213/#214) overview වෙනසක් මත වැසීම, මිනුමෙන් පසු සීමාවන් වෙනස් කිරීම, assertions දුර්වල කිරීම, වෙනත් SHA එකක සාක්ෂි භාවිතය.
 
@@ -371,6 +371,31 @@ committed සාක්ෂියට **byte-for-byte සමානයි** (sheet 0
 `144 = 135` (`07e04a7` පාද රේඛාව) `+ 9` (අලුත් spec එක). පාද රේඛාවේ vitest / node /
 contrast අගයන් **වෙනස් වී නැත** — එනම් මෙම නිවැරදි කිරීම වෙනුවෙන් කිසිවක් උකස් තබා නැත.
 
+**CI — මෙම commit එකේ SHA එකෙන්ම සාක්ෂි (PR #227, head `8d9d390d`):**
+
+| Lane | ප්‍රතිඵලය | කාලය |
+|---|---|---|
+| **`e2e-ui`** (step 8 = `pnpm run e2e`) | ✅ **PASS** — `07e04a7` හි අසමත් වූ lane එකම | 6m21s |
+| `gates` | ✅ PASS | 4m34s |
+| `windows-native` | ✅ PASS | 12m4s |
+| `build-ui-prebuilt` | ✅ PASS | 45s |
+| `proof` (autologin-lab, windows) | ✅ PASS | 4m38s |
+| `f56d-qbt-lab`, `f57-explorer-lab`, `f60-warm-lab`, `m8-behavioral-*` | ✅ PASS | — |
+
+**Checks 10ම PASS.** Run `38125710741` (e2e-ui), `38125710745` (launch-gates).
+හරිත `e2e-ui` job එකේ **`F79-E2E-FAIL` / `F79-E2E-TALLY` annotations ශුන්‍යයි** — එනම්
+අසාර්ථක spec එකක් නැත (`R2-VISUAL-FILES` notice එක පමණයි නිකුත් වූයේ).
+
+> **අවංක සටහනක් — මා මුලින් වැරදි ප්‍රකාශයක් කළා:** push කිරීමට පෙර "ubuntu lanes
+> පමණයි ධාවනය වන්නේ" යැයි කීවා. එය වැරදියි — `autologin-lab.yml` එකේ push path
+> filter එකේ `src/**` ද ඇත (මම ලැයිස්තුව කපා හැරීමෙන් මඟ හැරුණා), එබැවින් එය
+> `windows-latest` මත ධාවනය විය. **නිගමනය වෙනස් නොවේ, නමුත් හේතුව පරීක්ෂා කළා:**
+> එම lane එක ephemeral GitHub-hosted runner එකක් තුළ පමණක් ක්‍රියා කරයි — එහි FQDN
+> සියල්ල සංශ්ලේෂිත lab නම් (`*.dekarita.tailnet-lab.ts.net`) වන අතර ඒවා runner එකේ
+> **loopback (127.0.0.1) වෙත map කර ඇත**; fixture IP එක `100.118.42.7` ය. ඔබගේ සජීවී
+> host එක (`100.125.76.40`) එම workflow එකේ **කොහේවත් නැත**; `self-hosted` label එකක්,
+> `RunCommand` එකක් හෝ ඔබගේ RDP සැසියට ළඟාවීමක් නැත. එය PASS විය.
+
 ### 10.9 පරිසර සටහන — `scripts/v3-screenshots.cjs` අලුත්වැඩියාවක්
 
 `@sparticuz/chromium` එකේ Lambda arg ලැයිස්තුව Chromium 153 + puppeteer-core 25 යටතේ
@@ -393,7 +418,7 @@ gitignored `node_modules` ට symlink කළා, එබැවින් PR එක
 | `UI_IMPLEMENTED` | ✅ V3-01…V3-06 + මෙම header-budget නිවැරදි කිරීම |
 | `BROWSER_VERIFIED` | ⚠️ අර්ධ — Chromium viewport + UA emulation (සංයෝජන 8). `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium යනු iPhone එකක් නොවේ |
 | `UI_VISUALLY_REVIEWED` | ⏳ **ඔබ අවශ්‍යයි** — agent එකට රූප දැකිය නොහැක; මෙහි සෑම දෘශ්‍ය ප්‍රකාශයක්ම `measurements.json` සහ ගණනය කළ ජ්‍යාමිතියෙන් |
-| `CI_VERIFIED` | ❌ **තවම නොවේ** — දේශීය gates 5 හරිතයි, නමුත් **මෙම commit එකේ කිසිදු CI lane එකක් ධාවනය වී නැත** |
+| `CI_VERIFIED` | ✅ **SHA `8d9d390d` හි සපුරාලයි** — PR #227 හි checks **10ම PASS** (`e2e-ui` 6m21s ඇතුළුව). `DEPLOYED` / `LIVE_VERIFIED` වෙනම, තවම ආරම්භ කර නැත |
 | `DEPLOYED` / `LIVE_VERIFIED` | ආරම්භ කර නැත |
 
 **තවමත් නිම නොකළ දේ — සඟවා නැත:** **V3-03** (Settings section headings සහ
