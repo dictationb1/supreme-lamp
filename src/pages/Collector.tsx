@@ -9,6 +9,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ClipboardList } from "lucide-react";
 import { apiBase, getDashToken } from "@/lib/api";
 import { Card } from "@/components/primitives/Data";
 import { Button } from "@/components/primitives/Button";
@@ -32,6 +33,7 @@ import { GLOBAL_CLICK_SOURCE } from "@/lib/globalClickCapture";
 // [F107 §4] DVR Sessions section - the stored-session surface of Full DVR lives
 // on the Collector page next to the other recorded-behaviour feeds.
 import { SessionListModal } from "@/components/dvr/SessionListModal";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 // [F101 §3.3] the six tabs every action row expands into
 const DEEP_TABS = ["preCheck", "request", "response", "postCheck", "services", "verdict"] as const;
@@ -297,15 +299,22 @@ export default function Collector() {
 
   return (
     <div data-testid="collector-page" data-collector-ignore className="flex flex-col gap-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-xl font-semibold">{t("collector.title", { defaultValue: "Collector — Diagnosis Run" })}</h2>
-        {summary ? (
-          <Chip tone={summary.failed ? "danger" : summary.warnings ? "warning" : "success"}>{summary.passed ?? 0} pass · {summary.failed ?? 0} fail · {summary.warnings ?? 0} warn</Chip>
-        ) : null}
-        <span className="text-xs text-tertiary">
-          {status?.lastRunAt ? t("collector.lastRun", { defaultValue: "Last run: {{ts}}", ts: new Date(status.lastRunAt).toLocaleString() }) : t("collector.noRun", { defaultValue: "No run yet" })}
-        </span>
-      </div>
+      <PageHeader
+        icon={<ClipboardList className="size-4" aria-hidden />}
+        title={t("pages.collector.title")}
+        subtitle={t("pages.collector.purpose")}
+        testId="page-collector"
+        status={
+          <>
+            {summary ? (
+              <Chip id="collector-summary" tone={summary.failed ? "danger" : summary.warnings ? "warning" : "success"}>{summary.passed ?? 0} pass · {summary.failed ?? 0} fail · {summary.warnings ?? 0} warn</Chip>
+            ) : null}
+            <span id="collector-last-run" data-testid="collector-last-run" className="text-xs text-tertiary">
+              {status?.lastRunAt ? t("collector.lastRun", { defaultValue: "Last run: {{ts}}", ts: new Date(status.lastRunAt).toLocaleString() }) : t("collector.noRun", { defaultValue: "No run yet" })}
+            </span>
+          </>
+        }
+      />
 
       <Card title={t("collector.controls", { defaultValue: "Controls" })}>
         <div className="flex flex-wrap items-center gap-2">

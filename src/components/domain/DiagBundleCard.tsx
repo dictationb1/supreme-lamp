@@ -75,6 +75,7 @@ export function DiagBundleCard() {
   return (
     <GlassContainer
       as="section"
+      level="card"
       surface="nested"
       variant="tinted"
       radius="lg"

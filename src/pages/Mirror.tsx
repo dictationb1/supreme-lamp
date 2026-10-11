@@ -7,6 +7,7 @@ import { MirrorCard } from "@/components/domain/MirrorCard";
 import { MirrorHostMatrix } from "@/components/domain/MirrorHostMatrix";
 import { useTelemetryStore } from "@/stores/telemetryStore";
 import { useSessionStore } from "@/stores/sessionStore";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 interface HistRow {
   id: number;
@@ -47,10 +48,12 @@ export default function Mirror() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <Database className="size-5 text-accent" aria-hidden />
-        <h2 className="text-xl font-semibold">{t("pages.mirrorPage.title")}</h2>
-      </div>
+      <PageHeader
+        icon={<Database className="size-4" aria-hidden />}
+        title={t("pages.mirrorPage.title")}
+        subtitle={t("pages.mirrorPage.purpose")}
+        testId="page-mirror"
+      />
       <MirrorCard />
       {/* [F47 §2] the F46 read-only probe matrix, live on the Mirror page. */}
       <MirrorHostMatrix />

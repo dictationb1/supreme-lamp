@@ -94,6 +94,7 @@ export function Modal({
           and everything inside it is forced paint-only by the scope. */}
       <GlassContainer
         ref={panelRef}
+        level="overlay"
         surface="backdrop"
         variant="tinted"
         radius="overlay"

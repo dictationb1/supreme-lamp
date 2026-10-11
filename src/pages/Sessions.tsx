@@ -10,6 +10,7 @@ import { useTelemetryStore } from "@/stores/telemetryStore";
 import { fmtHMS, pad2 } from "@/lib/format";
 import { elapsedSeconds } from "@/stores/telemetryStore";
 import { useNow } from "@/lib/useNow";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 export default function Sessions() {
   const { t } = useTranslation();
@@ -30,10 +31,12 @@ export default function Sessions() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <Clock className="size-5 text-accent" aria-hidden />
-        <h2 className="text-xl font-semibold">{t("pages.sessions.title")}</h2>
-      </div>
+      <PageHeader
+        icon={<Clock className="size-4" aria-hidden />}
+        title={t("pages.sessions.title")}
+        subtitle={t("pages.sessions.purpose")}
+        testId="page-sessions"
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <StatCard label="4624 accepted" value={ae.count4624 != null ? Number(ae.count4624) : 0} mono testId="audit-4624" />

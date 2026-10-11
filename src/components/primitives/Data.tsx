@@ -120,6 +120,7 @@ export function Card({
   return (
     <GlassContainer
       as="section"
+      level="card"
       surface="nested"
       variant={variant || "tinted"}
       id={id}

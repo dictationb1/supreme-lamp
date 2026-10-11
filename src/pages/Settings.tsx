@@ -26,6 +26,7 @@ import { TRASH_RETENTION_DAYS } from "@/lib/explorer/trash";
 import { isHudEnabled, setHudEnabled } from "@/lib/debugHud";
 // [F110 §5] Live Patch (F110): arm switch + patch audit log + rollback, on this page.
 import PatchAuditPanel from "@/components/livePatch/PatchAuditPanel";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 const SCALES: TextScale[] = ["comfort", "large", "a11y"];
 
@@ -48,10 +49,12 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <SettingsIcon className="size-5 text-accent" aria-hidden />
-        <h2 className="text-xl font-semibold">{t("pages.settings.title")}</h2>
-      </div>
+      <PageHeader
+        icon={<SettingsIcon className="size-4" aria-hidden />}
+        title={t("pages.settings.title")}
+        subtitle={t("pages.settings.purpose")}
+        testId="page-settings"
+      />
 
       <Card title={t("pages.settings.appearance")} className="mb-4">
         <div className="flex flex-col gap-4">

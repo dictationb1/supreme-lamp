@@ -35,6 +35,14 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg, var(--glass-veil-top), var(--glass-veil-bottom));
+  transition: opacity var(--motion-med);
+}
+/* [V3-01] The second Tinted/Clear lever. Clear lowers the veil, so markedly
+   more of the ambient field is visible through a fill that is still readable.
+   It is an opacity on a decorative pseudo-element that contains no text, so it
+   cannot cost contrast the way lowering the fill would. */
+html[data-glass-variant="clear"] .app-backdrop::after {
+  opacity: 0.62;
 }
 @media (prefers-reduced-motion: reduce) {
   .app-backdrop { background-attachment: scroll; }
@@ -46,13 +54,41 @@
   position: relative;
   border-radius: var(--glass-radius, var(--radius-lg));
   background-color: rgb(var(--glass-tint-rgb) / var(--glass-alpha, 1));
-  box-shadow: var(--glass-shadow);
+  /* [V3-01] One outer shadow for depth plus one 1px INNER top highlight for
+     the glass edge. Both are shadows, so no extra element and no pseudo that
+     could sit on top of content. */
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgb(var(--glass-highlight-rgb) / var(--glass-highlight, 0));
   border: 1px solid
     rgb(var(--glass-edge-rgb) / var(--glass-border-alpha, 0));
   /* Alpha transition only. `--glass-blur` is intentionally NOT transitioned:
      animating a backdrop-filter rebuilds the read every frame, which is the
      exact cost the quantization in quality.ts exists to avoid. */
-  transition: background-color var(--motion-med), border-color var(--motion-med);
+  transition: background-color var(--motion-med), border-color var(--motion-med),
+    box-shadow var(--motion-med);
+}
+
+/* ------------------------------------------------------------------------- *
+ * [V3-01] THE APP GLASS SHEET.
+ *
+ * The one steady-state backdrop filter in the application. It is fixed, above
+ * the decorative field (z 0) and below the shell content (z 2), aria-hidden
+ * and pointer-events:none, so:
+ *   * every panel painted above it composites against it for real — that is
+ *     where the Tinted/Clear and clarity difference becomes visible;
+ *   * content painted above it is NOT part of its backdrop, so scrolling does
+ *     not re-run the filter (a deliberate performance property);
+ *   * it can never capture a secret: it is a gradient, not a screenshot.
+ * ------------------------------------------------------------------------- */
+.app-glass-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: var(--glass-sheet-shadow);
 }
 /* Opaque mode / zero transparency: fall back to the contrast-tested solid
    border token instead of a 0-alpha hairline. */
@@ -76,7 +112,8 @@
     --glass-alpha: 1;
     border-color: var(--color-border-default);
   }
-  .app-backdrop { display: none; }
+  .app-backdrop,
+  .app-glass-sheet { display: none; }
   html { background: var(--color-bg-base); }
 }
 
@@ -90,7 +127,8 @@ html[data-glass-quality-resolved="opaque"] .glass[data-glass-samples="1"] {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-html[data-glass-quality-resolved="opaque"] .app-backdrop {
+html[data-glass-quality-resolved="opaque"] .app-backdrop,
+html[data-glass-quality-resolved="opaque"] .app-glass-sheet {
   display: none;
 }
 /* [F38 kept] prefers-reduced-transparency: solid surfaces only. Kept as an
@@ -115,7 +153,8 @@ html[data-glass-quality-resolved="opaque"] .app-backdrop {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
-  .app-backdrop { display: none; }
+  .app-backdrop,
+  .app-glass-sheet { display: none; }
 }
 
 /* Strong-tint menus, popovers and drawers (#213 §4: "strong tint stays the

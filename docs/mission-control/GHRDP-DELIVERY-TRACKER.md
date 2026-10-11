@@ -276,3 +276,44 @@ annotation `R2-VISUAL-FILES` lists the captured `r2-*.png` at job `114389952590`
 does not close it. Acceptance remains: the real scanner boundary blocked while the
 Windows server keeps answering health and authenticated read-only requests inside
 budget, with bounded workers, consistent snapshots and cleanup.
+
+---
+
+## Mission Control v3 — all-screen UI upgrade (session 2026-10-11, branch `arena/403ecbde-supreme-lamp`)
+
+**Canonical tracking: issue [#225](https://github.com/dekarita/supreme-lamp/issues/225).**
+
+The v3 plan is a suite of four documents under `docs/mission-control/v3/` — this tracker indexes
+them and does not compete with them:
+
+| Document | Owns |
+|---|---|
+| [`v3/MASTER-PLAN.md`](v3/MASTER-PLAN.md) | sections A–M: refreshed source model, requirement mapping, IA, component reuse/replacement decisions, material/typography/spacing spec, data contracts, a11y, budgets, packages V3-01…V3-08, PR strategy, exclusions |
+| [`v3/SCREEN-STATE-MATRIX.md`](v3/SCREEN-STATE-MATRIX.md) | 11 primary routes + 4 lab routes + catch-all + 17 shared overlays × 10 states |
+| [`v3/DESIGN-SYSTEM.md`](v3/DESIGN-SYSTEM.md) | level model + published blur/alpha/border/saturation/radius values, each classified |
+| [`v3/VERIFICATION-RELEASE.md`](v3/VERIFICATION-RELEASE.md) | evidence classes, gates, test method, visual capture, build identity, activation + rollback |
+| [`v3/TRACKING-ISSUE-225.md`](v3/TRACKING-ISSUE-225.md) | the prepared #225 body, kept in-repo because the GitHub integration cannot edit issues from this session |
+
+### Why v3 exists (defects located in source, not inherited statuses)
+
+| ID | Defect |
+|---|---|
+| D1 | `NESTED_FILL_FLOOR = 0.86` collapses Tinted and Clear onto the same pixel on every nested surface (at the default clarity both compute below the floor). Only the TopBar sampled the backdrop, so the Tinted/Clear control changed ~56 px of chrome. Documented as shipped in `R2-DESIGN-TOKENS.md` rows 74–80 |
+| D2 | One blurred bar is not a glass workspace — every content panel is a nested 0.86 plate |
+| D3 | Dense TopBar: 4 status chips + Reconnect + clock + 4 controls on one row |
+| D4 | 10 of 11 routes have no shared page identity (ad-hoc `<h2>` + `Card` stacks) |
+| D5 | `deriveConnectionState()` calls a 4624 "connected" with no freshness and no current-run validation |
+
+### Fix in one paragraph
+
+One shared sampling surface — the **app glass sheet** (fixed, `aria-hidden`, z-index 1, between the
+decorative field and the shell content) — carries the Tinted/Clear and clarity difference; the
+sidebar/bars (`overlap`), cards (`card`) and rows (`row`) add constant additive deltas so the
+difference survives into the content; overlays keep their own sampler and a high fill floor because
+content scrolls behind them. Steady-state `backdrop-filter` count stays at **1**.
+
+### Note on the previous session
+
+An earlier v3 session worked on branch `arena/5fe3bfee-supreme-lamp`, which was never pushed and no
+longer exists on the remote. Its code work is unrecoverable; its findings were re-verified against
+source before reuse. This tracker records only what is reproducible from the current tree.

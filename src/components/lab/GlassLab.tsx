@@ -183,19 +183,43 @@ export default function GlassLab() {
       </Card>
 
       {/* The stage: the SAME production components, side by side, so a quality
-          change is judged on identical content. */}
+          change is judged on identical content.
+          [V3-01] The four shipped LEVELS, because `surface` alone no longer
+          describes the material: sheet samples, and overlap/card/row are the
+          paint-only deltas on top of it. Judging tinted-vs-clear on the sheet
+          and on a card is what proves the difference survives into content. */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <GlassContainer surface="backdrop" variant="tinted" radius="overlay" data-testid="glass-lab-sample-backdrop" className="p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">surface = backdrop (samples)</p>
+        <GlassContainer level="sheet" surface="backdrop" variant="tinted" radius="overlay" data-testid="glass-lab-sample-sheet" className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">level = sheet (samples the backdrop)</p>
           <p className="mt-2 text-sm text-primary">
             {t("glass.labIntro")}
           </p>
         </GlassContainer>
-        <GlassContainer surface="nested" variant="tinted" radius="overlay" data-testid="glass-lab-sample-nested" className="p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">surface = nested (paint-only)</p>
+        <GlassContainer level="card" surface="nested" variant="tinted" radius="overlay" data-testid="glass-lab-sample-card" className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">level = card (paint-only, sheet + delta)</p>
           <p className="mt-2 text-sm text-primary">
             {t("glass.labIntro")}
           </p>
+        </GlassContainer>
+        <GlassContainer level="overlap" surface="nested" variant="tinted" radius="overlay" data-testid="glass-lab-sample-overlap" className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">level = overlap (chrome on the sheet)</p>
+          <p className="mt-2 text-sm text-primary">
+            {t("glass.labIntro")}
+          </p>
+        </GlassContainer>
+        <GlassContainer level="row" surface="nested" variant="tinted" radius="overlay" data-testid="glass-lab-sample-row" className="p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-tertiary">level = row (a strip inside a card)</p>
+          <p className="mt-2 text-sm text-primary">
+            {t("glass.labIntro")}
+          </p>
+        </GlassContainer>
+        {/* The pre-v3 testids are kept pointing at the same two roles, so any
+            older assertion still lands on a real surface. */}
+        <GlassContainer level="sheet" surface="backdrop" variant="tinted" radius="overlay" data-testid="glass-lab-sample-backdrop" className="hidden">
+          <span className="sr-only">sheet alias</span>
+        </GlassContainer>
+        <GlassContainer level="card" surface="nested" variant="tinted" radius="overlay" data-testid="glass-lab-sample-nested" className="hidden">
+          <span className="sr-only">card alias</span>
         </GlassContainer>
       </div>
 

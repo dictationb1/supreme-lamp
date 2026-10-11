@@ -35,6 +35,7 @@ function Tile({
   return (
     <GlassContainer
       as="li"
+      level="card"
       surface="nested"
       variant="clear"
       radius="md"
@@ -72,6 +73,7 @@ export function WorkspaceGrid() {
   return (
     <GlassContainer
       as="section"
+      level="card"
       surface="nested"
       variant="tinted"
       radius="lg"
