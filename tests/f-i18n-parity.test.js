@@ -87,7 +87,9 @@ const SI_FILE = "src/i18n/si.json";
 // the Settings controls and the glass lab that call them. 1050 + 24 = 1074.
 // [R2] moved 1074 -> 1160 for R2 (#191/#213/#214): +86 keys in BOTH catalogs - overview.* (redesigned Overview: header/connect/workspace/troubleshoot/activity/advanced), connState.* (the six honest connection states) and issues.* (area/symptom/action/severity/freshness/cause). en and si are byte-identical in key set with no empty value.
 // [V3-01] moved 1160 -> 1184 for Mission Control v3: +24 keys in BOTH catalogs - sidebar.group.* (the four grouped-navigation headings), topbar.status.* (the one glanceable worst-state indicator + its disclosure label), pages.*.purpose (the shared PageHeader subtitle on every route), pages.keys.title / pages.health.title / pages.collector.title (three routes that had no title key of their own) and files.page.purpose. en and si are byte-identical in key set with no empty value.
-const EXPECTED_FLAT_KEYS = 1213;
+// [V3-05 / #202] moved 1241 -> 1243: +2 health.noChecks/noChecksDetail (the answered-but-empty Health state).
+// [R-FILES / #217 / #225] moved 1213 -> 1241: +28 files.listing.* keys, added to BOTH catalogs in the same commit as the live-listing wiring that calls them (provenance, the four counts, retry/evidence, five diagnostic field labels, the six named non-ready states, and the unknown/sample count fallbacks). en and si are byte-identical in key set with no empty value.
+const EXPECTED_FLAT_KEYS = 1243;
 
 // Legacy untranslated si values (byte-identical to en). Frozen deliberately:
 // operator-owned copy that predates this step (mirrorHostMatrix/*, egress.line,
@@ -308,4 +310,38 @@ test("F-I18N-f: the untranslated-English ratchet may only shrink", () => {
     assert.ok(SINHALA.test(si[k]), k + " must render Sinhala, not echo English");
     assert.notEqual(si[k], en[k], k + " was translated by F-I18N-SI-72 and must not be reverted to the en string");
   }
+});
+
+// [V3-07 / #225] PLACEHOLDER SYNTAX. i18next interpolates `{{name}}`; a value
+// written with SINGLE braces renders those braces verbatim to the operator.
+// That is exactly what `dashToken.shape` did - "Token source: {source}, length:
+// {length}" - inside the BLOCKING token gate shown on every unkeyed load, in
+// both catalogs, until a browser capture of the gate showed it. This gate is the
+// class fix: any future value with a leftover single-brace placeholder fails
+// here, cheaply, instead of being discovered by looking at a screenshot.
+test("F-I18N-braces: no catalog value carries a single-brace placeholder", () => {
+  const bad = [];
+  const walk = (obj, prefix, lang) => {
+    for (const [k, v] of Object.entries(obj)) {
+      const key = prefix ? prefix + "." + k : k;
+      if (v && typeof v === "object") {
+        walk(v, key, lang);
+        continue;
+      }
+      const stripped = String(v).replace(/\{\{[^}]*\}\}/g, "");
+      const m = stripped.match(/\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}/g);
+      if (m) bad.push(lang + " " + key + " -> " + JSON.stringify(m.join(",")));
+    }
+  };
+  // readJson returns the file TEXT (see its definition above), so the walk
+  // parses it: a string would iterate as characters and pass vacuously.
+  walk(JSON.parse(readJson(EN_FILE)), "", "en");
+  walk(JSON.parse(readJson(SI_FILE)), "", "si");
+  assert.ok(bad.length === 0, "single-brace placeholders render literally: " + bad.join(" | "));
+  // Positive control: the walker must SEE a planted single-brace value, or this
+  // gate could pass on a catalog it never actually read.
+  const planted = [];
+  const probe = (obj) => { for (const v of Object.values(obj)) { if (v && typeof v === "object") probe(v); else { const s = String(v).replace(/\{\{[^}]*\}\}/g, ""); if (/\{\s*[A-Za-z_]\w*\s*\}/.test(s)) planted.push(v); } } };
+  probe({ probe: { shape: "Token source: {source}" } });
+  assert.equal(planted.length, 1, "the F-I18N-braces walker is a no-op if it cannot detect a planted placeholder");
 });

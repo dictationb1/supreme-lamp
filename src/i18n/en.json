@@ -994,7 +994,7 @@
         "folder": "Folder",
         "file": "File"
       },
-      "windowed": "Showing {{shown}} of {{total}} (windowed)"
+      "windowed": "Showing {{shown}} of {{total}} in this folder (windowed)"
     },
     "view": {
       "list": "List view",
@@ -1137,6 +1137,54 @@
         "invalid-name": "That name is not allowed",
         "unsupported": "That operation is not supported"
       }
+    },
+    "listing": {
+      "provenance": {
+        "live": "Live runner index",
+        "sample": "Sample data (synthetic)"
+      },
+      "count": {
+        "indexed": "{{count}} indexed",
+        "root": "{{count}} in {{root}}",
+        "folder": "{{count}} in this folder",
+        "invalid": "{{count}} record(s) rejected",
+        "unknown": "index not read yet",
+        "sample": "{{count}} sample rows (synthetic)"
+      },
+      "retry": "Retry",
+      "evidence": "Evidence",
+      "field": {
+        "status": "status",
+        "phase": "phase",
+        "http": "http",
+        "detail": "detail",
+        "attempts": "attempts"
+      },
+      "loading": {
+        "title": "Reading the runner index",
+        "body": "Waiting for the runner's index of the selected folder."
+      },
+      "empty": {
+        "title": "No indexed children",
+        "body": "The runner answered for this folder and it has no indexed files or folders.",
+        "detail": "{{root}}{{dir}} answered with 0 children. It is empty, not still loading."
+      },
+      "not-indexed": {
+        "title": "Not in the indexed roots",
+        "body": "The watcher indexes Downloads, Desktop, Documents, Temp and RDP-Storage. This location is outside them, so there is nothing to list."
+      },
+      "unauthorized": {
+        "title": "Listing refused",
+        "body": "The runner refused the read (missing or rejected dashboard key). Reopen the dashboard with ?key= or paste the key from the run log."
+      },
+      "unavailable": {
+        "title": "Runner unreachable",
+        "body": "The listing request did not complete. The rows below are NOT shown from a sample: nothing is displayed until the runner answers."
+      },
+      "failed": {
+        "title": "Listing did not match the index contract",
+        "body": "The runner answered, but the body is not a schemaVersion 2 index. A v1 or partial body means the runner needs a restart; nothing was substituted."
+      }
     }
   },
   "lab": {
@@ -1253,7 +1301,7 @@
   "dashToken": {
     "title": "Dashboard token missing",
     "message": "This dashboard URL was opened without its auth key, so the server will refuse every write. Paste the key printed by the main.yml run log to continue.",
-    "shape": "Token source: {source}, length: {length}",
+    "shape": "Token source: {{source}}, length: {{length}}",
     "enter": "Enter key manually",
     "actions": "Return to GitHub Actions",
     "inputLabel": "Dashboard key",
@@ -1595,7 +1643,9 @@
   "health": {
     "probing": "Probing…",
     "unreachable": "Self-test unreachable",
-    "unreachableDetail": "The dashboard could not read /api/f92-selftest. Re-dispatch main.yml, then reload."
+    "unreachableDetail": "The dashboard could not read /api/f92-selftest. Re-dispatch main.yml, then reload.",
+    "noChecks": "This runner returned no self-test checks.",
+    "noChecksDetail": "GET /api/f92-selftest answered without a `checks` map, so there is nothing to list. A v1 or proxy response has this shape; restart the runner or open the diagnostic bundle for its raw body."
   },
   "about": {
     "title": "About this build",

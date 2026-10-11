@@ -75,8 +75,16 @@ describe("i18n F56 parity (byte-verified)", () => {
     //     result set says how much of it is on screen;
     //   * files.page.{purpose,readOnly,readWrite} (3) - the shared PageHeader
     //     subtitle and the access chip on the Explorer.
-    // 537 -> 549.
-    expect(enNew.length).toBe(549);
+    // [V3-06] the rest of the V3 delta that lands inside this namespace
+    // (`files.page.*` access chips etc.); 549 was the measured value at the
+    // #227 merge. NOTE: this counter is scoped to the search.*/files.*
+    // namespace, so the later +2 `health.noChecks*` keys (#202 answered-but-
+    // empty Health) deliberately do NOT move it - measured 577, not 579.
+    // [R-FILES / #217 / #225] +28 inside files.*: the live-listing provenance
+    // keys (files.listing.provenance.*, the four count labels, retry/evidence,
+    // the five diagnostic field labels, the six named non-ready states and the
+    // unknown/sample fallbacks). 549 -> 577.
+    expect(enNew.length).toBe(577);
   });
 
   it("every si value is non-empty, byte-stable Sinhala or a technical token", () => {

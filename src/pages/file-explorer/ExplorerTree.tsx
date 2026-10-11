@@ -38,7 +38,12 @@ export function ExplorerTree(props: ExplorerTreeProps) {
   ];
 
   return (
-    <nav id="f57.explorer.tree" aria-label={t("files.tree.label")} data-testid="explorer-tree" className="w-56 shrink-0 bg-surface border border-default rounded-md p-2 flex flex-col gap-3 self-start">
+    // [R-FILES / #217] `w-full md:w-56`: at 390px a fixed 224px tree plus the
+    // results panel in one unwrapped row crushed the results column to 104px,
+    // which zeroed the file-name span and clipped the size cell to 1-2 digits
+    // ("File 52"). The tree now takes its own row on phones and keeps its
+    // frozen 224px column from `md` up.
+    <nav id="f57.explorer.tree" aria-label={t("files.tree.label")} data-testid="explorer-tree" className="w-full md:w-56 md:shrink-0 bg-surface border border-default rounded-md p-2 flex flex-col gap-3 self-start">
       {groups.map((g) => (
         <div key={g.groupId} id={g.groupId} data-testid={g.groupId} className="flex flex-col gap-1">
           <h2 className="px-2 text-xs font-semibold text-tertiary">{t(g.labelKey)}</h2>
