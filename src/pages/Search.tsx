@@ -7,7 +7,9 @@
 // src/lib/search/progressiveLab.ts, and the fetch action in the src/api/fetch
 // stub (F56-d replaces that one module).
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Search as SearchIcon } from "lucide-react";
+import { PageHeader } from "@/components/primitives/PageHeader";
+import { Chip } from "@/components/primitives/Chip";
 import { EmptyState, LoadingState } from "./search/SearchStates";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -196,6 +198,37 @@ export default function Search() {
     {/* [F90 §C.2] the explicit "where should this link open?" modal. */}
     <F90LaunchChoiceModal />
     <div id="f56.search.view" data-testid="search-page" data-view={view} className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+      {/* [V3-03] One page identity, and the search's REAL state: which phase
+          the request is in and how many of the results are on screen after the
+          active filters. Not a hero - a name, a purpose and live chips. */}
+      <PageHeader
+        icon={<SearchIcon className="size-4" aria-hidden />}
+        title={t("search.page.title")}
+        subtitle={t("search.page.description")}
+        testId="page-search"
+        status={
+          <>
+            <Chip
+              id="page-search-phase"
+              data-testid="page-search-phase"
+              data-phase={cancelling ? "cancelled" : phase}
+              tone={
+                phase === "complete" ? "success"
+                  : phase === "failed" ? "danger"
+                    : cancelling || phase === "cancelled" || phase === "partial" ? "warning"
+                      : "neutral"
+              }
+            >
+              {t("search.phase." + (cancelling ? "cancelled" : phase))}
+            </Chip>
+            {totalResults > 0 ? (
+              <Chip id="page-search-shown" data-testid="page-search-shown" mono>
+                {t("search.results.shown", { shown: visibleCount, total: totalResults })}
+              </Chip>
+            ) : null}
+          </>
+        }
+      />
       {/* [F85 §3] ?diag=1-only diagnostic banner: "which F84 features are live
           in THIS bundle + THIS server". Renders nothing otherwise, so the
           normal surface (and every existing screenshot) is untouched. */}
@@ -204,11 +237,12 @@ export default function Search() {
       <F87SelfTestPanel />
       {/* [F90 §C.4] one-time "view through WEB DESKTOP" hint (tailscale only). */}
       <F90TailscaleHint />
-      {/* §2: landing surface = title, the all-in-one bar, one sub-line and
-          three quiet chips. NOTHING else (no chips, no sliders, no caps). */}
-      <div id="f56.search.v2.landing" hidden={!landing} className={landing ? "flex flex-col items-center" : "hidden"}>
-        <h1 className="text-2xl font-semibold text-primary">{t("search.page.title")}</h1>
-      </div>
+      {/* §2: landing surface = the all-in-one bar, one sub-line and three
+          quiet chips. NOTHING else (no chips, no sliders, no caps).
+          [V3-01] The 2xl page title that used to sit here is gone: it is now
+          the shared PageHeader at the top of the route, so the page name is
+          rendered exactly once and the bar is the first thing on the surface. */}
+      <div id="f56.search.v2.landing" hidden={!landing} className={landing ? "flex flex-col items-center" : "hidden"} />
 
       <CommandBar onAnimationEnd={endAnimation} />
 

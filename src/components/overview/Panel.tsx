@@ -18,7 +18,7 @@ export function Panel({
   icon,
   actions,
   labelledBy,
-  variant = "tinted",
+  variant,
   dense = false,
   className,
   children,
@@ -40,6 +40,7 @@ export function Panel({
   return (
     <GlassContainer
       as={as}
+      level="card"
       surface="nested"
       variant={variant}
       radius="lg"

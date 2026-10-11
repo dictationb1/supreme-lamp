@@ -163,11 +163,19 @@ export function WebDesktopCard() {
     setVncState("not stored");
   }
 
+  const buildShort = String(__BUILD_SHA__ || "dev").slice(0, 7);
+
   return (
     <Card id="sec-native-rdp" title={t("webDesktop.title")} icon={<Globe className="size-4 text-tertiary" aria-hidden />} className="mb-4">
       <Row id="nrBuildWarn" k="Deploy" className={buildDrift ? "" : "hidden"}>
+        {/* [V3-06 / #194 §7] The claim "...older than origin/main" was not
+            sound: `main` carries status-only commits that change no interface,
+            so `built != main` proves nothing about which UI is newer. The row
+            now states the observable fact (this bundle's sha differs from the
+            branch head) and points at the surface that shows the real
+            served-vs-built provenance, instead of asserting a direction. */}
         <span id="nrBuildWarnText" className="text-xs text-warning">
-          deployed UI older than origin/main (HEAD {buildDrift}) - re-dispatch the deploy workflow to refresh this dashboard
+          this bundle ({buildShort}) differs from origin/main HEAD ({String(buildDrift).slice(0, 7)}) - open Settings &gt; About for served/build provenance, then re-dispatch if that is the bundle you want
         </span>
       </Row>
       <Row k={t("webDesktop.status")}>

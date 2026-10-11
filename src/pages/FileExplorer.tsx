@@ -8,6 +8,8 @@
 // Fetched root keeps its F56-d arrival-event feed untouched.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Folder } from "lucide-react";
+import { Chip } from "@/components/primitives/Chip";
 import fixture from "./file-explorer/fixture.json";
 import { ExplorerTree, type TreeNode } from "./file-explorer/ExplorerTree";
 import { ExplorerCommandBar, type ExplorerCommand } from "./file-explorer/ExplorerCommandBar";
@@ -30,6 +32,7 @@ import { useTrashStore } from "@/lib/explorer/trashStore";
 import { useExplorerQueueStore } from "@/lib/explorer/queueStore";
 import { useToastStore } from "@/stores/toastStore";
 import { copyText } from "@/lib/clipboard";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 interface Crumb {
   id: string;
@@ -470,8 +473,17 @@ export default function FileExplorer() {
 
   return (
     <div id="f57.explorer.view" data-testid="file-explorer-page" className="flex flex-col gap-4">
-      <h1 className="text-lg font-semibold text-primary">{t("files.page.title")}</h1>
-      <p className="text-sm text-secondary">{t("files.page.description")}</p>
+      <PageHeader
+        icon={<Folder className="size-4" aria-hidden />}
+        title={t("files.page.title")}
+        subtitle={t("files.page.description")}
+        testId="page-files"
+        status={
+          <Chip id="page-files-access" tone={readOnly ? "warning" : "neutral"}>
+            {readOnly ? t("files.page.readOnly") : t("files.page.readWrite")}
+          </Chip>
+        }
+      />
 
       <nav
         id="f57.explorer.breadcrumbs"

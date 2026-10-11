@@ -2,6 +2,7 @@
 // regression ids stay on the Overview - this page renders the same data via
 // its own detail rows), plus diagnostics drawer open by default and mstsc
 // quick actions (copy + .rdp download via the existing /rdp endpoint).
+import { Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Card } from "@/components/primitives/Data";
 import { Button } from "@/components/primitives/Button";
@@ -11,6 +12,7 @@ import { DiagnosticsDrawer } from "@/components/domain/DiagnosticsDrawer";
 import { useSessionStore } from "@/stores/sessionStore";
 import { Chip } from "@/components/primitives/Chip";
 import { logButtonAction } from "@/lib/collectorAgent";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 export default function Connections() {
   const { t } = useTranslation();
@@ -21,12 +23,17 @@ export default function Connections() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-xl font-semibold">{t("pages.connections.title")}</h2>
-        <Chip tone={fqdn ? "success" : "warning"} dot>
-          {fqdn || "fqdn pending"}
-        </Chip>
-      </div>
+      <PageHeader
+        icon={<Globe className="size-4" aria-hidden />}
+        title={t("pages.connections.title")}
+        subtitle={t("pages.connections.purpose")}
+        testId="page-connections"
+        status={
+          <Chip id="page-connections-fqdn" tone={fqdn ? "success" : "warning"} dot>
+            {fqdn || "fqdn pending"}
+          </Chip>
+        }
+      />
 
       <Card title="Quick actions" className="mb-4">
         <div className="flex flex-wrap gap-2">

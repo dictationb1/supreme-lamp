@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Card } from "@/components/primitives/Data";
 import { KeysCard } from "@/components/domain/KeysCard";
 import { useSessionStore } from "@/stores/sessionStore";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 export default function Keys() {
   const { t } = useTranslation();
@@ -14,10 +15,12 @@ export default function Keys() {
   const audit = s.copyAudit || [];
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <KeyRound className="size-5 text-accent" aria-hidden />
-        <h2 className="text-xl font-semibold">{t("nav.keys")}</h2>
-      </div>
+      <PageHeader
+        icon={<KeyRound className="size-4" aria-hidden />}
+        title={t("pages.keys.title")}
+        subtitle={t("pages.keys.purpose")}
+        testId="page-keys"
+      />
       <KeysCard />
       <Card title="Reveal audit (last 10)" className="mb-4">
         {Array.isArray(audit) && audit.length ? (

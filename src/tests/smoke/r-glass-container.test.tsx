@@ -11,13 +11,18 @@ import GlassContainer, { GlassPortalScope } from "@/components/primitives/GlassC
 import {
   CLARITY_STEPS,
   DEFAULT_CLARITY,
-  NESTED_FILL_FLOOR,
+  MIN_VARIANT_SEPARATION,
+  OVERLAY_FILL_FLOOR,
   __setSupportsBackdropFilter,
   clampClarity,
   glassPaint,
   isClarityStep,
+  materialFillAlpha,
   quantizeClarity,
   resolveQuality,
+  variantSeparation,
+  SATURATED_FILL,
+  VARIANT_LEVELS,
 } from "@/lib/glass/quality";
 
 function cs(el: Element): CSSStyleDeclaration & Record<string, string> {
@@ -62,15 +67,76 @@ describe("R-GLASS-a: clarity is bounded and quantized", () => {
       expect(p.samples).toBe(false);
       expect(p.fillAlpha).toBeLessThanOrEqual(1);
     }
-    expect(glassPaint({ requested: "frosted", surface: "backdrop", clarity: 0.75, env: { supports: true } }).blurPx).toBe(8);
-    expect(glassPaint({ requested: "clear", surface: "backdrop", clarity: 0.75, env: { supports: true } }).blurPx).toBe(4);
+    // [V3-01] the sheet's published blur (DESIGN-SYSTEM.md §3.3).
+    expect(glassPaint({ level: "sheet", requested: "frosted", surface: "backdrop", clarity: 0.75, env: { supports: true } }).blurPx).toBe(22);
+    expect(glassPaint({ level: "sheet", requested: "clear", surface: "backdrop", clarity: 0.75, env: { supports: true } }).blurPx).toBe(14);
+    expect(glassPaint({ level: "overlay", requested: "frosted", surface: "backdrop", clarity: 0.75, env: { supports: true } }).blurPx).toBe(18);
   });
 
-  it("a nested surface never samples, and gets the fill floor", () => {
-    const p = glassPaint({ requested: "frosted", variant: "clear", surface: "nested", clarity: 1, env: { supports: true } });
+  it("a paint-only level never samples, and is FILL-ORDERED not floor-clamped", () => {
+    // [V3-01 / D1] The old flat NESTED_FILL_FLOOR (0.86) raised every nested
+    // surface to the same fill, which made the Tinted/Clear control a no-op
+    // everywhere except the TopBar. The invariant is now the opposite: the
+    // level adds a constant DELTA on top of the sheet, so the difference
+    // survives - and every level above the sheet is more opaque than it.
+    for (const level of ["overlap", "card", "row"] as const) {
+      for (const quality of ["frosted", "clear"] as const) {
+        for (const clarity of [0.25, 0.5, 0.75, 1] as const) {
+          const sheet = materialFillAlpha("sheet", quality, "tinted", clarity);
+          const fill = materialFillAlpha(level, quality, "tinted", clarity);
+          expect(fill, `${level}/${quality}/${clarity}`).toBeGreaterThanOrEqual(sheet);
+          expect(fill, `${level}/${quality}/${clarity}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+    const p = glassPaint({ level: "card", requested: "frosted", variant: "clear", surface: "nested", clarity: 1, env: { supports: true } });
     expect(p.samples).toBe(false);
     expect(p.blurPx).toBe(0);
-    expect(p.fillAlpha).toBeGreaterThanOrEqual(NESTED_FILL_FLOOR);
+  });
+
+  it("Tinted vs Clear is a real, measurable difference on CONTENT levels", () => {
+    // The defect this file now guards: separation used to be exactly 0 on every
+    // nested surface, at every clarity, in both qualities.
+    // VARIANT_LEVELS is the workspace: overlay is excluded because its fill
+    // floor exists to stop content bleeding through a modal.
+    for (const level of VARIANT_LEVELS) {
+      for (const quality of ["frosted", "clear"] as const) {
+        for (const clarity of [0.25, 0.5, 0.75, 1] as const) {
+          const sep = variantSeparation(level, quality, clarity);
+          const tinted = materialFillAlpha(level, quality, "tinted", clarity);
+          const clear = materialFillAlpha(level, quality, "clear", clarity);
+          // At the lowest clarity steps the upper levels SATURATE: the level
+          // delta pushes both variants past 1.0 and the clamp pins them there.
+          // That is the intended "nearly opaque" end of the scale, not a
+          // regression - but it must be an explicit, checked condition rather
+          // than a separation that quietly reads 0.
+          const saturated = tinted >= SATURATED_FILL && clear >= SATURATED_FILL;
+          if (saturated) {
+            // Saturation is only legitimate at the NEAR-OPAQUE end: if it ever
+            // happened at clarity 0.5 or above, the material would be pinned
+            // solid across the range the operator actually uses.
+            expect(clarity, `${level}/${quality}/${clarity} saturated above 0.25`).toBe(0.25);
+          } else {
+            expect(sep, `${level}/${quality}/${clarity}`).toBeGreaterThan(0);
+            expect(sep, `${level}/${quality}/${clarity}`).toBeGreaterThanOrEqual(MIN_VARIANT_SEPARATION[clarity]);
+          }
+        }
+      }
+      // clarity 0 is opaque BY DESIGN - there is nothing to separate
+      expect(variantSeparation(level, "frosted", 0)).toBe(0);
+      expect(variantSeparation(level, "opaque", 0.75)).toBe(0);
+    }
+  });
+
+  it("only the overlay keeps a floor, because content scrolls behind it", () => {
+    for (const quality of ["frosted", "clear"] as const) {
+      const p = glassPaint({ level: "overlay", requested: quality, variant: "clear", surface: "backdrop", clarity: 1, env: { supports: true } });
+      expect(p.fillAlpha).toBeGreaterThanOrEqual(OVERLAY_FILL_FLOOR);
+    }
+    // and a content level at the same settings is NOT floored (the reason the
+    // variant difference is visible on content at all)
+    const card = glassPaint({ level: "card", requested: "clear", variant: "clear", surface: "nested", clarity: 1, env: { supports: true } });
+    expect(card.fillAlpha).toBeLessThan(OVERLAY_FILL_FLOOR);
   });
 });
 

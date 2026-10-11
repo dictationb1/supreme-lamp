@@ -67,7 +67,16 @@ describe("i18n F56 parity (byte-verified)", () => {
     // search.progress.speedUnavailable / etaUnavailable / bytesUnavailable /
     // retryFailed (#210 rail honesty) and files.results.windowed (#217).
     // (+1: search.progress.feedUnavailable, #210 rail honesty) 528 -> 537.
-    expect(enNew.length).toBe(537);
+    // [V3-01/V3-03] +12 inside the search.*/files.* namespace:
+    //   * search.phase.{idle,queued,running,partial,complete,empty,failed,cancelled}
+    //     (8) - the Search PageHeader now names the request's real phase instead
+    //     of leaving the operator to infer it from a spinner;
+    //   * search.results.shown (1) - "{{shown}} of {{total}} shown", so a filtered
+    //     result set says how much of it is on screen;
+    //   * files.page.{purpose,readOnly,readWrite} (3) - the shared PageHeader
+    //     subtitle and the access chip on the Explorer.
+    // 537 -> 549.
+    expect(enNew.length).toBe(549);
   });
 
   it("every si value is non-empty, byte-stable Sinhala or a technical token", () => {

@@ -1,0 +1,256 @@
+{
+  "capturedAt": "2026-10-11T06:57:51.096Z",
+  "synthetic": true,
+  "shots": [
+    {
+      "name": "01-overview",
+      "hash": "#/",
+      "vp": "desktop",
+      "viewport": "Windows desktop",
+      "url": "http://127.0.0.1:7331/#/",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 10,
+        "row": 4
+      },
+      "header": "OverviewLaunch unavailableFrosted / Tinted / 75%Connect, work and diagnose from one screen.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1534,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose from one screen. Connect Launch unavailable WINDOWS AUTO-LOGIN WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed validation; the runner tailnet IP did not resolve; the RDP LISTENER probe is not all green WEB DESKTOP No Web Desktop URL has been published by the runner yet. synth-host-01.example.internal EVIDENCE launch gate failing: credentials, dns, listener Viewing mode: I'm in WEB DESKTOP now Use this when you opened noVNC by hand and the badge still says Tailscale local. Uploads execute ON THE RUNNER (egress IP ...) - your PC's connection is never used for uploads. Launch detail (certificate, NLA, CredSSP) Workspace File Explorer Browse synth-host-01.example.internal Search No search run yet Transfers Queue idle Sessions Session history and usage Troubleshooting 2 open RDP launch request WARNING 0s ago The launch gate is failing: credentials, dns, listener. CONFIRMED one or more launch gates are failing · source: auto-login gate (credentials / runner DNS / RDP listener) Fix the named gate, then retry the launch. Keys & Secrets WebSocket bridge INFO no timestamp from t"
+    },
+    {
+      "name": "02-overview-troubleshooting",
+      "hash": "#/",
+      "vp": "desktop",
+      "viewport": "Windows desktop",
+      "url": "http://127.0.0.1:7331/#/",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 10,
+        "row": 4
+      },
+      "header": "OverviewLaunch unavailableFrosted / Tinted / 75%Connect, work and diagnose from one screen.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1534,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose from one screen. Connect Launch unavailable WINDOWS AUTO-LOGIN WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed validation; the runner tailnet IP did not resolve; the RDP LISTENER probe is not all green WEB DESKTOP No Web Desktop URL has been published by the runner yet. (not set) EVIDENCE launch gate failing: credentials, dns, listener Viewing mode: I'm in WEB DESKTOP now Use this when you opened noVNC by hand and the badge still says Tailscale local. Uploads execute ON THE RUNNER (egress IP ...) - your PC's connection is never used for uploads. Launch detail (certificate, NLA, CredSSP) Workspace File Explorer No runner host published yet Search No search run yet Transfers Queue idle Sessions Session history and usage Troubleshooting 2 open RDP launch request WARNING 0s ago The launch gate is failing: credentials, dns, listener. CONFIRMED one or more launch gates are failing · source: auto-login gate (credentials / runner DNS / RDP listener) Fix the named gate, then retry the launch. Keys & Secrets WebSocket bridge INFO no timestamp from this producer This build expose"
+    },
+    {
+      "name": "03-sessions",
+      "hash": "#/sessions",
+      "vp": "desktop",
+      "viewport": "Windows desktop",
+      "url": "http://127.0.0.1:7331/#/sessions",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 5
+      },
+      "header": "SessionsThe current runner session, its logon events and the ticket audit.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1009,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings Sessions The current runner session, its logon events and the ticket audit. 4624 ACCEPTED 0 4625 REJECTED 0 TICKET AUDIT · ISSUED 0 REDEEMED / REJECTED 0 / 0 Active runner FQDN synth-host-01.example.internal RUNNER IP -- UPTIME 00:42:02 STARTED 2026-10-11 06:15:50 UTC clock 06:57:53 (server-synced) event result logon type time (UTC) sub-status detail No records yet. RUNNER ELAPSED 00:42:02 REMAINING 04:17:57SCHED RDP USAGE --:--:----srv -- LAST LOGON scanning... (server up ?s, first scan pending) 06:57:53 ui: dev Diagnostics Refresh click Refresh to run /diag on the server. DVR 0 Dashboard token missing This dashboard URL was opened without its auth key, so the server will refuse every write. Paste the key printed by the main.yml run log to continue. Token source: {source}, length: {length} Enter key manually Return to GitHub Actions Forget a previously saved key"
+    },
+    {
+      "name": "04-settings",
+      "hash": "#/settings",
+      "vp": "desktop",
+      "viewport": "Windows desktop",
+      "url": "http://127.0.0.1:7331/#/settings",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 9
+      },
+      "header": "SettingsAppearance, glass quality, sources, storage and developer surfaces.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 3256,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings Settings Appearance, glass quality, sources, storage and developer surfaces. APPEARANCE Appearance Theme dark light Text scale Comfort Large Accessibility html[data-scale=comfort] Language English Sinhala strings marked for operator native review VISUAL QUALITY Visual quality frosted Frosted glass is the default on browsers that support it. Choose Opaque at any time, and every accessibility setting below wins over this choice. Glass quality Glass quality Auto Opaque Frosted Clear Auto uses the frosted presentation when the browser supports it. Opaque keeps solid surfaces. Frosted and Clear force one look on every browser that can render it. Surface tint Surface tint Tinted Clear Tinted keeps a stronger fill for content-heavy panels. Clear lets more of the backdrop show through and suits chrome. Glass clarity 75% clear 0% 25% 50% 75% 100% Higher clarity means a more transparent surface. The value snaps to fixed steps so the blur is never rebuilt while you drag. requested=auto resolved=frosted variant=tinted clarity=0.75 ABOUT THIS BUILD Build identity served = built SOURCE REVISION dev SERVED (#GHRDPBUILD) dev ARTIFACT ui-dist-dev.zip BACKEND RELEASE not checked Re-c"
+    },
+    {
+      "name": "05-files",
+      "hash": "#/files",
+      "vp": "desktop",
+      "viewport": "Windows desktop",
+      "url": "http://127.0.0.1:7331/#/files",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4
+      },
+      "header": "File ExplorerRead / writeReal operations on the watcher roots, with an optimistic queue and 30-day soft delete.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1009,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings File Explorer Read / write Real operations on the watcher roots, with an optimistic queue and 30-day soft delete. This PC / RDP-Storage (D:) New folder Upload New file Rename Cut Copy Paste Share (copy path) Delete Undo Refresh Quick Access Desktop Downloads Documents Fetched (reserved) Fetched reserved for F56-d This PC Windows (C:) RDP-Storage (D:) Stub - real listing arrives in F57. Trash Trash Files List view Grid view Archives Folder — 2026-09-26 Handoffs Folder — 2026-09-28 NeatDM_setup.exe File 917340 2026-09-28 ghrdp-handler-kit.zip File 324115 2026-09-27 session-report.md File 14822 2026-09-29 logon-recovery.mp4 File 52428800 2026-09-25 Preview Select a file to preview. Operation queue No queued operations. RUNNER ELAPSED 00:42:02 REMAINING 04:17:57SCHED RDP USAGE --:--:----srv -- LAST LOGON scanning... (server up ?s, first scan pending) 06:57:53 ui: dev Diagnostics Refresh click Refresh to run /diag on the server. DVR 0 Dashboard token missing This dashboard URL was opened without its auth key, so the server will refuse every write. Paste the key printed by the main.yml run log to continue. Token source: {source}, length: {length} Enter key manually Return"
+    },
+    {
+      "name": "06-overview-tablet",
+      "hash": "#/",
+      "vp": "tablet",
+      "viewport": "iPad portrait",
+      "url": "http://127.0.0.1:7331/#/",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 10,
+        "row": 4
+      },
+      "header": "OverviewLaunch unavailableFrosted / Tinted / 75%Connect, work and diagnose from one screen.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1679,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa dark OPERATE Overview Search ACCESS Sessions Connections Keys & Secrets DATA File Explorer Mirror SYSTEM Telemetry Health Collector Settings Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose from one screen. Connect Launch unavailable WINDOWS AUTO-LOGIN WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed validation; the runner tailnet IP did not resolve; the RDP LISTENER probe is not all green WEB DESKTOP No Web Desktop URL has been published by the runner yet. synth-host-01.example.internal EVIDENCE launch gate failing: credentials, dns, listener Viewing mode: I'm in WEB DESKTOP now Use this when you opened noVNC by hand and the badge still says Tailscale local. Uploads execute ON THE RUNNER (egress IP ...) - your PC's connection is never used for uploads. Launch detail (certificate, NLA, CredSSP) Workspace File Explorer Browse synth-host-01.example.internal Search No search run yet Transfers Queue idle Sessions Session history and usage Troubleshooting 2 open RDP launch request WARNING 0s ago The launch gate is failing: credentials, dns, listener. CONFIRMED one or more launch gates are failing · source: auto-login gate (credentials / runner DNS / RDP listener) Fix the named gate, then retry the launch. Keys & Secrets WebSocket bridge INFO no timestamp from t"
+    },
+    {
+      "name": "07-overview-mobile",
+      "hash": "#/",
+      "vp": "mobile",
+      "viewport": "iPhone 14",
+      "url": "http://127.0.0.1:7331/#/",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4,
+        "card": 10,
+        "row": 4
+      },
+      "header": "OverviewLaunch unavailableFrosted / Tinted / 75%Connect, work and diagnose from one screen.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 2555,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose from one screen. Connect Launch unavailable WINDOWS AUTO-LOGIN WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed validation; the runner tailnet IP did not resolve; the RDP LISTENER probe is not all green WEB DESKTOP No Web Desktop URL has been published by the runner yet. synth-host-01.example.internal EVIDENCE launch gate failing: credentials, dns, listener Viewing mode: I'm in WEB DESKTOP now Use this when you opened noVNC by hand and the badge still says Tailscale local. Uploads execute ON THE RUNNER (egress IP ...) - your PC's connection is never used for uploads. Launch detail (certificate, NLA, CredSSP) Workspace File Explorer Browse synth-host-01.example.internal Search No search run yet Transfers Queue idle Sessions Session history and usage Troubleshooting 2 open RDP launch request WARNING 0s ago The launch gate is failing: credentials, dns, listener. CONFIRMED one or more launch gates are failing · source: auto-login gate (credentials / runner DNS / RDP listener) Fix the named gate, then retry the launch. Keys & Secrets WebSocket bridge INFO no timestamp from this producer This build exposes no /ws endpoint; live progress arrives by HTTP polling. CONFIRMED this build exposes no /ws endpoint; progres"
+    },
+    {
+      "name": "08-files-mobile",
+      "hash": "#/files",
+      "vp": "mobile",
+      "viewport": "iPhone 14",
+      "url": "http://127.0.0.1:7331/#/files",
+      "title": "RDP Mission Control",
+      "sheetPresent": true,
+      "sheet": {
+        "backgroundColor": "rgba(15, 23, 42, 0.745)",
+        "backdropFilter": "blur(22px) saturate(1.06)",
+        "zIndex": "1",
+        "ariaHidden": "true"
+      },
+      "samplingCount": 1,
+      "samplingTags": [
+        "DIV.glass app-glass-sheet"
+      ],
+      "levelsByCount": {
+        "sheet": 1,
+        "overlap": 4
+      },
+      "header": "File ExplorerRead / writeReal operations on the watcher roots, with an optimistic queue and 30-day soft delete.",
+      "navLinkCount": 11,
+      "navGroups": 4,
+      "docHeight": 1293,
+      "bodyText": "Skip to main content RDP Mission Control No /ws endpoint Classic UI සිං Aa File Explorer Read / write Real operations on the watcher roots, with an optimistic queue and 30-day soft delete. This PC / RDP-Storage (D:) New folder Upload New file Rename Cut Copy Paste Share (copy path) Delete Undo Refresh Quick Access Desktop Downloads Documents Fetched (reserved) Fetched reserved for F56-d This PC Windows (C:) RDP-Storage (D:) Stub - real listing arrives in F57. Trash Trash Files List view Grid view Archives Folder — Handoffs Folder — NeatDM_setup.exe File 917340 ghrdp-handler-kit.zip File 324115 session-report.md File 14822 logon-recovery.mp4 File 52428800 Preview Select a file to preview. Operation queue No queued operations. RUNNER ELAPSED 00:42:02 REMAINING 04:17:57SCHED RDP USAGE --:--:----srv -- LAST LOGON scanning... (server up ?s, first scan pending) 06:57:53 ui: dev Overview Search File Explorer Mirror More Diagnostics Refresh click Refresh to run /diag on the server. DVR 0 Dashboard token missing This dashboard URL was opened without its auth key, so the server will refuse every write. Paste the key printed by the main.yml run log to continue. Token source: {source}, length: {length} Enter key manually Return to GitHub Actions Forget a previously saved key"
+    }
+  ],
+  "variantProof": {
+    "tinted": {
+      "pngBytes": 109,
+      "sha": "8a48c65b2ad37ff931a7e34a1413459984e32aaa",
+      "sheet": "rgba(15, 23, 42, 0.745)",
+      "card": "rgba(15, 23, 42, 0.824)",
+      "stored": "{\"state\":{\"quality\":\"frosted\",\"clarity\":0.75,\"variant\":\"tinted\"},\"version\":0}"
+    },
+    "clear": {
+      "pngBytes": 109,
+      "sha": "8a48c65b2ad37ff931a7e34a1413459984e32aaa",
+      "sheet": "rgba(15, 23, 42, 0.61)",
+      "card": "rgba(15, 23, 42, 0.69)",
+      "stored": "{\"state\":{\"quality\":\"frosted\",\"clarity\":0.75,\"variant\":\"clear\"},\"version\":0}"
+    }
+  }
+}
