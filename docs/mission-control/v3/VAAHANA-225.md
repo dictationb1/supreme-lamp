@@ -4,7 +4,7 @@
 **ශාඛාව:** `arena/403ecbde-supreme-lamp`
 **PR:** https://github.com/dekarita/supreme-lamp/pull/226
 **Tracking issue:** #225
-**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` (අර්ධ — V3-01…V3-06) · `BROWSER_VERIFIED` (අර්ධ) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ⏳ · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
+**තත්ත්වය:** `PLAN_READY` ✅ · `UI_IMPLEMENTED` (අර්ධ — V3-01…V3-06) · `BROWSER_VERIFIED` (අර්ධ) · `UI_VISUALLY_REVIEWED` ⏳ **ඔබගේ සමාලෝචනය අවශ්‍යයි** · `CI_VERIFIED` ⚠️ **අර්ධයි — `e2e-ui` FAIL (විසඳී නැත)** · `DEPLOYED` / `LIVE_VERIFIED` — ආරම්භ කර නැත
 
 ---
 
@@ -117,6 +117,29 @@
 | `tsc -p tsconfig.build.json --noEmit` | පිරිසිදුයි |
 | `node scripts/check-glass-contrast.mjs` | **පරීක්ෂණ 1432 සමත්** |
 | `npm run build` | 1,201 kB තනි-ගොනු bundle |
+| `pnpm run e2e` (Playwright, සම්පූර්ණ) | **135 සමත්, 11 skip, 0 අසමත්** — `CI=true` සමගද (සේවාදායක නැවත භාවිතයක් නැත, retries සක්‍රීයයි) |
+
+### CI (PR #226) — සත්‍ය තත්ත්වය, සැරසිලි නැත
+
+| Lane | ප්‍රතිඵලය |
+|---|---|
+| `gates` | ✅ **PASS** |
+| `build-ui-prebuilt` | ✅ PASS |
+| `f56d-qbt-lab`, `f57-explorer-lab`, `f60-warm-lab`, `m8-*` | ✅ PASS |
+| `windows-native` | ✅ PASS |
+| **`e2e-ui`** | ❌ **FAIL — විසඳී නැත** |
+
+**`e2e-ui` ගැන අවංකව:** step 8 (`pnpm run e2e`) CI හි අසමත් වේ — **හරියටම එම විධානය දේශීයව 135/135 සමත් වේ**, `CI=true` සමගද (එනම් `reuseExistingServer: false`, `retries: 1`). හිස් commit එකකින් නැවත ධාවනය කළ විටත් අසමත් විය — එබැවින් **flake එකක් නොවේ, CI හි පුනරාවර්තනය වේ**.
+
+මට එය විසඳිය නොහැකි වූයේ ඇයි:
+- **CI logs මෙම sandbox එකෙන් කියවිය නොහැක** (blob host අවහිරයි — `gh run view --log` EOF දෝෂයක් දෙයි).
+- එකම වෙනස වන්නේ **browser binary එකයි**: CI සැබෑ Playwright Chromium ස්ථාපනය කරයි; මෙහි ඇත්තේ sandbox `@sparticuz/chromium` headless shell එක පමණයි (සැබෑ එක බාගත කිරීමට ජාල අවසර නැත).
+
+**ඔබට කළ හැකි දේ:** මෙම lane එක විශේෂයෙන්ම `F79-E2E-TALLY` සහ `F79-E2E-FAILS` annotations නිකුත් කරයි (agent sandbox වලට logs කියවිය නොහැකි බව දැනගෙන). ඒවා PR #226 හි checks ටැබයේ කියවිය හැකිය — අපොහොසත් වූ spec එක සහ පේළිය එහි ඇත.
+
+**`gates` lane එකේ මා කළ වැරැද්ද සහ නිවැරදි කිරීම:** මම `gates` job එකට `setup-node@v4` (`node-version: '20'`) එකතු කළා — එම job එක ඊට පෙර runner default Node එක භාවිතා කළා. එය step 43 අසමත් කළා. **එම වෙනස ආපසු හැරවූවා** (commit `88061f2`) → `gates` දැන් PASS. Contrast gate එක `build-ui.yml` හි ක්‍රියාත්මක වන බැවින් ආවරණය අඩු වී නැත.
+
+**`CI_VERIFIED` සම්පූර්ණයෙන් හිමිකම් නොකියමි** — `e2e-ui` රතුයි.
 
 **අලුත් test ගොනු:** `v3-shell.test.tsx` (20), `v3-troubleshoot.test.tsx` (16), `v3-glass-wiring.test.tsx` (5). `r-glass-container.test.tsx` (18) සහ `r2-connection-state.test.ts` (26) නැවත ලිව්වා.
 
@@ -141,7 +164,7 @@
 1. **V3-03 / V3-04 / V3-07 / V3-08 කර නැත.** නව පිටපතේ කොටසකට Sinhala පරිවර්තන හිඟයි (Settings කොටස් ශීර්ෂ සහ provenance labels දැනට ඉංග්‍රීසියෙන්).
 2. **සැබෑ උපාංග නැත.** Chromium viewport emulation ≠ සැබෑ Android/iOS. iPad සහ iPhone තිරපිටපත් emulation වේ — `BROWSER_LAB` පන්තිය, `REAL_DEVICE` නොවේ. Playwright WebKit browser ස්ථාපනය කර නැත, එබැවින් `npm run e2e` CI-only වේ.
 3. **කාර්ය සාධනය `NOT_MEASURED`.**
-4. **CI තවම සත්‍යාපනය කර නැත** — PR විවෘතයි, checks ක්‍රියාත්මක වෙමින් පවතී. "CI queued" සමත් ලෙස ගණන් නොගනිමි.
+4. **`e2e-ui` lane එක CI හි රතුයි — විසඳී නැත.** දේශීයව 135/135 සමත් (CI=true සමගද), නමුත් CI හි පුනරාවර්තනය වේ. CI logs මෙම sandbox එකෙන් කියවිය නොහැකි අතර සැබෑ Playwright Chromium බාගත කිරීමට ජාල අවසර නැත. 5 වන කොටස බලන්න.
 5. **Deployed / Live-verified නැත.** කිසිදු workflow එකක් dispatch කර නැත; කිසිදු සැසියකට බාධා කර නැත.
 6. `overlay` level එක Tinted/Clear වෙනසෙන් බැහැරයි — එහි 0.88 floor එක හේතුවෙන් variants දෙකම එකම අගයට clamp වේ. මෙය **සීමාවකි, නිදහස් කිරීමක් නොවේ**: `VARIANT_LEVELS` ලෙස source එකේ එක් වරක් කේතනය කර ඇති අතර gate එක සහ test එක දෙකම එය කියවයි.
 7. සියලුම දත්ත **කෘතිමයි** — තිරපිටපත් සැබෑ යෙදවුම් තත්ත්වය නොපෙන්වයි.
