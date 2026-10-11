@@ -170,6 +170,41 @@ jobs:
             exit 1
           fi
           tail -8 e2e-run.log
+      # [R2 §10] The screenshots artifact lands on blob.core.windows.net, which
+      # an agent sandbox cannot reach (this file already documents the same
+      # constraint for the step log). A 34 MB artifact that nobody can open is
+      # not visual review, so this step publishes a SHORT, readable proof of
+      # what the visual lane actually captured through the one channel that IS
+      # retrievable: check-run annotations, via GET
+      # /repos/{owner}/{repo}/check-runs/{id}/annotations.
+      #
+      # It reports (a) how many r2-*.png the R2 visual spec wrote, (b) the
+      # manifest's own self-declared honesty fields, and (c) the full list. It
+      # FAILS the lane when the R2 spec wrote nothing, so "the lane is green"
+      # can never again be read as "the visual spec ran" when it did not.
+      - name: Publish R2 visual-lane proof (annotations)
+        if: always()
+        shell: bash
+        run: |
+          set -eo pipefail
+          n=$(ls -1 screenshots/r2-*.png 2>/dev/null | wc -l | tr -d ' ')
+          echo "R2 screenshots written: $n"
+          ls -la screenshots/r2-* 2>/dev/null || echo "(no r2 screenshots)"
+          if [ -f screenshots/r2-manifest.json ]; then
+            echo "---- r2-manifest.json ----"
+            cat screenshots/r2-manifest.json
+          fi
+          # `|| true` on the greps: with `set -eo pipefail` a no-match grep would
+          # abort the step before any annotation is emitted (the F82 §2.3 class
+          # of bug this file already records twice).
+          names=$(ls -1 screenshots/r2-*.png 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-360) || true
+          realdev=$(grep -o '"realDevice"[^,]*' screenshots/r2-manifest.json 2>/dev/null | head -1 | tr -d '"\r' | cut -c1-60) || true
+          echo "::notice::R2-VISUAL-COUNT::${n} r2 screenshots. ${realdev}"
+          echo "::notice::R2-VISUAL-FILES::${names}"
+          if [ "$n" -lt 13 ]; then
+            echo "::error::R2-VISUAL-MISSING::expected at least 13 r2 screenshots, found ${n}. The R2 visual spec did not complete - do not read a green lane as visual coverage."
+            exit 1
+          fi
       - name: Upload screenshots (mandatory visual review)
         id: screenshots
         if: always()
