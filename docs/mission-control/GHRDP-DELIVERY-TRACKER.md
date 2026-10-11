@@ -221,3 +221,58 @@ were therefore carried forward by fast-forward (verified: `main` `179a25a` is an
 ancestor of `b213fd42`) and the repairs are published from the session branch as
 a clearly linked continuation. **Nothing from #222 was dropped.**
 #221 and #222 must not be merged independently of this line.
+
+---
+
+## R2 — Mornye-inspired Mission Control UI (session 2026-10-11, branch `arena/851f647e-supreme-lamp`, PR #224)
+
+**Checkpoint, refreshed rather than inherited.**
+
+| Fact | Value | Tier |
+|---|---|---|
+| Base | `e9c4233` = `origin/main` head | INSPECTION (git) |
+| #221 / #222 / #223 | all **MERGED** | INSPECTION (`gh pr view --json state,headRefOid`) |
+| Is #223 source already in main? | **YES — identical.** `git diff --stat e9c4233 c017d1a -- src/` returns empty | REPRO (git) |
+| Therefore the reported gap was | **a page that never adopted the glass system**, not a stale artifact, not a cache, not an intentional opaque mode | REPRO |
+| PR | #224, head `47ae0768` | CI |
+
+### Five defects located in source, each fixed
+
+| # | Defect | Location found | Fix | Tier |
+|---|---|---|---|---|
+| 1 | `DiagBundleCard` rendered **fully opaque on every browser**: `<div className="glass …">` carries no `data-glass-samples`, so neither `globals.css` selector matched → no `backdrop-filter`, `--glass-alpha` fell back to `1` | `DiagBundleCard.tsx:56` | `GlassContainer surface="nested"` | REPRO → COMPONENT |
+| 2 | Overview order was the pre-R-GLASS stack (title repeat → export banner → **credentials** → WebDesktop → only then connection) | `Overview.tsx` | 7-band composition; deep cards into a closed `<details>`; 219-id lock still passes | REPRO → COMPONENT |
+| 3 | Assistant-specific wording on a product action ("for Claude", "paste to Claude") | `en.json:1254/1257/1276`, `si.json:1220/1223`, `Collector.tsx:343` | neutral "Export diagnostics" in both catalogs | REPRO |
+| 4 | Light tertiary **4.344:1** on `bg-surface-raised` (passed on white at 4.759:1, so a surface-only audit missed it) | computed from `tokens.css` | `#566274` → 5.646:1 | REPRO → STATIC |
+| 5 | Light warning `#d97706` = **3.186:1** as text at 63+ call sites | computed from `tokens.css` | classified: `--color-warning` text-safe `#b45309`; `--color-warning-accent` decoration-only, enforced by gate | REPRO → STATIC |
+
+**Two further light-theme failures found that were NOT in the reported list** —
+success `#059669` at **3.440:1** and danger `#dc2626` at **4.408:1** — surfaced by
+turning the audit into `scripts/check-contrast.mjs` (18/18 pass). No threshold
+was lowered.
+
+### Status labels (kept separate, never collapsed)
+
+| Label | State | Evidence |
+|---|---|---|
+| `UI_IMPLEMENTED` | **DONE** | PR #224 head `47ae0768` |
+| `UI_VISUALLY_REVIEWED` | **NOT DONE by the agent** | 16 `r2-*.png` written by the CI lane, but the artifact lives on `blob.core.windows.net`, unreachable from this sandbox. **The operator must open the artifact** — a screenshot job without inspected images is not visual review. |
+| `BROWSER_VERIFIED` | **PARTIAL — structural only** | `e2e-ui` PASS at `47ae0768`; 10 R2 tests ran in real Chromium: no horizontal overflow at 4 viewports, connect panel above the fold, header < 80px, credentials in a closed disclosure, 4 mobile links with real hrefs, focus restoration after Escape, `data-glass-quality-resolved` values, reduced-transparency → opaque, opaque persists across reload, Explorer DOM bounded. **Not** a visual judgement. |
+| `CI_VERIFIED` | **PARTIAL** | `e2e-ui` PASS, `gates` PASS, `proof` PASS, `build-ui-prebuilt` PASS at `47ae0768`; `windows-native` still pending at time of writing |
+| `DEPLOYED` | **NO** | not performed; needs separate authorization |
+| `LIVE_VERIFIED` | **NO** | not performed |
+
+### Retrievability repair
+
+The step log and the artifact blob are both unreachable from an agent sandbox, so
+`e2e-ui.yml` now emits the R2 capture proof as **check-run annotations** (the one
+channel that is reachable) and **fails the lane when the R2 spec wrote nothing** —
+so a green lane can no longer be misread as visual coverage. Verified live:
+annotation `R2-VISUAL-FILES` lists the captured `r2-*.png` at job `114389952590`.
+
+### Still open, unchanged by this PR
+
+**F45-B** synchronous scanner starvation — untouched, still tracked. Green UI CI
+does not close it. Acceptance remains: the real scanner boundary blocked while the
+Windows server keeps answering health and authenticated read-only requests inside
+budget, with bounded workers, consistent snapshots and cleanup.
