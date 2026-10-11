@@ -3,10 +3,18 @@
 // sticky, the ONLY surface allowed to render the four time fields + clock -
 // enforced by tests/smoke/bottom-bar-time.test.ts + scripts/check-bottom-bar-time.mjs).
 //
-// [R-GLASS / #213] The chrome is now ONE glass surface (the sticky TopBar) with
-// the sidebar, the status bar and the mobile bar as paint-only nested surfaces.
-// That is the compositor budget from #213 §6 made structural: exactly one
-// element may own `backdrop-filter` in the normal shell.
+// [R-GLASS / #213] The chrome is glass: one shared sampling surface plus
+// paint-only chrome painted on it.
+//
+// [V3-01] THE MATERIAL STACK IS EXPLICIT, AND IT IS THREE LAYERS DEEP.
+//   z 0  .app-backdrop      the decorative gradient field (aria-hidden)
+//   z 1  .app-glass-sheet   THE one steady-state backdrop filter
+//   z 2  shell content      TopBar / Sidebar / Main / BottomBar / MobileNav
+//
+// The sheet is fixed, so content painted above it is NOT part of its backdrop:
+// scrolling does not re-run the filter. Every panel above it composites against
+// it for real, which is where Tinted/Clear and clarity become visible - the
+// thing the old flat 0.86 nested fill floor made impossible (D1).
 //
 // [R-UX / #214] Responsive instead of compressed: the phone gets a 5-slot
 // primary bar (Overview / Search / Files / Mirror / More) and the tablet keeps
@@ -14,8 +22,8 @@
 // Safe-area insets, 44px targets and a visible drawer close replace the
 // hover-only affordances the old shell relied on.
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Activity, ChevronsLeft, ClipboardList, Clock, Database, FlaskConical, Folder, Globe, KeyRound, Menu, Moon, MoreHorizontal, Search, Settings, Sun, Type, X, Zap } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Activity, ChevronsLeft, ChevronDown, ClipboardList, Clock, Database, FlaskConical, Folder, Globe, KeyRound, Menu, Moon, MoreHorizontal, Search, Settings, Sun, Type, X, Zap } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 // [M2 §2.3] Both fences below are INSIDE the shell's own ChromeBoundary, so they
@@ -38,7 +46,7 @@ import { elapsedSeconds, remainingTimeFromStore } from "@/stores/telemetryStore"
 import { logonRowText, rdpUsageSeconds } from "@/lib/domain/native";
 import { useNow } from "@/lib/useNow";
 import { logButtonAction } from "@/lib/collectorAgent";
-// [R-GLASS] the shared glass primitive + the decorative backdrop.
+// [R-GLASS] the shared glass primitive + the backdrop stack (field + sheet).
 import GlassContainer from "@/components/primitives/GlassContainer";
 import AppBackdrop from "@/components/layout/AppBackdrop";
 import { useVisualQualityRootAttribute } from "@/lib/glass/useVisualQuality";
@@ -95,11 +103,30 @@ function TopBar() {
   const mirror = useTelemetryStore((s) => s.mirror);
   const serverNow = useTelemetryStore((s) => s.serverNow);
   useNow(1000);
+  // [V3-01 / D3] The old bar put four status chips, a Reconnect button, a clock
+  // and four controls on one row - the "dense header" the operator reported.
+  // The detailed chips stay (same ids, same producers, same wording) behind one
+  // disclosure; the row itself carries ONE glanceable worst-state indicator.
+  const [statusOpen, setStatusOpen] = useState(false);
+  const statusPanelId = useId();
 
   const connTone = progressLost ? "danger" : "success";
   const connText = progressLost ? t("activity.connection") + ": lost (retrying)" : t("activity.connection") + ": live";
   const watcherActive = !!mirror;
   const mirrorOn = !!(mirror && (mirror.files.length > 0 || mirror.pubDot !== ""));
+
+  // The worst state wins, so the one indicator can never read "fine" while a
+  // producer underneath is failing.
+  const summaryKey = progressLost
+    ? "topbar.status.lost"
+    : wsDead
+      ? "topbar.status.socketDown"
+      : wsLive
+        ? "topbar.status.live"
+        : wsAvailable
+          ? "topbar.status.socketIdle"
+          : "topbar.status.socketAbsent";
+  const summaryTone = progressLost || wsDead ? "danger" : wsLive ? "success" : "warning";
 
   // [#214 §4] 44px minimum on every top-bar control; the glyph stays 20px.
   const barBtn =
@@ -108,33 +135,148 @@ function TopBar() {
   return (
     <GlassContainer
       as="header"
-      surface="backdrop"
-      variant="tinted"
+      level="overlap"
+      surface="nested"
       radius="none"
       role="banner"
       data-testid="app-topbar"
       className={cn(
-        "sticky top-0 z-40 flex items-center gap-3 px-4 safe-x",
+        // [V3-01] The bar is a compact single row; the status detail is a second
+        // row that only exists while it is asked for.
+        "sticky top-0 z-40 flex flex-col px-4 safe-x",
         // [#214 §6] the iOS status bar / notch.
         "pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 min-h-14"
       )}
       style={{ borderTop: "none", borderLeft: "none", borderRight: "none" }}
     >
-      <button
-        data-testid="topbar-mobile-menu"
-        type="button"
-        className="tap-44 -ml-2 inline-flex items-center justify-center rounded-md text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
-        aria-label={t("sidebar.menu")}
-        onClick={() => setMobileOpen(true)}
-      >
-        <Menu className="size-5" aria-hidden />
-      </button>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="inline-block size-2 rounded-full bg-accent" aria-hidden />
-        <Activity className="size-4 text-accent" aria-hidden />
-        <h1 className="text-sm font-semibold text-primary whitespace-nowrap">{t("app.title")}</h1>
+      <div className="flex items-center gap-3">
+        <button
+          data-testid="topbar-mobile-menu"
+          type="button"
+          className="tap-44 -ml-2 inline-flex items-center justify-center rounded-md text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+          aria-label={t("sidebar.menu")}
+          onClick={() => setMobileOpen(true)}
+        >
+          <Menu className="size-5" aria-hidden />
+        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="inline-block size-2 rounded-full bg-accent" aria-hidden />
+          <Activity className="size-4 text-accent" aria-hidden />
+          <h1 className="text-sm font-semibold text-primary whitespace-nowrap">{t("app.title")}</h1>
+        </div>
+
+        {/* ONE glanceable indicator + the disclosure for the four producers. */}
+        <button
+          type="button"
+          id="topbar-status-summary"
+          data-testid="topbar-status-summary"
+          aria-expanded={statusOpen}
+          aria-controls={statusPanelId}
+          aria-label={t("topbar.status.label") + ": " + t(summaryKey)}
+          onClick={() => setStatusOpen((v) => !v)}
+          className="tap-44 inline-flex items-center gap-1.5 rounded-md border border-default px-2 text-xs font-medium text-secondary hover:bg-raised hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base whitespace-nowrap"
+        >
+          <Chip tone={summaryTone} dot>
+            {t(summaryKey)}
+          </Chip>
+          <ChevronDown
+            className={cn("size-3.5 transition-transform duration-fast", statusOpen && "rotate-180")}
+            aria-hidden
+          />
+        </button>
+
+        {wsDead ? (
+          <button
+            type="button"
+            id="f95.wsReconnect"
+            data-testid="ws-reconnect"
+            onClick={() => {
+              const _start = performance.now();
+              requestWsReconnect();
+              logButtonAction({
+                feature: "websocket",
+                action: "reconnect",
+                params: {},
+                result: { requested: true },
+                elapsedMs: Math.round(performance.now() - _start),
+              });
+            }}
+            className="px-2 py-0.5 text-xs rounded-md border border-danger/50 text-danger font-medium hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap min-h-[32px]"
+          >
+            {t("activity.wsReconnect")}
+          </button>
+        ) : null}
+
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <a
+            id="classicUiLink"
+            data-testid="classic-ui-link"
+            href={classicUiHref()}
+            rel="noopener"
+            title={t("toggle.classicUi.title")}
+            aria-label={t("toggle.classicUi.label")}
+            className={barBtn}
+          >
+            {t("toggle.classicUi.short")}
+          </a>
+          <button
+            data-testid="topbar-lang-toggle"
+            id="langToggle"
+            type="button"
+            onClick={toggleLang}
+            aria-label={t("toggle.language.label")}
+            className={barBtn}
+          >
+            {lang === "si" ? t("toggle.language.shortEn") : t("toggle.language.shortSi")}
+          </button>
+          <button
+            data-testid="topbar-text-scale-toggle"
+            id="textScaleToggle"
+            type="button"
+            onClick={cycleScale}
+            aria-pressed={scale !== "comfort"}
+            aria-label={t("toggle.scale.label") + ": " + t("toggle.scale." + scale)}
+            title={t("toggle.scale.label") + ": " + t("toggle.scale." + scale)}
+            className={cn(barBtn, "inline-flex items-center gap-1")}
+          >
+            <Type className="size-3.5" aria-hidden />
+            <span id="textScaleLabel">{scale === "comfort" ? "Aa" : scale === "large" ? "A+" : "A++"}</span>
+          </button>
+          <button
+            data-testid="topbar-theme-toggle"
+            id="themeToggle"
+            type="button"
+            onClick={toggleTheme}
+            aria-pressed={theme === "light"}
+            aria-label={t("toggle.theme.label")}
+            title={t("toggle.theme.label")}
+            className={cn(barBtn, "inline-flex items-center gap-1")}
+          >
+            {theme === "light" ? <Sun className="size-3.5" aria-hidden /> : <Moon className="size-3.5" aria-hidden />}
+            <span id="themeLabel" className="hidden sm:inline">{theme}</span>
+          </button>
+        </div>
       </div>
-      <div role="status" aria-live="polite" id="topbarChips" className="hidden md:flex items-center gap-2 min-w-0 overflow-x-auto">
+
+      {/* The producers, unchanged - same ids, same wording, same evidence. They
+          moved out of the always-on row, not out of the product.
+
+          The id below is the one `aria-controls` names. It used to be a fixed
+          literal that the disclosure did NOT point at, so a collapsed
+          disclosure referenced a node that was never the panel - a dangling
+          `aria-controls` that assistive tech reports as broken. The stable
+          `data-testid` is what tests and the evidence scripts key on. */}
+      <div
+        role="status"
+        aria-live="polite"
+        id={statusPanelId}
+        data-testid="topbar-chips"
+        hidden={!statusOpen}
+        className={cn(
+          "flex flex-wrap items-center gap-2 pt-2",
+          !statusOpen && "hidden"
+        )}
+      >
         <Chip id="pillConn" tone={connTone} dot title="Actual result of the last data fetch">
           {connText}
         </Chip>
@@ -164,10 +306,6 @@ function TopBar() {
                   : "This server exposes no /ws endpoint (the PowerShell dashboard server replies ws=false); live progress arrives by HTTP polling every 3s"
           }
         >
-          {/* [F95 §3.4 / R4] "idle (no endpoint)" was the operator's verbatim
-              pill text and it was a dead end: the socket could fail forever and
-              still read "idle". A dead bridge now says DISCONNECTED and offers
-              the one action that fixes it. */}
           {t("activity.websocket")}:{" "}
           {wsLive
             ? "live"
@@ -177,79 +315,9 @@ function TopBar() {
                 ? "idle (retrying)"
                 : "idle (no endpoint)"}
         </Chip>
-        {wsDead ? (
-          <button
-            type="button"
-            id="f95.wsReconnect"
-            data-testid="ws-reconnect"
-            onClick={() => {
-              const _start = performance.now();
-              requestWsReconnect();
-              logButtonAction({
-                feature: "websocket",
-                action: "reconnect",
-                params: {},
-                result: { requested: true },
-                elapsedMs: Math.round(performance.now() - _start),
-              });
-            }}
-            className="px-2 py-0.5 text-xs rounded-md border border-danger/50 text-danger font-medium hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap min-h-[32px]"
-          >
-            {t("activity.wsReconnect")}
-          </button>
-        ) : null}
         <Chip id="pillClock" tone="neutral" dot title="Server-side timestamp of the data below" className="font-mono">
           {t("activity.clock")}: {clockText(serverNow())}
         </Chip>
-      </div>
-      <div className="ml-auto flex items-center gap-1 shrink-0">
-        <a
-          id="classicUiLink"
-          data-testid="classic-ui-link"
-          href={classicUiHref()}
-          rel="noopener"
-          title={t("toggle.classicUi.title")}
-          aria-label={t("toggle.classicUi.label")}
-          className={barBtn}
-        >
-          {t("toggle.classicUi.short")}
-        </a>
-        <button
-          data-testid="topbar-lang-toggle"
-          id="langToggle"
-          type="button"
-          onClick={toggleLang}
-          aria-label={t("toggle.language.label")}
-          className={barBtn}
-        >
-          {lang === "si" ? t("toggle.language.shortEn") : t("toggle.language.shortSi")}
-        </button>
-        <button
-          data-testid="topbar-text-scale-toggle"
-          id="textScaleToggle"
-          type="button"
-          onClick={cycleScale}
-          aria-pressed={scale !== "comfort"}
-          aria-label={t("toggle.scale.label") + ": " + t("toggle.scale." + scale)}
-          title={t("toggle.scale.label") + ": " + t("toggle.scale." + scale)}
-          className={cn(barBtn, "inline-flex items-center gap-1")}
-        >
-          <Type className="size-3.5" aria-hidden />
-          <span id="textScaleLabel">{scale === "comfort" ? "Aa" : scale === "large" ? "A+" : "A++"}</span>
-        </button>
-        <button
-          data-testid="topbar-theme-toggle"
-          id="themeToggle"
-          type="button"
-          onClick={toggleTheme}
-          aria-pressed={theme === "light"}
-          aria-label={t("toggle.theme.label")}
-          title={t("toggle.theme.label")}
-          className={cn(barBtn, "inline-flex items-center gap-1")}
-        >
-          {theme === "light" ? <Sun className="size-3.5" aria-hidden /> : <Moon className="size-3.5" aria-hidden />}
-          <span id="themeLabel" className="hidden sm:inline">{theme}</span>
-        </button>
       </div>
     </GlassContainer>
   );
@@ -293,6 +361,20 @@ const NAV: NavItem[] = [
 ];
 
 /**
+ * [V3-01 / D3] The 11 destinations are GROUPED for scanning. This is a
+ * presentation of the locked list, not a change to it: NAV keeps its 11 entries
+ * in their pinned order and every `nav a` count and href assertion is
+ * unaffected - the groups only add four labelled headings above slices of the
+ * same anchors.
+ */
+const NAV_GROUPS: { id: string; labelKey: string; tos: string[] }[] = [
+  { id: "nav-group-operate", labelKey: "sidebar.group.operate", tos: ["/", "/search"] },
+  { id: "nav-group-access", labelKey: "sidebar.group.access", tos: ["/sessions", "/connections", "/keys"] },
+  { id: "nav-group-data", labelKey: "sidebar.group.data", tos: ["/files", "/mirror"] },
+  { id: "nav-group-system", labelKey: "sidebar.group.system", tos: ["/telemetry", "/health", "/collector", "/settings"] },
+];
+
+/**
  * [R-UX / #214 §5] The phone's PRIMARY bar: 5 slots including "More".
  * There is deliberately no "/downloads" entry — downloads live in the
  * explorer's progress rail and the search fetch card, and #214 forbids
@@ -318,7 +400,6 @@ function Sidebar() {
   // F76 filter). NAV is the locked 9-entry list and every item renders; there is
   // no lane/gate/enabled field left on any entry, so no /diag answer, store
   // field or cached flag can drop an item. Other lanes were never filtered here.
-  const visibleNav = NAV;
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
   // [#214 §4] Escape closes the drawer, Tab is trapped inside it, and focus
@@ -338,13 +419,49 @@ function Sidebar() {
     }
   }, []);
 
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon;
+    // [F76 §2.1] sidebar.* label wins; nav.* stays the translated fallback
+    // when a catalog predates the F76 keys.
+    const label = item.labelKey ? t(item.labelKey, { defaultValue: t(item.key) }) : t(item.key);
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.to === "/"}
+        id={item.id}
+        title={item.hint ? t(item.key) + " (" + item.hint + ")" : undefined}
+        onClick={() => setMobileOpen(false)}
+        className={({ isActive }) =>
+          cn(
+            // [#214 §4] 44px tall rows, and the name stays VISIBLE even
+            // when the desktop sidebar is collapsed - on a touch device
+            // a `title` attribute is not an accessible name.
+            "flex items-center gap-3 px-3 mx-2 rounded-md text-sm min-h-[44px]",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
+            isActive
+              ? "bg-accent/15 text-accent font-semibold shadow-[inset_2px_0_0_0_var(--color-accent)]"
+              : "text-secondary hover:bg-raised/60 hover:text-primary"
+          )
+        }
+      >
+        <Icon className="size-5 shrink-0" aria-hidden />
+        <span className={cn("truncate", collapsed && "lg:hidden")}>{label}</span>
+        {/* Collapsed desktop: the name is still in the accessible name
+            and still in the DOM, so a focus ring lands on something a
+            screen reader can announce. */}
+        {collapsed ? <span className="sr-only lg:not-sr-only lg:hidden">{label}</span> : null}
+      </NavLink>
+    );
+  };
+
   return (
     <>
       <div className={cn("fixed inset-0 z-40 bg-black/50 lg:hidden", mobileOpen ? "block" : "hidden")} onClick={() => setMobileOpen(false)} aria-hidden />
       <GlassContainer
         as="aside"
+        level="overlap"
         surface="nested"
-        variant="tinted"
         radius="none"
         aria-label={t("sidebar.nav")}
         data-testid="sidebar"
@@ -381,39 +498,32 @@ function Sidebar() {
           </div>
         ) : null}
         <nav aria-label={t("sidebar.nav")} className="flex-1 overflow-y-auto py-1 lg:py-3">
-          {visibleNav.map((item) => {
-            const Icon = item.icon;
-            // [F76 §2.1] sidebar.* label wins; nav.* stays the translated fallback
-            // when a catalog predates the F76 keys.
-            const label = item.labelKey ? t(item.labelKey, { defaultValue: t(item.key) }) : t(item.key);
+          {NAV_GROUPS.map((group) => {
+            const items = group.tos
+              .map((to) => NAV.find((n) => n.to === to))
+              .filter((n): n is NavItem => !!n);
+            if (items.length === 0) return null;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                id={item.id}
-                title={item.hint ? t(item.key) + " (" + item.hint + ")" : undefined}
-                onClick={() => setMobileOpen(false)}
-                className={({ isActive }) =>
-                  cn(
-                    // [#214 §4] 44px tall rows, and the name stays VISIBLE even
-                    // when the desktop sidebar is collapsed - on a touch device
-                    // a `title` attribute is not an accessible name.
-                    "flex items-center gap-3 px-3 mx-2 rounded-md text-sm min-h-[44px]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
-                    isActive
-                      ? "bg-accent/15 text-accent font-semibold shadow-[inset_2px_0_0_0_var(--color-accent)]"
-                      : "text-secondary hover:bg-raised/60 hover:text-primary"
-                  )
-                }
-              >
-                <Icon className="size-5 shrink-0" aria-hidden />
-                <span className={cn("truncate", collapsed && "lg:hidden")}>{label}</span>
-                {/* Collapsed desktop: the name is still in the accessible name
-                    and still in the DOM, so a focus ring lands on something a
-                    screen reader can announce. */}
-                {collapsed ? <span className="sr-only lg:not-sr-only lg:hidden">{label}</span> : null}
-              </NavLink>
+              <div key={group.id} data-testid={group.id} className="mb-1">
+                {/* A collapsed rail has no room for a heading, and the group is
+                    still announced: each list carries the group's name through
+                    aria-label, so a screen reader never loses the structure. */}
+                {collapsed ? (
+                  <span className="mx-2 my-1 block h-px bg-border-default lg:block" aria-hidden />
+                ) : (
+                  <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-tertiary">
+                    {t(group.labelKey)}
+                  </p>
+                )}
+                <ul
+                  className="m-0 list-none p-0"
+                  aria-label={collapsed ? t(group.labelKey) : undefined}
+                >
+                  {items.map((item) => (
+                    <li key={item.to}>{renderItem(item)}</li>
+                  ))}
+                </ul>
+              </div>
             );
           })}
         </nav>
@@ -465,8 +575,8 @@ function MobileNav() {
   return (
     <GlassContainer
       as="nav"
+      level="overlap"
       surface="nested"
-      variant="tinted"
       radius="none"
       aria-label={t("nav.primary")}
       data-testid="mobile-nav"
@@ -558,8 +668,8 @@ function BottomBar() {
   return (
     <GlassContainer
       as="footer"
+      level="overlap"
       surface="nested"
-      variant="tinted"
       radius="none"
       role="contentinfo"
       data-testid="app-bottombar"
@@ -667,32 +777,36 @@ export function AppShell() {
   }, [navigate]);
 
   return (
-    // [R-GLASS] `relative z-[1]` lifts the whole shell above the fixed
-    // decorative backdrop (.app-backdrop is z-index 0).
-    <div className="relative z-[1] flex min-h-[100dvh] flex-col text-primary">
+    // [V3-01] The outer element no longer needs a z-index of its own: the
+    // backdrop stack (field z 0, sheet z 1) is fixed and the shell content is
+    // lifted above it with one `relative z-[2]` wrapper, so every inner
+    // z-index keeps the meaning it already had.
+    <div className="relative flex min-h-[100dvh] flex-col text-primary">
       <AppBackdrop />
-      <a href="#main" className="skip-link">
-        {t("app.skipToMain")}
-      </a>
-      <TopBar />
-      {/* [F93 §2.1] Logon gate banner: top of EVERY route, self-hiding once a
-          type-10 4624 is observed (no dismiss, no stale opt-out).
-          [M2 §2.3] Fenced: a crashing banner used to blank the page it warns
-          about. The bottom bar's last-logon row still reports the same fact. */}
-      <ChromeBoundary surface="logon-banner">
-        <LogonGateBanner />
-      </ChromeBoundary>
-      <div className="flex flex-1 min-h-0">
-        <Sidebar />
-        <Main />
+      <div className="relative z-[2] flex min-h-[100dvh] flex-col">
+        <a href="#main" className="skip-link">
+          {t("app.skipToMain")}
+        </a>
+        <TopBar />
+        {/* [F93 §2.1] Logon gate banner: top of EVERY route, self-hiding once a
+            type-10 4624 is observed (no dismiss, no stale opt-out).
+            [M2 §2.3] Fenced: a crashing banner used to blank the page it warns
+            about. The bottom bar's last-logon row still reports the same fact. */}
+        <ChromeBoundary surface="logon-banner">
+          <LogonGateBanner />
+        </ChromeBoundary>
+        <div className="flex flex-1 min-h-0">
+          <Sidebar />
+          <Main />
+        </div>
+        <BottomBar />
+        <MobileNav />
+        {/* [M2 §2.3] Fenced: Ctrl+K is a convenience, not the way home - every
+            route stays reachable from the sidebar and the Alt+E/Alt+F hotkeys. */}
+        <ChromeBoundary surface="command-palette">
+          <CommandPalette />
+        </ChromeBoundary>
       </div>
-      <BottomBar />
-      <MobileNav />
-      {/* [M2 §2.3] Fenced: Ctrl+K is a convenience, not the way home - every
-          route stays reachable from the sidebar and the Alt+E/Alt+F hotkeys. */}
-      <ChromeBoundary surface="command-palette">
-        <CommandPalette />
-      </ChromeBoundary>
     </div>
   );
 }

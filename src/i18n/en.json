@@ -28,7 +28,13 @@
     "searchLab": "Lab",
     "health": "Health",
     "collector": "Collector",
-    "close": "Close navigation"
+    "close": "Close navigation",
+    "group": {
+      "operate": "Operate",
+      "access": "Access",
+      "data": "Data",
+      "system": "System"
+    }
   },
   "actions": {
     "autoLogin": "WINDOWS AUTO-LOGIN",
@@ -296,18 +302,22 @@
     "sessions": {
       "title": "Sessions",
       "activeRunner": "Active runner",
-      "ticketAudit": "Ticket audit"
+      "ticketAudit": "Ticket audit",
+      "purpose": "The current runner session, its logon events and the ticket audit."
     },
     "connections": {
-      "title": "Connections"
+      "title": "Connections",
+      "purpose": "Launch, copy and diagnose the RDP connection."
     },
     "mirrorPage": {
       "title": "Mirror",
       "history": "Upload history",
-      "egress": "Runner egress bandwidth (7-day rolling)"
+      "egress": "Runner egress bandwidth (7-day rolling)",
+      "purpose": "Runner-side upload mirroring and its read-only transport matrix."
     },
     "telemetryPage": {
-      "title": "Telemetry"
+      "title": "Telemetry",
+      "purpose": "Event timelines and the raw log streams behind them."
     },
     "settings": {
       "title": "Settings",
@@ -315,7 +325,23 @@
       "language": "Language",
       "textScale": "Text scale",
       "theme": "Theme",
-      "migration": "Migration notes (F38 → v2)"
+      "migration": "Migration notes (F38 → v2)",
+      "purpose": "Appearance, glass quality, sources, storage and developer surfaces."
+    },
+    "overview": {
+      "purpose": "Connect, work and diagnose from one screen."
+    },
+    "keys": {
+      "title": "Keys & Secrets",
+      "purpose": "Protected access. Values stay masked until you reveal them."
+    },
+    "health": {
+      "title": "Health",
+      "purpose": "Every self-test check, with the one-cell fix for each failing row."
+    },
+    "collector": {
+      "title": "Collector",
+      "purpose": "Live feature probes, on demand or on the 1/5 minute schedule."
     }
   },
   "egress": {
@@ -477,7 +503,8 @@
       "unknownSize": "Size unknown",
       "unknownDate": "Date unknown",
       "previewUnavailable": "Preview unavailable",
-      "contentType": "Content type"
+      "contentType": "Content type",
+      "shown": "{{shown}} of {{total}} shown"
     },
     "actions": {
       "fetch": "Fetch",
@@ -907,12 +934,25 @@
       "summary": "No results: {{failed}} of {{total}} sources failed",
       "summaryWithRateLimit": "No results: {{failed}} of {{total}} sources failed, {{rateLimited}} rate-limited",
       "viewSources": "View source status"
+    },
+    "phase": {
+      "idle": "Ready",
+      "queued": "Queued",
+      "running": "Searching",
+      "partial": "Partial",
+      "complete": "Complete",
+      "empty": "No results",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
     }
   },
   "files": {
     "page": {
       "title": "File Explorer",
-      "description": "Shell preview; real file operations arrive in F57."
+      "description": "Real operations on the watcher roots, with an optimistic queue and 30-day soft delete.",
+      "purpose": "Real operations on the watcher roots, with an optimistic queue and 30-day soft delete.",
+      "readOnly": "Read-only",
+      "readWrite": "Read / write"
     },
     "tree": {
       "label": "Explorer tree"
@@ -1455,7 +1495,9 @@
       "none": "all clear",
       "count": "{{n}} open",
       "allClear": "No actionable issues right now. Probes are still running; this list fills in when a producer reports a failure.",
-      "diagnose": "Diagnose"
+      "diagnose": "Diagnose",
+      "showAll": "Show all {{n}}",
+      "showFewer": "Show fewer"
     },
     "activity": {
       "title": "Activity",
@@ -1488,7 +1530,9 @@
     "requested": "Launch requested",
     "launched": "Launcher ran (not yet connected)",
     "connected": "Connected",
-    "failed": "Connection failed"
+    "failed": "Connection failed",
+    "historical": "Login seen, before this run",
+    "unverified": "Logon evidence unverified"
   },
   "issues": {
     "severity": {
@@ -1536,5 +1580,34 @@
       "connFailed": "Re-issue the credential with Fix reconnect.",
       "sessionExpired": "Re-dispatch the run; the window cannot be extended from the browser."
     }
+  },
+  "topbar": {
+    "status": {
+      "label": "Live status",
+      "live": "Live",
+      "lost": "Poll lost",
+      "socketDown": "Socket down",
+      "socketIdle": "Socket idle",
+      "socketAbsent": "No /ws endpoint",
+      "detail": "Status detail"
+    }
+  },
+  "health": {
+    "probing": "Probing…",
+    "unreachable": "Self-test unreachable",
+    "unreachableDetail": "The dashboard could not read /api/f92-selftest. Re-dispatch main.yml, then reload."
+  },
+  "about": {
+    "title": "About this build",
+    "buildServed": "Build identity",
+    "servedEqualsBuilt": "served = built",
+    "servedDiffersBuilt": "served differs from built",
+    "unknown": "unknown",
+    "notChecked": "not checked",
+    "recheck": "Re-check",
+    "artifact": "Artifact",
+    "sourceRev": "Source revision",
+    "backendRelease": "Backend release",
+    "hint": "The served stamp is read from the running page. The backend release is only read when you press Re-check."
   }
 }

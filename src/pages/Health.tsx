@@ -4,6 +4,10 @@
 // secret, icacls grant, re-dispatch) so the next iteration is surgical, never
 // a rebuild. Polls every 15s while the tab is open.
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Activity } from "lucide-react";
+import { PageHeader } from "@/components/primitives/PageHeader";
+import { Chip } from "@/components/primitives/Chip";
 import { apiBase } from "@/lib/api";
 import { F92_FRONTEND_SHA } from "@/lib/f92";
 
@@ -38,6 +42,7 @@ export function f92First(c: F92Check[] | F92Check | undefined): F92Check | undef
 }
 
 export function HealthPage() {
+  const { t } = useTranslation();
   const [d, setD] = useState<F92Health | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -61,13 +66,38 @@ export function HealthPage() {
       clearInterval(h);
     };
   }, []);
+  // [V3-05] Health is a route like any other: it gets the shared page header,
+  // and its two early states are honest pages rather than a bare mono div.
   if (err)
     return (
-      <div data-testid="health-error" className="p-4 bg-red-600 text-white font-mono">
-        Self-test unreachable: {err}. Re-dispatch main.yml.
+      <div data-testid="health-page" data-overall="unreachable">
+        <PageHeader
+          icon={<Activity className="size-4" aria-hidden />}
+          title={t("pages.health.title")}
+          subtitle={t("pages.health.purpose")}
+          testId="page-health"
+          status={<Chip id="page-health-state" tone="danger">{t("health.unreachable")}</Chip>}
+        />
+        <div data-testid="health-error" className="rounded-md border border-danger/50 bg-danger/10 p-3 font-mono text-xs text-danger">
+          {t("health.unreachable")}: {err}. {t("health.unreachableDetail")}
+        </div>
       </div>
     );
-  if (!d) return <div className="p-4 font-mono">Probing…</div>;
+  if (!d)
+    return (
+      <div data-testid="health-page" data-overall="probing">
+        <PageHeader
+          icon={<Activity className="size-4" aria-hidden />}
+          title={t("pages.health.title")}
+          subtitle={t("pages.health.purpose")}
+          testId="page-health"
+          status={<Chip id="page-health-state" tone="neutral">{t("health.probing")}</Chip>}
+        />
+        <div data-testid="health-probing" className="rounded-md border border-default p-3 font-mono text-xs text-secondary">
+          {t("health.probing")}
+        </div>
+      </div>
+    );
   // [F106 §10] GUARDED: a 200 body without `checks` used to throw here
   // (`d.checks["version:match"]`), which blanked the section. The lab found it the
   // first time a section was mounted against a forced empty body - the same shape a
@@ -82,7 +112,27 @@ export function HealthPage() {
     .sort();
   const sys = ["launcher:status", "download:writable", "streaming:proxy", "version:match"];
   return (
-    <div className="p-4 font-mono" data-testid="health-page" data-overall={d.status ?? "unknown"}>
+    <div data-testid="health-page" data-overall={d.status ?? "unknown"}>
+      <PageHeader
+        icon={<Activity className="size-4" aria-hidden />}
+        title={t("pages.health.title")}
+        subtitle={t("pages.health.purpose")}
+        testId="page-health"
+        status={
+          <>
+            <Chip
+              id="page-health-state"
+              tone={d.status === "pass" ? "success" : d.status === "warn" ? "warning" : "danger"}
+            >
+              {String(d.status ?? "unknown")}
+            </Chip>
+            <Chip id="page-health-release" mono>
+              {String(d.releaseId ?? "?").slice(0, 7)}
+            </Chip>
+          </>
+        }
+      />
+      <div className="font-mono">
       <div data-testid="health-version-banner" className={`p-3 ${banner}`}>
         Backend {String(d.releaseId ?? "?").slice(0, 7)} · Frontend {F92_FRONTEND_SHA.slice(0, 7)} · overall{" "}
         {d.status}
@@ -138,7 +188,8 @@ export function HealthPage() {
             );
           })}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 }

@@ -38,6 +38,7 @@ export function Chip({
   children,
   id,
   title,
+  ...rest
 }: {
   tone?: Tone;
   dot?: boolean;
@@ -46,12 +47,13 @@ export function Chip({
   children: React.ReactNode;
   id?: string;
   title?: string;
-}) {
+} & React.HTMLAttributes<HTMLSpanElement>) {
   const r = resolveTone(tone);
   return (
     <span
       id={id}
       title={title}
+      {...rest}
       className={cn(
         "inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium whitespace-nowrap",
         r === "neutral" && "bg-raised text-secondary",

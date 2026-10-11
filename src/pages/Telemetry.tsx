@@ -7,15 +7,18 @@ import { Tabs } from "@/components/primitives/Collapse";
 import { TelescopeTimeline } from "@/components/domain/TelescopeTimeline";
 import { LauncherBeaconViewer } from "@/components/domain/LauncherBeaconViewer";
 import { LogonEventsTable, SchannelTable, BeaconJsonlViewer } from "@/components/domain/LogPanel";
+import { PageHeader } from "@/components/primitives/PageHeader";
 
 export default function Telemetry() {
   const { t } = useTranslation();
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <Zap className="size-5 text-accent" aria-hidden />
-        <h2 className="text-xl font-semibold">{t("pages.telemetryPage.title")}</h2>
-      </div>
+      <PageHeader
+        icon={<Zap className="size-4" aria-hidden />}
+        title={t("pages.telemetryPage.title")}
+        subtitle={t("pages.telemetryPage.purpose")}
+        testId="page-telemetry"
+      />
 
       <Card title={t("telescope.title")} className="mb-4">
         <TelescopeTimeline />

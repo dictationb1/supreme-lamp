@@ -276,3 +276,149 @@ annotation `R2-VISUAL-FILES` lists the captured `r2-*.png` at job `114389952590`
 does not close it. Acceptance remains: the real scanner boundary blocked while the
 Windows server keeps answering health and authenticated read-only requests inside
 budget, with bounded workers, consistent snapshots and cleanup.
+
+---
+
+## Mission Control v3 — all-screen UI upgrade (session 2026-10-11, branch `arena/403ecbde-supreme-lamp`)
+
+**Canonical tracking: issue [#225](https://github.com/dekarita/supreme-lamp/issues/225).**
+
+The v3 plan is a suite of four documents under `docs/mission-control/v3/` — this tracker indexes
+them and does not compete with them:
+
+| Document | Owns |
+|---|---|
+| [`v3/MASTER-PLAN.md`](v3/MASTER-PLAN.md) | sections A–M: refreshed source model, requirement mapping, IA, component reuse/replacement decisions, material/typography/spacing spec, data contracts, a11y, budgets, packages V3-01…V3-08, PR strategy, exclusions |
+| [`v3/SCREEN-STATE-MATRIX.md`](v3/SCREEN-STATE-MATRIX.md) | 11 primary routes + 4 lab routes + catch-all + 17 shared overlays × 10 states |
+| [`v3/DESIGN-SYSTEM.md`](v3/DESIGN-SYSTEM.md) | level model + published blur/alpha/border/saturation/radius values, each classified |
+| [`v3/VERIFICATION-RELEASE.md`](v3/VERIFICATION-RELEASE.md) | evidence classes, gates, test method, visual capture, build identity, activation + rollback |
+| [`v3/TRACKING-ISSUE-225.md`](v3/TRACKING-ISSUE-225.md) | the prepared #225 body, kept in-repo because the GitHub integration cannot edit issues from this session |
+
+### Why v3 exists (defects located in source, not inherited statuses)
+
+| ID | Defect |
+|---|---|
+| D1 | `NESTED_FILL_FLOOR = 0.86` collapses Tinted and Clear onto the same pixel on every nested surface (at the default clarity both compute below the floor). Only the TopBar sampled the backdrop, so the Tinted/Clear control changed ~56 px of chrome. Documented as shipped in `R2-DESIGN-TOKENS.md` rows 74–80 |
+| D2 | One blurred bar is not a glass workspace — every content panel is a nested 0.86 plate |
+| D3 | Dense TopBar: 4 status chips + Reconnect + clock + 4 controls on one row |
+| D4 | 10 of 11 routes have no shared page identity (ad-hoc `<h2>` + `Card` stacks) |
+| D5 | `deriveConnectionState()` calls a 4624 "connected" with no freshness and no current-run validation |
+
+### Fix in one paragraph
+
+One shared sampling surface — the **app glass sheet** (fixed, `aria-hidden`, z-index 1, between the
+decorative field and the shell content) — carries the Tinted/Clear and clarity difference; the
+sidebar/bars (`overlap`), cards (`card`) and rows (`row`) add constant additive deltas so the
+difference survives into the content; overlays keep their own sampler and a high fill floor because
+content scrolls behind them. Steady-state `backdrop-filter` count stays at **1**.
+
+### Note on the previous session
+
+An earlier v3 session worked on branch `arena/5fe3bfee-supreme-lamp`, which was never pushed and no
+longer exists on the remote. Its code work is unrecoverable; its findings were re-verified against
+source before reuse. This tracker records only what is reproducible from the current tree.
+
+## Mission Control v3 — `e2e-ui` root cause and the header height budget (session 2026-10-11, branch `arena/88d52e64-supreme-lamp`)
+
+**Continues [#225](https://github.com/dekarita/supreme-lamp/issues/225); succeeds PR [#226](https://github.com/dekarita/supreme-lamp/pull/226).**
+Full write-up: [`v3-e2e-ui-ROOT-CAUSE.md`](v3-e2e-ui-ROOT-CAUSE.md). Sinhala addendum: [`v3/VAAHANA-225.md`](v3/VAAHANA-225.md) §10.
+
+### Why this session is on a different branch
+
+This session is bound to `arena/88d52e64-supreme-lamp`, whose starting tree (`881f26b`) contained none
+of the v3 work, and it cannot push to PR #226's head branch. The operator chose to carry the v3 delta
+onto this branch and open a successor PR. Verified before applying, not assumed: `881f26b`,
+`origin/main` (`a26aa9c`) and the v3 base `acb27c8` differ **only** by the bot-maintained
+`docs/status.json` timestamp, so no `main` work is lost; the 67-file delta does not touch that file;
+applied as a 3-way `git diff --binary acb27c8 07e04a7`, every hunk clean; the resulting tree equals
+`07e04a7` plus `docs/status.json` plus the write-up.
+
+### The failure, named without the step log
+
+`gh run view --log` is unusable from an agent sandbox, but the lane's own **check-run annotations**
+are readable — the channel `tests/f203-e2e-lane.test.js` rule F203-f exists to guarantee:
+
+```
+gh api repos/dekarita/supreme-lamp/check-runs/114420650385/annotations
+  → F79-E2E-FAIL1:: tests/e2e/r2-visual.spec.ts:67:9 › 1. Overview at phone (390x844)
+    Error: the header must be compact, not a hero :: Expected: < 80 | Received: 84
+```
+
+Exactly one spec failed. Run `38122739344`, job `114420650385`, SHA `07e04a7`, step 8.
+
+### Defect D6 — the page header had no height budget outside English
+
+| | |
+|---|---|
+| Defect | V3-01's shared `PageHeader` puts title + live status + actions in **one `flex-wrap` row** with a purpose line beneath it. At 390 px that row had **2 px of slack** (the actions link ended at `x=374` against a 16 px gutter), so any font-metric difference wrapped it: `20 + 8 + 36 = 64` title row, `+4` gap, `+16` purpose = **84 px**. That is why every local run was green while the lane was red |
+| Worse | In Sinhala the same header wraps with **no** font difference at all: `64 + 4 + 32` = **100 px**, 25% over budget on every browser. Nothing caught it because `r2-visual.spec.ts` never sets `ghrdp:lang` |
+| Gate verdict | The R2 `<80` invariant is **correct and untouched**. `DESIGN-SYSTEM.md` specifies a conformant header as one 36 px control row `+4` + purpose = 56 px; both 84 and 100 come from an unintended extra row. Raising the ceiling to 85 would have been changing a threshold after measurement to hide a regression |
+| Fix | `PageHeader`: purpose line bounded to two lines (`line-clamp-2`), full text still in the DOM and exposed via `title`. `OverviewHeader`: below `sm` the painted presentation summary is withdrawn and the link becomes icon-only (`sr-only … sm:not-sr-only`), the summary joining the link's `aria-label` so nothing is lost to a phone or screen-reader user. No i18n key added or removed — the 1213 flat-key parity lock is untouched |
+
+### Measured, on the built bundle (Chromium 153)
+
+| Catalog | viewport | header | actions wrapped | `<80` | slack before actions |
+|---|---|---|---|---|---|
+| en | phone 390×844 | 56 (was 56) | no | pass | **2 px → 151 px** |
+| si | phone 390×844 | **72** (was 100) | no | pass | negative → **100 px** |
+| en/si | phoneLandscape · tablet · desktop | 56 | no | pass | — |
+
+All 8 viewport × catalog combinations under budget, `overflowX = 0` everywhere. Independently
+corroborated by `scripts/v3-screenshots.cjs` on the rebuilt bundle: `07-overview-mobile`
+`.docHeight` **2555 → 2527 (−28 px)**, exactly the wrap delta; its `bodyText` **unchanged**
+(withdrawn from paint, not from the document); `variantProof` **byte-identical** to the committed
+evidence (sheet 0.745→0.61, card 0.824→0.69, Δ0.135), so the glass material system is unaffected.
+
+### New gate, with regression evidence
+
+`tests/e2e/v3-header-budget.spec.ts`, 9 tests, the **same** hard-coded `<80` ceiling — a budget
+re-derived from the current build is not a budget. Pins the height; the wrap mechanism directly; that
+the header was not made small by **deletion**; that the withdrawn summary survives in the DOM and in
+the accessible name; no overflow; and that `html[lang]` really follows the requested catalog.
+
+Reverting both component files to their `07e04a7` state and rebuilding fails **all 9**, `si/phone`
+failing on the height budget itself. Honest caveat: the EN phone *height* assertion does not fail
+locally when reverted (56 px in this sandbox) — the EN 84 px reproduces only on the CI runner's
+Chromium, and locally the EN case is caught by the accessible-name, `title` and paint assertions.
+
+### Gates on the fix commit
+
+| Gate | Result |
+|---|---|
+| `pnpm run build` (tsc + vite) | PASS — `ui/dist/index.html` 1,201.80 kB |
+| `pnpm exec vitest run` | PASS — 103 files / 1351 tests, 0 fail |
+| `node --test tests/*.test.js` | PASS — 835 tests, 809 pass, 26 skip, 0 fail |
+| `node scripts/check-glass-contrast.mjs` | PASS — 1432 composited checks, worst text 4.97:1, worst control 5.14:1 |
+| `pnpm run e2e` (`CI=true`) | PASS — **144 passed, 11 skipped, 0 failed** (5.0 m) |
+
+`144 = 135` baseline at `07e04a7` `+ 9` new. The baseline vitest, node and contrast numbers are
+unchanged, so nothing was traded away for this fix.
+
+### Environment repair, and the dependency surface
+
+`@sparticuz/chromium`'s Lambda arg list kills Chromium 153 under puppeteer-core 25 before the CDP
+handshake (WS close 1006 → a 30 s `Target.setDiscoverTargets` timeout); both the raw `mod.args` and
+`mod.args` minus `--single-process` fail. `scripts/v3-screenshots.cjs` now passes an explicit
+documented arg list with **no silent fallback chain**, so a pixel sample can never come from a
+half-initialised compositor. Neither `@sparticuz/chromium` nor `puppeteer-core` was added to
+`package.json` or `pnpm-lock.yaml`; both were installed outside the tree and symlinked into the
+gitignored `node_modules`, leaving the PR dependency surface and CI's `--frozen-lockfile` unchanged.
+
+### Status labels (kept separate, never collapsed)
+
+| Status | Value |
+|---|---|
+| `PLAN_READY` | met |
+| `UI_IMPLEMENTED` | met — V3-01…V3-06 plus the header height budget |
+| `BROWSER_VERIFIED` | **partial** — Chromium viewport + UA emulation across 8 combinations. `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium is not an iPhone |
+| `UI_VISUALLY_REVIEWED` | **operator required** — the agent cannot see images; every visual claim comes from `measurements.json` and computed geometry |
+| `CI_VERIFIED` | **met at SHA `8d9d390d`** — PR #227, **10/10 checks PASS**: `e2e-ui` 6m21s (step 8, the exact step that failed at `07e04a7`, now `success`), `gates` 4m34s, `windows-native` 12m4s, `build-ui-prebuilt` 45s, `proof` 4m38s, 4 labs. The green `e2e-ui` job emitted **zero** `F79-E2E-FAIL` / `F79-E2E-TALLY` annotations. Correction to a pre-push claim of mine: `autologin-lab.yml`'s push path filter does include `src/**`, so that Windows lane ran too — verified harmless (ephemeral `windows-latest`, synthetic `*.tailnet-lab.ts.net` FQDNs mapped to loopback, fixture IP `100.118.42.7`; the live host `100.125.76.40` appears nowhere in it, no `self-hosted` label, no `RunCommand`). It passed |
+| `DEPLOYED` / `LIVE_VERIFIED` | not started |
+
+### Still open, unchanged by this session
+
+**V3-03** Sinhala copy parity for the Settings section headings and About/provenance labels
+(English-only by deliberate choice, not yet revisited) · **V3-04** the 5,000-file File Explorer
+populated-dataset contract · **V3-07** real-device evidence · **V3-08** perf budget, **NOT_MEASURED**
+— no CPU throttling and no low-end device was used. F45-B / yt-dlp were not touched and are not
+claimed. No workflow was dispatched, merged, closed or deployed; no RDP session was restarted.

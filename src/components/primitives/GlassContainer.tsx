@@ -1,6 +1,6 @@
-// [R-GLASS / #213 §6] GlassContainer — the ONE component that owns a glass
-// surface. Nothing else in the app may write `backdrop-filter`, which is what
-// keeps the compositor layer count auditable (the browser lab counts them).
+// [R-GLASS / #213 §6 → V3-01] GlassContainer — the ONE component that owns a
+// glass surface. Nothing else in the app may write `backdrop-filter`, which is
+// what keeps the compositor layer count auditable (the browser lab counts them).
 //
 // ADAPTED FROM (Flutter, MIT — facts, not source):
 //   SpotiFLAC-Mobile @ a434e66fa8f30fd8489ee16e3d5d37b492f88edc
@@ -9,13 +9,17 @@
 //     sampling — "child controls paint on this surface; never re-blur their
 //     parent."  -> the `GlassBackdropScope` context below.
 //   * clarity is one clamped, QUANTIZED 0..1 value  -> quantizeClarity().
-//   * nested surfaces never sample again            -> surface="nested".
+//   * nested surfaces never sample again            -> non-sampling levels.
 //   * tint is paint, not a saturation filter        -> alpha on
 //     background-color, never `opacity` on the element.
 //
 // NOT ported: the Impeller refraction shader (`liquid_glass_easy`). CSS has no
 // equivalent, and faking it with stacked filters would cost more GPU passes
 // than it buys (#213 §5).
+//
+// [V3-01] THE LEVEL API. `level` decides the paint; the old flat nested floor
+// is gone (see src/lib/glass/quality.ts). `surface` is kept for compatibility
+// with pre-v3 call sites and still forces paint-only when it is "nested".
 import React, { createContext, useContext, useMemo } from "react";
 import { cn } from "@/lib/cn";
 import { useGlassStore } from "@/stores/prefsStore";
@@ -25,6 +29,7 @@ import {
   DEFAULT_QUALITY,
   glassPaint,
   quantizeClarity,
+  type GlassLevel,
   type GlassQuality,
   type GlassSurface,
   type GlassVariant,
@@ -52,18 +57,31 @@ export function useInsideGlassBackdrop(): boolean {
   return useContext(GlassBackdropScope);
 }
 
-export type { GlassQuality, GlassVariant, GlassSurface };
+export type { GlassQuality, GlassVariant, GlassSurface, GlassLevel };
 
 type GlassTagName = "div" | "section" | "nav" | "aside" | "header" | "footer" | "ul" | "li" | "span" | "article" | "form";
 
 export interface GlassContainerProps extends React.HTMLAttributes<HTMLElement> {
-  /** tinted = menu/popover/strong fill; clear = chrome that shows the backdrop hue. */
+  /** tinted = a stronger fill; clear = more of the ambient field shows through. */
   variant?: GlassVariant;
   /**
-   * "backdrop" = this element may own the one shared backdrop filter.
-   * "nested"   = paint on the parent's surface; never re-sample.
-   * NOTE: this is a RENDERING prop. It is deliberately NOT called `role`,
-   * so the HTML/ARIA role attribute stays free for real semantics.
+   * Where this surface sits in the material stack. This is what decides the
+   * fill, the border and whether the element may sample the backdrop:
+   *   sheet    the ONE shared sampling surface per region (the app glass sheet)
+   *   overlap  chrome painted on the sheet (top bar, sidebar, status bars)
+   *   card     content panels
+   *   row      rows and strips inside a card
+   *   overlay  transient surfaces over scrolling content (palette, drawers,
+   *            modals, toasts) — may sample, and keeps a fill floor
+   * NOTE: this is a RENDERING prop. It is deliberately NOT called `role`, so
+   * the HTML/ARIA role attribute stays free for real semantics.
+   */
+  level?: GlassLevel;
+  /**
+   * "backdrop" = this element may own a backdrop filter (if its level allows).
+   * "nested"   = paint on the parent's surface; never sample.
+   * Pre-v3 compatibility prop: a descendant of a sampling surface is forced
+   * to "nested" regardless, which is the load-bearing rule of the system.
    */
   surface?: GlassSurface;
   /** 0..1. Snapped to a step; never animated continuously. */
@@ -89,6 +107,7 @@ export const GlassContainer = React.forwardRef<HTMLElement, GlassContainerProps>
   function GlassContainer(
     {
       variant: variantProp,
+      level: levelProp,
       surface: surfaceProp = "backdrop",
       clarity: clarityProp,
       quality: qualityProp,
@@ -111,28 +130,33 @@ export const GlassContainer = React.forwardRef<HTMLElement, GlassContainerProps>
     const variant = variantProp ?? prefVariant;
     const requested = qualityProp ?? prefQuality ?? DEFAULT_QUALITY;
     const clarity = quantizeClarity(clarityProp ?? prefClarity ?? DEFAULT_CLARITY);
-    // A descendant of a backdrop surface NEVER samples again, whatever it was
+    // Pre-v3 call sites pass `surface` only; honour it when no level is given.
+    const level: GlassLevel = levelProp ?? (surfaceProp === "backdrop" ? "sheet" : "card");
+    // A descendant of a sampling surface NEVER samples again, whatever it was
     // asked for. This is the load-bearing line of the whole system.
     const surface: GlassSurface = !escapeScope && insideGlass ? "nested" : surfaceProp;
 
     const paint = useMemo(
-      () => glassPaint({ requested, variant, surface, clarity, env }),
-      [requested, variant, surface, clarity, env]
+      () => glassPaint({ level, requested, variant, surface, clarity, env }),
+      [level, requested, variant, surface, clarity, env]
     );
 
     const styleVars: React.CSSProperties = {
       ["--glass-alpha" as string]: String(paint.fillAlpha),
       ["--glass-blur" as string]: paint.blurPx + "px",
       ["--glass-border-alpha" as string]: String(paint.borderAlpha),
+      ["--glass-highlight" as string]: String(paint.highlightAlpha),
+      ["--glass-saturate" as string]: String(paint.saturate),
       ["--glass-radius" as string]: RADIUS_VAR[radius],
       ...style,
     };
 
     return (
-      <GlassBackdropScope.Provider value={surface === "backdrop" ? true : insideGlass}>
+      <GlassBackdropScope.Provider value={surface === "backdrop" && paint.samples ? true : insideGlass}>
         <Tag
           ref={ref as React.Ref<never>}
           data-glass="1"
+          data-glass-level={level}
           data-glass-surface={surface}
           data-glass-variant={variant}
           data-glass-quality={paint.quality}

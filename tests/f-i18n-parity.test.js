@@ -86,7 +86,8 @@ const SI_FILE = "src/i18n/si.json";
 // the 21 glass.* keys), added to BOTH catalogs in the same commit as the shell,
 // the Settings controls and the glass lab that call them. 1050 + 24 = 1074.
 // [R2] moved 1074 -> 1160 for R2 (#191/#213/#214): +86 keys in BOTH catalogs - overview.* (redesigned Overview: header/connect/workspace/troubleshoot/activity/advanced), connState.* (the six honest connection states) and issues.* (area/symptom/action/severity/freshness/cause). en and si are byte-identical in key set with no empty value.
-const EXPECTED_FLAT_KEYS = 1160;
+// [V3-01] moved 1160 -> 1184 for Mission Control v3: +24 keys in BOTH catalogs - sidebar.group.* (the four grouped-navigation headings), topbar.status.* (the one glanceable worst-state indicator + its disclosure label), pages.*.purpose (the shared PageHeader subtitle on every route), pages.keys.title / pages.health.title / pages.collector.title (three routes that had no title key of their own) and files.page.purpose. en and si are byte-identical in key set with no empty value.
+const EXPECTED_FLAT_KEYS = 1213;
 
 // Legacy untranslated si values (byte-identical to en). Frozen deliberately:
 // operator-owned copy that predates this step (mirrorHostMatrix/*, egress.line,

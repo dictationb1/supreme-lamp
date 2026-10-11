@@ -47,8 +47,8 @@ export function CommandPalette() {
     <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-24 p-4" onClick={() => setOpen(false)}>
       <GlassContainer
         id="f56.search.paletteCommand"
+        level="overlay"
         surface="backdrop"
-        variant="tinted"
         radius="overlay"
         escapeScope
         role="dialog"
