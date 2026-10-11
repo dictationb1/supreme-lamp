@@ -1,0 +1,51 @@
+{
+  "_comment": "[R2 §8] Deterministic lab fixture for the Overview surface. Every value is SYNTHETIC: the host is an RFC 2606 reserved name, the user is a placeholder, no credential, token, personal link or real IP appears here. The mock serves this from /api/native-status so the Overview renders a POPULATED state instead of the honest-empty one, and so the CI visual lane has something real to photograph.",
+  "fqdn": "lab-runner-ghrdp.tail1.ts.net",
+  "user": "labuser",
+  "ip": "100.64.0.7",
+  "runnerResolvedIP": "100.64.0.7",
+  "runnerDnsOk": true,
+  "runnerEgressIp": "203.0.113.24",
+  "certBound": true,
+  "certNotAfter": "2027-04-01T00:00:00Z",
+  "nlaOn": true,
+  "listenerOkFlag": true,
+  "webdeskUrl": "http://100.64.0.7:7333/vnc.html",
+  "probeReasons": {},
+  "rdpListener": {
+    "listening": true,
+    "firewall": true,
+    "cert": true,
+    "nla": true,
+    "credsspLive": "ok",
+    "credsspLiveWhy": "",
+    "credsspWhy": "",
+    "authLast": {
+      "result": "success",
+      "eventTs": "2026-10-11T03:52:10Z",
+      "scanTs": "2026-10-11T03:55:00Z",
+      "logonType": "10",
+      "logonKind": "RemoteInteractive",
+      "sub": "",
+      "subMeaning": "",
+      "windowStart": "2026-10-11T03:25:00Z"
+    },
+    "logonCollector": {
+      "alive": true,
+      "uptimeSec": 1840
+    }
+  },
+  "handlerChain": [],
+  "mirrorIndexUrl": "https://example.invalid/mirror/",
+  "legacyIndexUrl": "https://example.invalid/legacy/",
+  "rentryNewUrl": "",
+  "telegraphUrl": "",
+  "decryptUrl": "https://example.invalid/decrypt",
+  "archiveUrl": "https://example.invalid/archive",
+  "searchUrl": "https://example.invalid/search",
+  "explorerUrl": "https://example.invalid/explorer",
+  "legacyKey": "LAB-LEGACY-PLACEHOLDER",
+  "authEvents": [],
+  "connLog": [],
+  "telescope": []
+}

@@ -21,6 +21,9 @@ const readJson = (name) => JSON.parse(readFileSync(join(HERE, name), "utf8"));
  *  drift from the list the operator types by hand. */
 const F87_SITES = readJson("f85-sites.json").sites.map((s) => String(s).toLowerCase());
 
+/** [R2 §8] The Overview surface fixture (see the /api/native-status route). */
+const OVERVIEW_NATIVE = readJson("overview-native.json");
+
 /** [F87 §B.1] hostname -> operator site. Lowercase, "www." stripped, exact match
  *  against the eleven; "" when the host is not one of them. */
 function f87SiteOfHost(hostname) {
@@ -874,6 +877,67 @@ const server = createServer(async (req, res) => {
     }
     res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": "2048", "Access-Control-Allow-Origin": "*" });
     res.end(Buffer.alloc(2048, 7));
+    return;
+  }
+
+  // ---------------------------------------------------------------------
+  // [R2 §8] The Overview surface. Before this block the mock answered only the
+  // search/explorer routes, so the redesigned Overview rendered its honest-empty
+  // state and the CI visual lane had nothing populated to photograph. These
+  // routes serve tests/e2e/fixtures/overview-native.json - a fully SYNTHETIC
+  // fixture (RFC 2606 host, placeholder user, no credential, token, personal
+  // link or real address).
+  //
+  // The values are deliberately chosen so the Overview exercises the states the
+  // redesign is supposed to distinguish: a SUCCESSFUL interactive 4624 (so
+  // connState resolves to "connected" from real logon evidence, not from a green
+  // WebSocket pill), a live logon collector, and a fresh scan timestamp.
+  // ---------------------------------------------------------------------
+  if (path === "/api/config") {
+    send(res, 200, {
+      fqdn: OVERVIEW_NATIVE.fqdn,
+      user: OVERVIEW_NATIVE.user,
+      ip: OVERVIEW_NATIVE.ip,
+      mirrorIndexUrl: OVERVIEW_NATIVE.mirrorIndexUrl,
+      secrets: { credWinPass: "", credVncPass: "" },
+    });
+    return;
+  }
+  if (path === "/api/native-status") {
+    // scanTs is re-stamped relative to now so the freshness row never reads
+    // "stale" merely because the fixture file is old.
+    const now = new Date();
+    const fresh = new Date(now.getTime() - 12_000).toISOString().replace(/\.\d+Z$/, "Z");
+    const out = JSON.parse(JSON.stringify(OVERVIEW_NATIVE));
+    out.rdpListener.authLast.scanTs = fresh;
+    out.rdpListener.authLast.eventTs = new Date(now.getTime() - 190_000).toISOString().replace(/\.\d+Z$/, "Z");
+    send(res, 200, out);
+    return;
+  }
+  if (path === "/api/progress") {
+    send(res, 200, {
+      runnerEgressIp: OVERVIEW_NATIVE.runnerEgressIp,
+      logLines: [
+        "[03:52:08] ticket issued trace=lab-trace-0001",
+        "[03:52:09] protocol dispatched ghrdp://rdp",
+        "[03:52:10] launcher beacon received",
+        "[03:52:12] logon 4624 LogonType=10 RemoteInteractive",
+      ],
+      mirror: { files: [], pubDot: "" },
+    });
+    return;
+  }
+  if (path === "/api/diag/comprehensive") {
+    // Reuse the existing diag fixture so the export path has a real body.
+    try {
+      send(res, 200, readJson("diag.json"));
+    } catch {
+      send(res, 200, { ok: true, source: "lab" });
+    }
+    return;
+  }
+  if (path === "/health") {
+    send(res, 200, { ok: true, ws: false, uptimeSec: 1840 });
     return;
   }
 

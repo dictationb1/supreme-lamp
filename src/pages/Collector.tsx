@@ -340,7 +340,7 @@ export default function Collector() {
           ) : null}
         </div>
         <p className="text-xs text-tertiary mt-2">
-          {t("collector.hint", { defaultValue: "Probes launcher, watcher, WebSocket, logon (type 2/10/11), 11 search endpoints, download, lab, mirror, file-explorer, telemetry, viewingMode, autologon, token rotation and sidebar routes — one file to paste to Claude." })}
+          {t("collector.hint", { defaultValue: "Probes launcher, watcher, WebSocket, logon (type 2/10/11), 11 search endpoints, download, lab, mirror, file-explorer, telemetry, viewingMode, autologon, token rotation and sidebar routes — one self-contained JSON file." })}
         </p>
         {error ? (
           <div data-testid="collector-error" className="mt-3 p-2 rounded bg-danger/10 text-danger text-sm font-mono">

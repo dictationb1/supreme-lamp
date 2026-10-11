@@ -1251,10 +1251,10 @@
     "noUrl": "WEB DESKTOP is not deployed yet - open Overview for the deployment status."
   },
   "diagBundle": {
-    "download": "⬇ Download Diagnostic Bundle (for Claude)",
+    "download": "Download diagnostic bundle",
     "fetching": "Collecting…",
     "hint": "One JSON file covering launcher, watcher, WebSocket, logon, search and runner state.",
-    "downloaded": "Downloaded {{file}} — paste its contents to Claude for analysis.",
+    "downloaded": "Downloaded {{file}} - a single JSON file with the full diagnostic capture.",
     "notFetched": "No bundle fetched yet — the dots below stay amber until you download once.",
     "showDetails": "Show details",
     "hideDetails": "Hide details",
@@ -1263,7 +1263,8 @@
       "rateLimited": "Diagnostic bundle rate limit hit (10/minute) — wait a few seconds and click again.",
       "server": "The server refused the diagnostic bundle — check the dashboard token and retry.",
       "transport": "Connection to the server was lost — reconnect, then download the bundle again."
-    }
+    },
+    "export": "Export diagnostics"
   },
   "collector": {
     "title": "Collector — Diagnosis Run",
@@ -1272,7 +1273,7 @@
     "running": "Running…",
     "downloadJson": "Download JSON",
     "downloadNdjson": "Download NDJSON",
-    "hint": "Probes launcher, watcher, WebSocket, logon (type 2/10/11), 11 search endpoints, download, lab, mirror, file-explorer, telemetry, viewingMode, autologon, token rotation and sidebar routes — one file to paste to Claude.",
+    "hint": "Probes launcher, watcher, WebSocket, logon (type 2/10/11), 11 search endpoints, download, lab, mirror, file-explorer, telemetry, viewingMode, autologon, token rotation and sidebar routes — one self-contained JSON file.",
     "retryAfter": "Retry after {{s}}s (1 per 5 min)",
     "lastRun": "Last run: {{ts}}",
     "noRun": "No run yet",
@@ -1420,5 +1421,120 @@
     "labTitle": "Glass lab",
     "labIntro": "The same production pages, rendered in an isolated harness. Synthetic data only — nothing here reaches the operator's RDP session.",
     "labSimulated": "Simulated"
+  },
+  "overview": {
+    "title": "Overview",
+    "glassSettings": {
+      "title": "Theme, glass quality and clarity settings",
+      "summary": "{{quality}} / {{variant}} / {{clarity}}"
+    },
+    "connect": {
+      "title": "Connect",
+      "autoHelp": "Opens a fullscreen native mstsc session with a one-time ticket. Windows asks for a password only if ticket redemption fails.",
+      "webHelp": "Opens the Web Desktop published by the runner in a new tab.",
+      "webUnavailable": "No Web Desktop URL has been published by the runner yet.",
+      "fqdnTitle": "Target FQDN",
+      "fqdnUnset": "(not set)",
+      "beaconSeen": "launcher beacon received",
+      "evidence": "Evidence",
+      "detailSummary": "Launch detail (certificate, NLA, CredSSP)"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "filesSub": "Browse {{host}}",
+      "filesSubNoHost": "No runner host published yet",
+      "searchSub": "Last: {{query}} - {{count}} results",
+      "searchSubEmpty": "No search run yet",
+      "transfers": "Transfers",
+      "transfersActive": "{{count}} job(s) queued or running",
+      "transfersIdle": "Queue idle",
+      "sessionsSub": "Session history and usage"
+    },
+    "troubleshoot": {
+      "title": "Troubleshooting",
+      "none": "all clear",
+      "count": "{{n}} open",
+      "allClear": "No actionable issues right now. Probes are still running; this list fills in when a producer reports a failure.",
+      "diagnose": "Diagnose"
+    },
+    "activity": {
+      "title": "Activity",
+      "httpRtt": "Browser RTT",
+      "wireRtt": "Tailscale RTT",
+      "noSamples": "no samples yet",
+      "stale": "stale",
+      "divergent": "producers disagree",
+      "jitter": "Jitter",
+      "jitterUnknown": "unknown (needs 2+ samples)",
+      "sampleCount": "{{n}} usable samples",
+      "mirror": "Mirror",
+      "mirrorOn": "ON - {{n}} file(s)",
+      "mirrorOff": "OFF",
+      "runnerFeed": "Runner feed",
+      "runnerLost": "lost (retrying)",
+      "runnerLive": "live",
+      "runnerPending": "waiting for the first poll",
+      "recentLog": "Recent log",
+      "noLog": "No log lines received yet."
+    },
+    "advanced": {
+      "summary": "Advanced detail",
+      "hint": "credentials, deployment status, raw connectivity rows, log tail"
+    }
+  },
+  "connState": {
+    "unknown": "Not connected (no launch yet)",
+    "unavailable": "Launch unavailable",
+    "requested": "Launch requested",
+    "launched": "Launcher ran (not yet connected)",
+    "connected": "Connected",
+    "failed": "Connection failed"
+  },
+  "issues": {
+    "severity": {
+      "critical": "critical",
+      "warning": "warning",
+      "info": "info"
+    },
+    "freshness": {
+      "noTimestamp": "no timestamp from this producer",
+      "stale": "stale ({{sec}}s old)",
+      "current": "{{sec}}s ago"
+    },
+    "cause": {
+      "confirmed": "Confirmed",
+      "suspected": "Suspected"
+    },
+    "source": "source",
+    "area": {
+      "reachability": "Browser to server",
+      "websocket": "WebSocket bridge",
+      "runner": "Runner readiness",
+      "rdpLaunch": "RDP launch request",
+      "connection": "RDP connection",
+      "session": "Session window"
+    },
+    "symptom": {
+      "reachability": "The polling stopped returning data, so everything below may be stale.",
+      "wsDead": "The reconnect ladder was exhausted after {{attempts}} attempts ({{reason}}).",
+      "wsIdle": "The server advertises /ws but no socket is open yet.",
+      "wsAbsent": "This build exposes no /ws endpoint; live progress arrives by HTTP polling.",
+      "collectorDead": "The server-side logon collector has never stamped a scan, so no logon can be observed.",
+      "scanStale": "The last logon scan is {{ageSec}}s old, well past the 30s server tick.",
+      "launchGate": "The launch gate is failing: {{blockers}}.",
+      "connFailed": "The host rejected the stored credential (4625 observed).",
+      "sessionExpired": "The published session deadline has passed."
+    },
+    "action": {
+      "reachability": "Run Diagnose to capture the current /diag output.",
+      "wsReconnect": "Reconnect the bridge now.",
+      "wsIdle": "Wait for the 1s/3s/10s/30s ladder, or reconnect.",
+      "wsAbsent": "No action needed; polling is the expected transport on this build.",
+      "collectorDead": "Check the collector task on /health.",
+      "scanStale": "Check the collector task on /health.",
+      "launchGate": "Fix the named gate, then retry the launch.",
+      "connFailed": "Re-issue the credential with Fix reconnect.",
+      "sessionExpired": "Re-dispatch the run; the window cannot be extended from the browser."
+    }
   }
 }
