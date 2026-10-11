@@ -4,7 +4,7 @@
 // code, not in prose):
 //
 //   1. When live mode is off (no dash token - i.e. the dashboard was opened
-//      without ?key=, which DashTokenGate already explains full-screen) the
+//      with no key parameter in the URL, which DashTokenGate already explains
 //      page keeps rendering the LABELLED synthetic sample and says so. That is
 //      the only path on which a fixture is allowed to become rows.
 //   2. When live mode is on, every non-ready outcome is its OWN state -
@@ -17,11 +17,7 @@
 //   4. Refresh re-issues the SAME live request (`reload()`); it never re-reads
 //      a local fixture.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createFxApi, type FxApi } from "@/components/explorer/api/endpoints";
-import { createFxClient } from "@/components/explorer/api/fxClient";
-import { FxError } from "@/components/explorer/api/errors";
-import { getKey } from "@/lib/api";
-import { readFxCsrfCookie } from "@/lib/explorer/transport";
+import { ExplorerReadError, readIndex } from "./read-index";
 import { projectListing, type ListingCounts, type ListingProjection } from "./listing";
 
 export type ListingStatus =
@@ -41,7 +37,9 @@ export interface ListingError {
   message: string;
   /** HTTP status when there was one; null for transport/parse failures. */
   httpStatus: number | null;
-  /** Which contract phase failed, from FxError (`dns`|`tcp`|`tls`|`auth`|`http`|`parse`). */
+  /** Which contract phase failed (`network`|`http`|`parse`|`aborted`, from
+   *  ./read-index.ts). The vocabulary is the read's own; it is NOT the S3 op
+   *  client's `dns`/`tcp`/`tls` split, which the read path does not import. */
   phase: string;
   retryable: boolean;
   at: string;
@@ -66,28 +64,23 @@ const EMPTY_STATE: ListingState = {
   attempts: 0,
 };
 
-/** Only a same-origin relative path is ever requested: the client refuses a
- *  token in a URL, and this hook never builds one. */
-function createApi(): FxApi {
-  return createFxApi(
-    createFxClient({
-      dashToken: getKey(),
-      csrfToken: () => readFxCsrfCookie(),
-    })
-  );
-}
-
+/** Every failure of a live read arrives as an `ExplorerReadError` (see
+ *  ./read-index.ts). The mapping below is the same one the S3 lane's client
+ *  used - 401/403 are `unauthorized` and fail fast, a transport failure is
+ *  `unavailable`, anything the contract refused is `failed` - so the operator
+ *  sees the same four states as before while the read itself no longer ships
+ *  the op client. */
 function describeError(err: unknown, at: string): ListingError {
-  if (err instanceof FxError) {
-    const status = err.httpStatus ?? null;
+  if (err instanceof ExplorerReadError) {
+    const status = err.httpStatus;
     const kind: ListingStatus =
       status === 401 || status === 403 ? "unauthorized" : err.phase === "parse" || err.phase === "http" ? "failed" : "unavailable";
     return {
       kind,
-      message: String(err.hostMessage || err.messageKey || "listing failed").slice(0, 300),
+      message: String(err.hostMessage || err.message || "listing failed").slice(0, 300),
       httpStatus: status,
       phase: String(err.phase),
-      retryable: err.retryable !== false,
+      retryable: err.retryable,
       at,
     };
   }
@@ -141,8 +134,7 @@ export function useListing({ locationPath, live }: UseListingOptions): ListingSt
     (async () => {
       const at = new Date().toISOString();
       try {
-        const api = createApi();
-        const index = await api.listIndex({ signal: controller.signal });
+        const index = await readIndex({ signal: controller.signal });
         if (cancelled || requestKeyRef.current !== key) return; // stale: never painted
         const projection = projectListing(index, locationPath);
         if (!projection) {

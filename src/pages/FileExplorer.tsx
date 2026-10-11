@@ -100,7 +100,7 @@ export default function FileExplorer() {
   // [R-FILES / #217] LIVE LISTING. `live` is true exactly when the dashboard
   // was opened with its dash token (the state DashTokenGate already explains
   // when it is missing), because that is the only condition under which the
-  // runner's GET /api/fx/list can answer at all. In live mode the rows below
+  // runner's index read can answer at all. In live mode the rows below
   // come from that endpoint and NOWHERE else: a failed listing renders its own
   // state with a retry, it never falls back to the sample below.
   const live = useMemo(() => hasDashToken(), []);

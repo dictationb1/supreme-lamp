@@ -2543,14 +2543,29 @@ jobs:
           fi
           # [F49] X-Dash-Token is a legitimate PRODUCTION header now (the Mirror
           # page sends the dash token by header); it no longer proves the S3
-          # layer leaked. X-Idempotency-Key is S3-client-only, so the bundle
-          # stays clean of S3 exactly as before.
-          for needle in 'X-Idempotency-Key' 'api/fx/list' 'fx.err.hostBadGateway'; do
+          # layer leaked.
+          # [R-FILES / #217 / #225] REVIEWED CONTRACT CHANGE, not a relaxation.
+          # The paragraph above this step used to end "...no UI (S5+) are wired
+          # yet, so the shipped bundle must not gain any /api/fx code", which is
+          # why `api/fx/list` was a forbidden needle. The v3 acceptance requires
+          # the ROUTED Files page to read the runner's normalized index, so that
+          # premise is now false and the read path must ship. What actually
+          # drags the S3 OP client in are the idempotency header and the fx.err
+          # catalog: both stay forbidden, and the read path is pinned POSITIVELY
+          # so the bundle is asserted in both directions.
+          for needle in 'X-Idempotency-Key' 'fx.err.hostBadGateway'; do
             if grep -qF "$needle" ui/dist/index.html; then
-              echo "::error title=F45 S3 endpoints::S3 client code leaked into the shipped bundle ($needle)"
+              echo "::error title=F45 S3 endpoints::S3 op client code leaked into the shipped bundle ($needle)"
               exit 1
             fi
           done
+          # The ONE S3-lane string the shipped bundle is allowed to carry: the
+          # read's GET path, declared by src/lib/explorer/read-index.ts and
+          # asserted in src/tests/smoke/r-files-listing-provenance.test.tsx.
+          if ! grep -qF '/api/fx/list' ui/dist/index.html; then
+            echo "::error title=F45 S3 endpoints::the routed Explorer read path /api/fx/list is missing from the shipped bundle"
+            exit 1
+          fi
           echo 'F45 S3 endpoint gates PASS'
       - name: F41 v2 e2e (playwright, real bundle)
         run: |
