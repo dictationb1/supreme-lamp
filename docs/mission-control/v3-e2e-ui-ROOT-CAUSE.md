@@ -1,26 +1,39 @@
-# V3 / e2e-ui lane — ROOT CAUSE of the single failing spec
+# V3 / e2e-ui lane — ROOT CAUSE and FIX for the single failing spec
 
-**Diagnosed:** 2026-10-11
-**Affects:** PR #226 (`arena/403ecbde-supreme-lamp` @ `07e04a7`), lane `e2e-ui`, step 8
-**Diagnosis class:** read-only. Nothing was changed on the PR branch to produce this.
-
-> This document was produced from a session bound to a **different** branch
-> (`arena/88d52e64-supreme-lamp`, tree `881f26b`), which contains **none** of the
-> v3 work. It therefore cannot push the fix. It records the diagnosis and a
-> concrete patch for the session/operator that owns `arena/403ecbde-supreme-lamp`.
+**Diagnosed and fixed:** 2026-10-11
+**Lane:** `e2e-ui`, step 8, on PR #226 (`arena/403ecbde-supreme-lamp` @ `07e04a7`)
+**Fix carried on:** `arena/88d52e64-supreme-lamp` (see §0 for why)
 
 ---
+
+## 0. Why this document exists on a different branch
+
+This session is bound to `arena/88d52e64-supreme-lamp`, whose starting tree
+(`881f26b`) contained **none** of the v3 work. It cannot push to PR #226's head
+branch. The operator chose to bring the v3 delta onto this branch and open a
+successor PR rather than leave the fix unlanded.
+
+Integration was verified before applying, not assumed:
+
+* `881f26b` (this branch), `origin/main` (`a26aa9c`) and the v3 base `acb27c8`
+  differ **only** by the bot-maintained `docs/status.json` timestamp — so no
+  `main` work is lost or reverted by taking the v3 delta.
+* The delta (67 files) does not touch `docs/status.json`; this branch's copy was
+  preserved byte-for-byte.
+* Applied as `git diff --binary acb27c8 07e04a7` (3-way); every hunk clean. The
+  resulting tree equals `07e04a7`'s tree plus `docs/status.json` plus this file.
 
 ## 1. Evidence (from PR #226's own CI run, at the run's SHA)
 
 The log blob host is blocked from agent sandboxes, but the workflow's own
-**check-run annotations** are readable via the REST API and carry the failure:
+**check-run annotations** are readable and carry the failure. This is the channel
+`tests/f203-e2e-lane.test.js` (rule F203-f) exists to guarantee:
 
 ```
 gh api repos/dekarita/supreme-lamp/check-runs/114420650385/annotations
 ```
 
-Result (verbatim):
+Verbatim:
 
 ```
 F79-E2E-FAIL1::  1) [chromium] › tests/e2e/r2-visual.spec.ts:67:9 ›
@@ -29,8 +42,6 @@ F79-E2E-FAIL1::  1) [chromium] › tests/e2e/r2-visual.spec.ts:67:9 ›
   Expected: < 80 | Received:   84
 ```
 
-Run/job identity:
-
 | Field | Value |
 |---|---|
 | run id | `38122739344` |
@@ -38,207 +49,242 @@ Run/job identity:
 | head SHA | `07e04a7` |
 | failing step | `8 — Run F78 + F79 E2E specs (real bundle + mock backend)` |
 | job window | 2026-10-11T07:50:41Z → 07:57:02Z |
-| other lanes | `gates` pass · `windows-native` pending · 4 labs pass |
+| other lanes at that SHA | `gates` pass · `windows-native` pending · 4 labs pass |
 
 **Exactly one spec failed.** `F79-E2E-FAIL1` is the only `F79-E2E-FAIL*`
-annotation emitted; there is no FAIL2/FAIL3. This is a single deterministic
-assertion failure, not a suite-wide or flake pattern — consistent with the
-earlier finding that an empty commit re-triggered the lane and it failed again.
+annotation emitted. Deterministic, not a flake — consistent with the earlier
+finding that an empty commit re-triggered the lane on an identical tree and it
+failed again.
 
 ## 2. The assertion
 
-`tests/e2e/r2-visual.spec.ts`, inside the `for (const [label, vp] of Object.entries(VIEWPORTS))`
-loop that begins the test at **line 67**; the failing expectation is at **line 90**:
+`tests/e2e/r2-visual.spec.ts` line 90, inside the viewport loop whose test
+declaration is line 67:
 
 ```ts
-// (c) No unexplained empty hero area: the first content surface must
-//     begin within the first viewport third, below the top bar.
 const headerBox = await page.locator('[data-testid="overview-header"]').boundingBox();
 expect(headerBox!.height, "the header must be compact, not a hero").toBeLessThan(80);
 ```
 
-`VIEWPORTS` = phone 390×844, phoneLandscape 844×390, tablet 768×1024, desktop 1440×900.
-The same `<80` ceiling applies to all four. **Only `phone` failed** —
-phoneLandscape, tablet and desktop passed it. That is the decisive clue: the
-header is compact at every width except 390px, so this is a **wrap** induced by
-narrow width, not a uniformly taller v3 header.
+`VIEWPORTS` = phone 390×844, phoneLandscape 844×390, tablet 768×1024, desktop
+1440×900. The same `<80` ceiling applies to all four. **Only `phone` failed.**
 
-The spec file itself is **byte-identical** on `881f26b` and `07e04a7`
-(`git diff HEAD FETCH_HEAD -- tests/e2e/r2-visual.spec.ts` is empty). The v3 work
-did not touch the gate; it changed the component the gate measures.
+The spec file is **byte-identical** on `881f26b` and `07e04a7` — v3 did not touch
+the gate; it changed the component the gate measures.
 
-## 3. Root cause
+## 3. Root cause — measured, not inferred
 
-V3-01 replaced the Overview's bespoke header row with the shared
-`src/components/primitives/PageHeader.tsx`.
+V3-01 replaced the Overview's flat header row with the shared
+`src/components/primitives/PageHeader.tsx`, which puts title + live status +
+actions in **one `flex-wrap` row** and adds a purpose line **beneath** it.
 
-**Before (pre-v3, still present on `881f26b`)** — one flat wrapping row:
+Measured on the built bundle in this sandbox, Chromium 153, phone 390×844:
 
-```tsx
-<header data-testid="overview-header"
-        className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-  <h2 className="text-base font-semibold leading-none text-primary">…</h2>
-  <Chip id="overview-conn-state" …/>
-  <Link … className="ml-auto inline-flex min-h-[36px] …"/>
-</header>
-```
+| Catalog | header | title row | subtitle | actions wrapped | `<80` |
+|---|---|---|---|---|---|
+| EN (before fix) | **56** | 36 | 16 | no | pass |
+| SI (before fix) | **100** | 64 | 32 | **yes** | **fail** |
 
-**After (v3, on `07e04a7`)** — `PageHeader` is a two-row `flex-col`:
+Row geometry before the fix, EN phone:
 
-```tsx
-<header className="flex flex-col gap-1 mb-4">        {/* gap-1 = 4px */}
-  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-    <h2 className="text-base … leading-none"/>        {/* title 16px */}
-    <div data-testid="…-status" className="flex flex-wrap items-center gap-2">
-      <Chip/>                                         {/* connection state */}
-    </div>
-    <div data-testid="…-actions" className="ml-auto flex flex-wrap items-center gap-2">
-      <Link className="inline-flex min-h-[36px] …">   {/* glass summary, 36px */}
-    </div>
-  </div>
-  <p data-testid="…-subtitle" className="text-xs text-tertiary"/>  {/* purpose, 12px */}
-</header>
-```
-
-At 390px the title row must fit `Overview` + the connection `Chip` + an
-`ml-auto` bordered `Link` whose label is the interpolated
-`overview.glassSettings.summary` = `"{{quality}} / {{variant}} / {{clarity}}"`
-(e.g. `Frosted / Tinted / 74%`). It does not fit, so the outer `flex-wrap`
-pushes the **actions slot onto its own row**, and the new **subtitle row** is
-added below. Height decomposition:
-
-| Component | px |
+| Element | width |
 |---|---|
-| title row, line 1 (`h2` 16px / `Chip`) | 20 |
-| `gap-y-2` between wrapped lines | 8 |
-| title row, line 2 (`Link` at `min-h-[36px]`) | 36 |
+| title row content box | 358 |
+| title (`Overview`) | 71 |
+| connection chip | 92 |
+| actions link (`Frosted / Tinted / 75%`, `min-h-[36px]`) | 169 |
+| **slack before the actions slot** | **2 px** |
+
+The actions element ended at `x=374` in a 390px viewport with a 16px gutter —
+**flush against the gutter, with 2px to spare.** Any font-metric difference
+between environments flips that row into a wrap. On the CI runner's Chromium it
+did; in this sandbox's Chromium it did not. That is why the previous session
+could run the full suite green locally and still see red on CI, and why the
+browser binary looked like the only suspect.
+
+The wrap cost is exactly the CI delta:
+
+| | px |
+|---|---|
+| title row, line 1 (title + chip) | 20 |
+| `gap-y-2` between the wrapped lines | 8 |
+| title row, line 2 (the 36px link) | 36 |
+| **title row wrapped** | **64** |
 | `PageHeader` `gap-1` | 4 |
-| subtitle `<p>` line box (`text-xs` → 16px) | 16 |
-| **total** | **84** |
+| subtitle, one line | 16 |
+| **total = CI's reported value** | **84** |
 
-`mb-4` (16px) is a **margin**, so it is excluded from `boundingBox().height` —
-it does not contribute to the 84. The decomposition reproduces the CI-measured
-value **exactly**.
+Confirmed by direct measurement in Sinhala, where the title row wraps **without
+any font difference at all**: 64 + 4 + 32 (subtitle wraps to two lines) = **100**.
 
-> Evidence class: the 84 is **CI-measured** at SHA `07e04a7`. The decomposition
-> above is **inferred from source**, not measured in a browser — this sandbox has
-> no `node_modules`, no Playwright browser binary, and no v3 tree. Treat the
-> arithmetic as a high-confidence hypothesis to confirm by measurement, not as a
-> measurement.
+`mb-4` is a margin, so `boundingBox().height` never counted it.
 
-## 4. Is the gate wrong, or is the header wrong?
+## 4. Is the gate wrong, or the header?
 
-**The gate is right. Do not loosen it.**
+**The gate is right, and it was not touched.** Its ceiling stays `<80` everywhere.
 
-`docs/mission-control/v3/DESIGN-SYSTEM.md` specifies the header contract as:
+`docs/mission-control/v3/DESIGN-SYSTEM.md` specifies title 16px (*"the page name
+is not a hero"*), purpose 12px, *"page top padding 20 px (no decorative hero)"*,
+controls 32/36/44px. A conformant header is one 36px control row + 4px + purpose
+= 56px. The 84 (EN, CI) and 100 (SI, everywhere) both come from an **extra row
+created by an unintended wrap**, which the design system does not describe.
 
-* `Page title (PageHeader)` — 16px, *"the page name is not a hero"*
-* `Page purpose (PageHeader)` — 12px, tertiary
-* *"page top padding 20 px (no decorative hero)"*
-* control heights: *32px dense, 36px default, 44px minimum primary target*
+So this is **not** the "obsolete structural gate" case. The invariant is still
+valid; the component drifted from it. Raising 80 → 85 would have been changing a
+threshold after measurement to hide a regression.
 
-A v3-conformant phone header is therefore **one control row + one purpose line**
-= `36 + 4 + 16` = **56px**, comfortably inside `<80`. The 84 arises from a
-*third* row created by an unintended wrap — which the design system does not
-describe. So this is a **real phone layout regression introduced by v3**, caught
-correctly by an R2-era invariant whose *intent* ("compact, not a hero") the v3
-design system still asserts verbatim.
+Two real defects were exposed, not one:
 
-This is **not** the "old structural gate encodes obsolete markup" case. The
-invariant is still semantically valid; only the component drifted from it.
-Raising 80 → 85 here would be changing a threshold after measurement to hide a
-regression, and is explicitly out of bounds.
+1. **CI red** — the EN phone header had 2px of slack, so it was one font metric
+   away from wrapping. Fragile by construction, environment-dependent in effect.
+2. **A Sinhala phone layout bug that no gate could see** — 100px, over budget,
+   on every browser, because `r2-visual.spec.ts` never sets `ghrdp:lang`. The
+   product's own primary language shipped a header 25% over its budget and
+   nothing caught it.
 
-## 5. Proposed fix (component-side, gate untouched)
+## 5. The fix
 
-Keep the actions slot on the title row at phone width by making the glass
-summary compact below `sm`, without removing it from the DOM or from the
-accessibility tree.
+**`src/components/primitives/PageHeader.tsx`** — the purpose line is bounded to
+two lines (`line-clamp-2`) and exposes its full text through `title` when it is a
+plain string. The full string stays in the DOM, which is what
+`src/tests/smoke/v3-shell.test.tsx` asserts on (`textContent.trim().length > 10`)
+for all eleven routes.
 
-In `src/components/overview/OverviewHeader.tsx`, the summary `<span>`:
+**`src/components/overview/OverviewHeader.tsx`** — below `sm` the painted
+presentation summary is withdrawn and the link becomes icon-only
+(`sr-only … sm:not-sr-only`). Nothing is removed: the summary text stays in the
+DOM and becomes part of the link's `aria-label`, so a phone user still hears
+which presentation is active and keeps the same one-tap route to Settings. The
+summary string is computed once and used for both the painted label and the
+accessible name, so the two cannot disagree.
 
-```tsx
-<span
-  data-testid="overview-glass-summary"
-  id="overview-glass-summary"
-  className="sr-only sm:not-sr-only sm:inline"
->
-  {t("overview.glassSettings.summary", {
-    quality: t("glass.quality." + resolved),
-    variant: t("glass.variant." + variant),
-    clarity: Math.round(clarity * 100) + "%",
-  })}
-</span>
-```
+No i18n key was added or removed — the fix reuses
+`overview.glassSettings.{title,summary}` and `pages.overview.purpose`. The 1213
+flat-key parity lock is untouched, so the six pin files did not need bumping.
 
-The `Link` keeps its `title` attribute and gains an `aria-label` carrying the
-same summary, so the information is not lost on phone — it is announced rather
-than painted. Expected phone height: title row stays single-line at 36px →
-`36 + 4 + 16` = **56px** < 80. Tablet/desktop are unaffected (`sm:` is ≥640px).
+## 6. Measured result (built bundle, Chromium 153, this sandbox)
 
-### Safety check already performed
+| Catalog | viewport | header | title row | subtitle | wrapped | overflowX | `<80` |
+|---|---|---|---|---|---|---|---|
+| en | phone 390×844 | 56 | 36 | 16 | no | 0 | **PASS** |
+| en | phoneLandscape 844×390 | 56 | 36 | 16 | no | 0 | **PASS** |
+| en | tablet 768×1024 | 56 | 36 | 16 | no | 0 | **PASS** |
+| en | desktop 1440×900 | 56 | 36 | 16 | no | 0 | **PASS** |
+| si | phone 390×844 | **72** | 36 | 32 | no | 0 | **PASS** |
+| si | phoneLandscape 844×390 | 56 | 36 | 16 | no | 0 | **PASS** |
+| si | tablet 768×1024 | 56 | 36 | 16 | no | 0 | **PASS** |
+| si | desktop 1440×900 | 56 | 36 | 16 | no | 0 | **PASS** |
 
-Only two files in the whole `07e04a7` tree reference these ids:
-`OverviewHeader.tsx` and `src/tests/smoke/r2-overview-redesign.test.tsx`. The
-single test assertion is:
+Slack before the actions slot at phone 390px:
 
-```ts
-const summary = screen.getByTestId("overview-glass-summary");
-expect(summary.textContent).toMatch(/opaque/i);
-```
+| Catalog | before | after |
+|---|---|---|
+| en | 2 px | **151 px** |
+| si | negative (wrapped) | **100 px** |
 
-That is a **textContent** assertion under jsdom, which has no layout engine —
-`sr-only` does not remove the node or its text, so it keeps passing. No e2e spec
-asserts on `overview-glass-summary` or `overview-glass-settings-link`.
+The font-metric sensitivity that flipped CI is gone by two orders of magnitude,
+not by a margin of one pixel.
 
-### Alternatives, and why they are worse
+Independently corroborated by `scripts/v3-screenshots.cjs`, which re-ran against
+the rebuilt bundle: `07-overview-mobile` `.docHeight` **2555 → 2527 (−28px)**,
+exactly the wrap delta, while its `bodyText` is **unchanged** (the summary is
+withdrawn from paint, not from the document) and `variantProof` is
+**byte-identical** to the committed evidence (sheet 0.745→0.61, card 0.824→0.69,
+Δ0.135) — so the glass material system is unaffected by this change.
 
-* **A. `line-clamp-1` on the subtitle.** Does not help: the subtitle is not what
-  wraps. `pages.overview.purpose` = *"Connect, work and diagnose from one
-  screen."* (43 chars at 12px) already fits one line at 358px of content width.
-* **B. Shorten the `summary` i18n string globally.** Changes desktop/tablet too,
-  where nothing is broken, and edits a string other surfaces may rely on.
-* **C. `dense` on PageHeader.** Only swaps `mb-4` → `mb-3`, i.e. a margin that
-  `boundingBox().height` never counted. Zero effect on the measurement.
-* **D. Raise the ceiling to 85.** Forbidden: threshold change after measurement,
-  hiding a regression.
+## 7. New gate: `tests/e2e/v3-header-budget.spec.ts`
 
-## 6. Verification plan (must run on `arena/403ecbde-supreme-lamp`)
+Nine tests. The `<80` ceiling is the **same** R2 number, hard-coded, not
+re-derived from a measurement of the current build — a budget set to whatever the
+code happens to do is not a budget. It pins, per catalog × per viewport:
 
-Do not push without all of these, at the fix commit's SHA:
+1. header height `< 80`;
+2. the actions slot shares the title row (the wrap mechanism itself, asserted
+   directly rather than only through its effect on height);
+3. the header was not made small by **deletion** — title, connection chip and
+   actions all present, connection state labelled, purpose line non-empty, and a
+   clamped purpose line still exposes its full text via `title`;
+4. the summary withdrawn from paint at phone width is still in the DOM and still
+   carried in the link's accessible name;
+5. no horizontal overflow;
+6. `html[lang]` actually follows the requested catalog — otherwise this is an
+   English test wearing a Sinhala label, which is how the 100px header shipped.
 
-1. `pnpm run e2e --reporter=list` with `CI=true` — full suite, expect
-   **136 passed / 11 skipped / 0 failed** (was 135 passed; the recovered spec
-   adds one). `r2-visual.spec.ts › 1. Overview at phone (390x844)` must pass on
-   the **unchanged** `<80` assertion.
-2. Record the measured phone header height. It must be ≈56px. If it is not, the
-   decomposition in §3 is wrong somewhere — re-diagnose, do not adjust the gate.
-3. `npx vitest run` — expect 103 files / 1351 tests, `r2-overview-redesign` green.
-4. `node --test tests/*.test.js` — expect 835 tests, 0 fail.
-5. `npx tsc -p tsconfig.build.json --noEmit` — clean.
-6. `node scripts/check-glass-contrast.mjs` — PASS (the `sr-only` span is not
-   painted, so it cannot change any composited contrast pair; confirm anyway).
-7. `npm run build`.
-8. Refresh `docs/mission-control/v3/screens/07-overview-mobile.png` and
-   `measurements.json` via `node scripts/v3-screenshots.cjs`, since the phone
-   Overview header changes.
-9. Re-check the other 10 routes: `PageHeader` is shared, so confirm no other
-   route regressed at 390px. `r2-visual.spec.ts` only measures Overview's
-   header — the other routes are covered by `src/tests/smoke/v3-shell.test.tsx`,
-   which is structural, not metric. Their phone header heights are
-   **NOT_MEASURED** and should be measured before any claim is made about them.
+A tenth assertion pins the responsive contract itself: withdrawn from paint at
+phone (≤2px), painted at desktop (>50px), so the fix cannot be silently replaced
+by something that hides the summary at every width.
 
-## 7. Status (kept separate, per the standing contract)
+### Regression evidence (required, and performed)
+
+Both fixed component files were reverted to their `07e04a7` state, the bundle was
+rebuilt, and the new spec re-run. **All 9 tests fail**, with these first errors:
+
+| Test | Assertion that fired |
+|---|---|
+| si / phone | `si/phone header height` — `toBeLessThan(80)` ← **the budget itself** |
+| en / phone | `a clamped purpose line must still expose its full text` |
+| en / phoneLandscape, en / tablet, en / desktop, si / phoneLandscape, si / tablet, si / desktop | `the link accessible name must carry the presentation summary` |
+| paint contract | `phone: summary is withdrawn from paint` |
+
+The fix was then restored and the suite re-run green. The Sinhala phone case
+fails on the height budget **deterministically in this sandbox**, which is what
+makes it a usable local reproduction of the same wrap CI hit in English.
+
+Honest caveat: the EN phone *height* assertion does **not** fail locally when the
+fix is reverted, because this sandbox's Chromium gives the old layout 56px. The
+EN 84px only reproduces on the CI runner's Chromium. Locally the EN case is
+caught by the accessible-name, `title` and paint assertions instead.
+
+## 8. Gates, all re-run on the fix commit
+
+| Gate | Result |
+|---|---|
+| `pnpm run build` (tsc + vite) | PASS — `ui/dist/index.html` 1,201.80 kB |
+| `pnpm exec vitest run` | PASS — **103 files / 1351 tests**, 0 fail |
+| `node --test tests/*.test.js` | PASS — **835 tests, 809 pass, 26 skip, 0 fail** |
+| `node scripts/check-glass-contrast.mjs` | PASS — 1432 composited checks, worst text 4.97:1, worst control 5.14:1 |
+| `pnpm run e2e` with `CI=true` | PASS — **144 passed, 11 skipped, 0 failed** (5.0m) |
+
+`144 = 135` (the recorded baseline at `07e04a7`) `+ 9` (the new spec). The
+baseline vitest / node / contrast numbers are unchanged, i.e. nothing was traded
+away for this fix.
+
+## 9. Environment note — a repair to `scripts/v3-screenshots.cjs`
+
+The screenshot script launches Chromium through `@sparticuz/chromium`'s Lambda
+arg list. Under Chromium 153 + puppeteer-core 25 in this sandbox the browser dies
+before the CDP handshake (WebSocket close 1006, surfacing as a 30s
+`Target.setDiscoverTargets` timeout). `mod.args` as shipped fails, and so does
+`mod.args` minus `--single-process`.
+
+The launcher now passes an explicit, documented arg list — the flags Playwright
+uses to drive the same binary successfully here. There is **no silent fallback
+chain**: if the browser cannot start the script fails, so a pixel sample can never
+be fabricated from a half-initialised compositor. The `--disable-gpu` in that list
+is the reason `variantProof` was re-checked against the committed values rather
+than trusted; it reproduces them exactly (§6).
+
+`@sparticuz/chromium` and `puppeteer-core` are **not** dependencies of this repo
+and were not added to `package.json` or `pnpm-lock.yaml`. They were installed
+outside the tree and symlinked into the gitignored `node_modules`, so the PR's
+dependency surface is unchanged and `pnpm install --frozen-lockfile` in CI is
+unaffected.
+
+## 10. Status (kept separate, per the standing contract)
 
 | Status | Value |
 |---|---|
-| `PLAN_READY` | ✅ (PR branch) |
-| `UI_IMPLEMENTED` | ⚠️ partial — V3-01…V3-06 on the PR branch |
-| `UI_VISUALLY_REVIEWED` | ⏳ operator required; the agent cannot see images |
-| `BROWSER_VERIFIED` | ⚠️ partial — Chromium viewport emulation only; `REAL_DEVICE` = **NOT_MEASURED** |
-| `CI_VERIFIED` | ❌ **NOT met** — `e2e-ui` FAIL at `07e04a7`; `windows-native` pending |
+| `PLAN_READY` | ✅ |
+| `UI_IMPLEMENTED` | ✅ V3-01…V3-06 plus this header-budget fix |
+| `BROWSER_VERIFIED` | ⚠️ partial — Chromium viewport + UA emulation on 8 viewport×catalog combinations. `REAL_DEVICE` = **NOT_MEASURED**; Playwright Chromium is not an iPhone |
+| `UI_VISUALLY_REVIEWED` | ⏳ **operator required** — the agent cannot see images; every visual claim here comes from `measurements.json` and computed geometry |
+| `CI_VERIFIED` | ❌ **NOT met** — the five local gates are green, but no CI lane has run on the fix commit yet. `07e04a7`'s `e2e-ui` was FAIL and `windows-native` was pending |
 | `DEPLOYED` / `LIVE_VERIFIED` | not started |
 
-The fix in §5 is **PROPOSED / UNVERIFIED**. It has not been applied, built, or
-run anywhere. No evidence in this document comes from a SHA other than `07e04a7`
-(the CI facts) and `881f26b` (the pre-v3 baseline used for the diff).
+Still unfinished, named rather than omitted: **V3-03** Sinhala copy parity for
+the Settings section headings and About/provenance labels (English-only by
+deliberate choice, not yet revisited); **V3-04** the 5,000-file explorer
+contract; **V3-07** real-device evidence; **V3-08** perf budget — both
+**NOT_MEASURED**, no CPU throttling and no low-end device was used.
+
+Nothing was dispatched, merged, closed or deployed to produce this document.

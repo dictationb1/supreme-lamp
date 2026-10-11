@@ -100,8 +100,20 @@ export function PageHeader({
           </div>
         ) : null}
       </div>
+      {/* Bounded to two lines on purpose. The header is a page NAME plus one
+          line of purpose - not a hero - and its height has to be provable at
+          every viewport and in every catalog, because the R2 visual gate holds
+          it under 80px on a phone. Unclamped, a longer translation wrapped to
+          three lines and pushed the phone header over the ceiling. The full
+          string stays in the DOM (v3-shell asserts on textContent) and is
+          exposed through `title`, so nothing is hidden from the operator or
+          from a screen reader - only from the paint at narrow widths. */}
       {subtitle ? (
-        <p data-testid={`${testId}-subtitle`} className="text-xs text-tertiary">
+        <p
+          data-testid={`${testId}-subtitle`}
+          className="line-clamp-2 text-xs text-tertiary"
+          title={typeof subtitle === "string" ? subtitle : undefined}
+        >
           {subtitle}
         </p>
       ) : null}

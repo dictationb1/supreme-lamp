@@ -134,8 +134,28 @@ async function launch() {
   process.env.LD_LIBRARY_PATH = path.join(AL, "lib");
   const exePath = await mod.executablePath();
   const puppeteer = require(path.join(ROOT, "node_modules/puppeteer-core"));
+  // [V3-07] @sparticuz/chromium ships Lambda args tuned for that runtime, and
+  // they do not survive Chromium 153 + puppeteer-core 25 in this sandbox: the
+  // browser process dies before the CDP handshake completes (WebSocket close
+  // 1006, surfacing as a 30s `Target.setDiscoverTargets` timeout). Tried and
+  // rejected: the raw `mod.args`, and `mod.args` minus `--single-process`.
+  //
+  // These are the flags Playwright uses to drive the SAME binary successfully in
+  // this sandbox, written out explicitly rather than inherited. There is no
+  // silent fallback chain: if the browser cannot start, this script fails, and a
+  // pixel sample is never fabricated from a half-initialised compositor.
+  const launchArgs = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--no-zygote",
+    "--disable-gpu",
+    "--hide-scrollbars",
+    "--mute-audio",
+    "--font-render-hinting=none",
+  ];
   return puppeteer.launch({
-    args: [...mod.args, "--no-sandbox", "--disable-dev-shm-usage"],
+    args: launchArgs,
     executablePath: exePath,
     headless: "shell",
     defaultViewport: { width: 1600, height: 1000 },

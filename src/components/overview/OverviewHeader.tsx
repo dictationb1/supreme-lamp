@@ -29,6 +29,16 @@ export function OverviewHeader({ verdict }: { verdict: ConnVerdict }) {
   const clarity = useGlassStore((s) => s.clarity);
   const { resolved } = useVisualQuality();
 
+  // Read-only description of the presentation currently in effect. Computed
+  // once because it is needed both as the painted label and as the accessible
+  // name of the link, and the two must never disagree.
+  const glassSummary = t("overview.glassSettings.summary", {
+    quality: t("glass.quality." + resolved),
+    variant: t("glass.variant." + variant),
+    clarity: Math.round(clarity * 100) + "%",
+  });
+  const glassTitle = t("overview.glassSettings.title");
+
   return (
     <PageHeader
       testId="overview-header"
@@ -36,7 +46,7 @@ export function OverviewHeader({ verdict }: { verdict: ConnVerdict }) {
       subtitle={t("pages.overview.purpose")}
       status={
         // One connection indicator, labelled with the STATE and its evidence.
-        // The TopBar's summary pill stays where it is; this is the combined,
+        // The TopBar summary pill stays where it is; this is the combined,
         // honest answer for the page the operator connects from.
         <Chip
           id="overview-conn-state"
@@ -53,20 +63,35 @@ export function OverviewHeader({ verdict }: { verdict: ConnVerdict }) {
         // operator can see which presentation they are on without a second copy
         // of the control. Opaque is named explicitly when it resolved that way,
         // including when an accessibility preference forced it.
+        //
+        // PHONE WIDTH. The painted summary is withdrawn below `sm` and the link
+        // becomes icon-only. This is a layout fix, not a feature removal: at
+        // 390px the title, the connection chip and this labelled control did not
+        // fit on one row, so the row wrapped and the header grew from 56px to
+        // 84px in English and to 100px in Sinhala - over the R2 ceiling of 80px
+        // that exists to keep the header from becoming a hero. The English
+        // layout had zero slack (the control ended exactly on the right gutter),
+        // so any font-metric difference flipped it; Sinhala flipped it always.
+        //
+        // Nothing is lost. The summary text stays in the DOM for the component
+        // gates and for screen readers, and it becomes the link accessible name,
+        // so a phone user still hears exactly which presentation is active and
+        // still has the same one-tap route to Settings.
         <Link
           to="/settings"
           data-testid="overview-glass-settings-link"
           id="overview-glass-settings-link"
-          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-default px-2.5 text-xs font-medium text-secondary hover:bg-raised hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base"
-          title={t("overview.glassSettings.title")}
+          aria-label={glassTitle + ": " + glassSummary}
+          className="inline-flex min-h-[36px] items-center gap-0 rounded-md border border-default px-2 text-xs font-medium text-secondary hover:bg-raised hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-base sm:gap-1.5 sm:px-2.5"
+          title={glassTitle}
         >
           <SlidersHorizontal className="size-3.5" aria-hidden />
-          <span data-testid="overview-glass-summary" id="overview-glass-summary">
-            {t("overview.glassSettings.summary", {
-              quality: t("glass.quality." + resolved),
-              variant: t("glass.variant." + variant),
-              clarity: Math.round(clarity * 100) + "%",
-            })}
+          <span
+            data-testid="overview-glass-summary"
+            id="overview-glass-summary"
+            className="sr-only whitespace-nowrap sm:not-sr-only"
+          >
+            {glassSummary}
           </span>
         </Link>
       }
