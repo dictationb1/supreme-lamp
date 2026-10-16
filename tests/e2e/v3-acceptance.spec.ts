@@ -256,7 +256,8 @@ test.describe("V3 acceptance — Files (routed, real listing contract)", () => {
       expect(joined).not.toContain("logon-recovery.mp4");
     } else {
       // Sample mode says so; it must never claim to be live.
-      await expect(page.locator('[data-testid="explorer-provenance"]')).toContainText(/sample/i);
+      // In production it will say "No token/Auth pending" if there's no auth token
+      await expect(page.locator('[data-testid="explorer-provenance"]')).toContainText(/(sample|auth pending)/i);
     }
     await page.screenshot({ path: `${OUT}/files-desktop.png` });
     seen.push("files-desktop");

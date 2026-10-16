@@ -187,9 +187,9 @@ export default function Settings() {
 
       <Card title={t("pages.settings.migration")} className="mb-4">
         <div className="overflow-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-left text-sm whitespace-nowrap">
             <thead>
-              <tr className="border-b border-default text-left text-secondary">
+              <tr className="border-b border-default bg-surface-raised/50 text-secondary">
                 <th scope="col" className="px-3 py-2">contract</th>
                 <th scope="col" className="px-3 py-2">v2 policy</th>
               </tr>

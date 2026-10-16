@@ -113,11 +113,11 @@ export type DiagFetch =
   | { ok: false; errorKey: string; status?: number };
 
 /** GET /api/diag/comprehensive and merge the client half over it. */
-export async function fetchComprehensiveDiag(): Promise<DiagFetch> {
+export async function fetchComprehensiveDiag(init?: RequestInit): Promise<DiagFetch> {
   const key = getKey();
   const url = apiBase() + "/api/diag/comprehensive" + (key ? "?key=" + encodeURIComponent(key) : "");
   try {
-    const r = await fetch(url, { cache: "no-store", headers: key ? { "X-Dash-Token": key } : undefined });
+    const r = await fetch(url, { cache: "no-store", headers: key ? { "X-Dash-Token": key } : undefined, ...init });
     if (r.status === 429) return { ok: false, errorKey: "diagBundle.errors.rateLimited", status: 429 };
     if (!r.ok) return { ok: false, errorKey: "diagBundle.errors.server", status: r.status };
     const body = (await r.json()) as DiagBundle;

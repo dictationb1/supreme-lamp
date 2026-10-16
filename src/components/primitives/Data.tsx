@@ -265,9 +265,9 @@ export function DataTable<T extends { id: string | number }>({
         </div>
       </div>
       <div className={cn("overflow-auto", maxHeight)}>
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-raised z-10">
-            <tr className="border-b border-default">
+        <table className="w-full text-left text-sm whitespace-nowrap">
+          <thead className="sticky top-0 bg-surface-raised/80 backdrop-blur z-10 border-b border-default">
+            <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}

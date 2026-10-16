@@ -1141,7 +1141,8 @@
     "listing": {
       "provenance": {
         "live": "Live runner index",
-        "sample": "Sample data (synthetic)"
+        "sample": "Sample data (synthetic)",
+        "auth_required": "No token/Auth pending"
       },
       "count": {
         "indexed": "{{count}} indexed",
@@ -1648,6 +1649,7 @@
     "noChecksDetail": "GET /api/f92-selftest answered without a `checks` map, so there is nothing to list. A v1 or proxy response has this shape; restart the runner or open the diagnostic bundle for its raw body."
   },
   "about": {
+    "checking": "Checking...",
     "title": "About this build",
     "buildServed": "Build identity",
     "servedEqualsBuilt": "served = built",

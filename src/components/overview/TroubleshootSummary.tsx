@@ -27,9 +27,9 @@
 //
 // READ-ONLY BY DEFAULT. Nothing here mutates files, restarts a service or
 // launches a session. The only write is the operator's own Reconnect click.
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useState } from "react";
 import { Stethoscope, AlertTriangle, Info, OctagonAlert } from "lucide-react";
 import { Panel } from "./Panel";
 import { Button } from "@/components/primitives/Button";
@@ -54,6 +54,13 @@ function IssueRow({ issue, nowMs }: { issue: Issue; nowMs: number }) {
   const stale = isStale(issue.observedAtMs, nowMs);
   const setDiag = useSessionStore((s) => s.setDiag);
   const runDiag = useSessionStore((s) => s.runDiag);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const onPreflightRetry = async () => {
+    setRetryBusy(true);
+    window.dispatchEvent(new CustomEvent('ghrdp-force-poll'));
+    setTimeout(() => setRetryBusy(false), 2000);
+  };
+
   const reconnect = useTelemetryStore((s) => s.requestWsReconnect);
 
   // Handlers are named functions declared OUTSIDE the JSX on purpose. The
@@ -160,6 +167,19 @@ function IssueRow({ issue, nowMs }: { issue: Issue; nowMs: number }) {
               {t("nav.keys")}
             </Link>
           ) : null}
+
+          {issue.actionId === "preflight-retry" ? (
+            <button
+              type="button"
+              disabled={retryBusy}
+              data-testid={"issue-action-" + issue.id}
+              onClick={onPreflightRetry}
+              className="inline-flex min-h-[32px] items-center rounded-md border border-default px-2 text-xs font-medium text-secondary hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            >
+              {retryBusy ? t("about.checking", { defaultValue: "Checking..." }) : t("about.recheck", { defaultValue: "Re-check" })}
+            </button>
+          ) : null}
+
           {issue.actionId === "health" ? (
             <Link
               to="/health"

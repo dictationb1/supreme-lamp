@@ -84,7 +84,8 @@ describe("i18n F56 parity (byte-verified)", () => {
     // keys (files.listing.provenance.*, the four count labels, retry/evidence,
     // the five diagnostic field labels, the six named non-ready states and the
     // unknown/sample fallbacks). 549 -> 577.
-    expect(enNew.length).toBe(577);
+    // [V4 / #1] added 1 key: files.listing.provenance.auth_required. 577 -> 578.
+    expect(enNew.length).toBe(578);
   });
 
   it("every si value is non-empty, byte-stable Sinhala or a technical token", () => {

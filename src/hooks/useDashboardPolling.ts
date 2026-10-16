@@ -35,6 +35,13 @@ export function useDashboardPolling(): void {
     let alive = true;
     const timers: number[] = [];
 
+
+    const forcePoll = () => {
+      pollConfig();
+      pollNative();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('ghrdp-force-poll', forcePoll);
+
     const pollConfig = async () => {
       const cf = await getJson(configUrl());
       if (alive) setConfig(cf);
