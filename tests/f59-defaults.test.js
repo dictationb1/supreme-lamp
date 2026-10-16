@@ -85,7 +85,7 @@ test("F59-5 prebuilt binaries: pins file, official sources, no Chocolatey, fail-
     assert.equal(bad.test(main), false, "main.yml must not use Chocolatey: " + bad);
   }
   assert.match(main, /prebuilt-binaries/);
-  assert.match(main, /gh release download/);
+  assert.match(main, /gh release download \$tag -R \$repo/);
   assert.match(main, /f59-prebuilt-verify\.ps1/);
   assert.match(main, /Test-F59AssetSha256/);
   assert.match(main, /Test-F59ChecksumsLine/);
