@@ -2917,10 +2917,16 @@ jobs:
           # main.yml wiring pins
           $wf = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\main.yml') -Raw
           if ($wf -notmatch '(?m)^  build-ui:') { throw 'F43: build-ui job missing from main.yml' }
-          $rdpBlock = [regex]::Match($wf, '(?s)`n  rdp:`n.*?`n  [a-zA-Z0-9_-]+:`n').Value
-          if (-not $rdpBlock) { $rdpBlock = [regex]::Match($wf, '(?s)`n  rdp:`n.*').Value }
-          $needsLine = [regex]::Match($rdpBlock, '`n    needs:\s*\[(.*?)\]').Groups[1].Value
-          $needsArr = $needsLine -split ',' | ForEach-Object { $_.Trim() }
+          $rdpStart = $wf.IndexOf("`n  rdp:`n")
+          if ($rdpStart -lt 0) { $rdpStart = $wf.IndexOf("`r`n  rdp:`r`n") }
+          if ($rdpStart -lt 0) { throw 'F43: rdp job missing from main.yml' }
+          $rdpSub = $wf.Substring($rdpStart + 5)
+          $endMatch = [regex]::Match($rdpSub, '(?m)^\s{2}[a-zA-Z0-9_-]+:\s*$')
+          $rdpBlock = if ($endMatch.Success) { $rdpSub.Substring(0, $endMatch.Index) } else { $rdpSub }
+          $rdpCleaned = ($rdpBlock -split "`r?`n" | Where-Object { $_.Trim() -notlike '#*' }) -join "`n"
+          $needsMatch = [regex]::Match($rdpCleaned, 'needs:\s*\[([^\]]+)\]')
+          if (-not $needsMatch.Success) { throw 'F43: rdp job needs clause missing' }
+          $needsArr = $needsMatch.Groups[1].Value -split ',' | ForEach-Object { $_.Trim() }
           if ('build-ui' -notin $needsArr) { throw 'F43: rdp needs build-ui missing' }
           if ('preflight' -notin $needsArr) { throw 'F43: rdp needs preflight missing' }
           if ($wf -notmatch 'actions/download-artifact') { throw 'F43: download-artifact missing' }
