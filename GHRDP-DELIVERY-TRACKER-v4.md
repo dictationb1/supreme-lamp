@@ -21,5 +21,20 @@
 ## අදියර 4: CI අසමත්වීම් නිවැරදි කිරීම (Final CI Workflow Repairs)
 - Github CI හි `Native UI and VPS contracts (Node)` අසමත් වූයේ අලුතින් එකතු කළ වචන 2 හේතුවෙන් `f109-debug-hud.test.js`, `f110-live-patch.test.js`, සහ `f110b-signing.test.js` හි ඇති "EXPECTED_FLAT_KEYS" lock අගය 1243 සිට 1245 දක්වා යාවත්කාලීන නොකිරීමෙනි. එයද සම්පුර්ණයෙන්ම නිවැරදි කර ඇත. දැන් සියළුම native UI පරීක්ෂණ සාර්ථකව සමත් වේ.
 
+
+## අදියර 5: RDP ආරම්භක සූදානම සහ වින්‍යාසකරණය (RDP Readiness & Configuration)
+- **ගැටලුව විමර්ශනය:** `Windows RDP - Tailscale Mission Control` Workflow හි අවලංගු කරන ලද (cancelled) 38882965315 Run එක පරීක්ෂා කිරීමෙන්, `TS_AUTHKEY` සහ `VNC_PASS` වැනි අත්‍යවශ්‍ය රහස්‍ය දත්ත නොමැති වීම නිසා Workflow අසමත් වන බව තහවුරු කරගන්නා ලදී.
+- **Readiness Gate එකතු කිරීම:** `main.yml` Workflow එක වෙත අලුතින් `Preflight Configuration Check (Readiness Gate)` පියවරක් එක් කරන ලදී. මෙමගින් RDP Provisioning ආරම්භ වීමට පෙර අවශ්‍ය සියලු Secrets තිබේදැයි පරීක්ෂා කර, නොමැති නම් සිංහලෙන් නිවැරදි කිරීමේ උපදෙස් (Step Summary හරහා) ලබා දෙයි.
+
+- **Readiness Mode (Non-Provisioning):** `main.yml` Workflow එක වෙත අලුතින් `mode` input එකක් එක් කරන ලදී. මෙහි පෙරනිමි අගය `readiness` වන අතර, එය තෝරාගත් විට අත්‍යවශ්‍ය Secrets පරීක්ෂා කර සත්‍ය RDP Session එකක් නිර්මාණය නොකරම Workflow එක සාර්ථකව අවසන් කරයි.
+- **Service Readiness Check:** සේවාදායකයේ (Dashboard) `http://localhost:7331` සේවාව 5h30 Keep-alive අදියරට පෙර පරීක්ෂා කිරීමට `Service Readiness Check (Pre-Keepalive)` පියවරක් එක් කරන ලදී. එය ප්‍රතිචාර නොදක්වයි නම් Keep-alive අදියර අවලංගු වේ.
+- **මූලික README.md නිර්මාණය:** සම්පූර්ණ උපදෙස් ඇතුලත් ප්‍රධාන `README.md` ගොනුවක් repository හි root හි නිර්මාණය කරන ලදී.
+- **සිංහල මාර්ගෝපදේශ සහ Issues:**
+  1. `docs/mission-control/v4/SETUP-GUIDE-si.md` - අවශ්‍ය Secrets සැකසීමේ සම්පූර්ණ උපදෙස්.
+  2. `docs/mission-control/v4/MIGRATION-READINESS.md` - Migration හි වත්මන් තත්ත්වය.
+  3. `NEXT-RUN-GUIDE-si.md` - ඊළඟ RDP Session එක ආරම්භ කිරීමේ නිවැරදි ක්‍රමවේදය සහ Troubleshooting.
+  4. Github Issues (01-readiness-tracker.md, 02-ts-authkey.md, 03-vnc-pass.md) නිර්මාණය කරන ලදී.
+- **වත්මන් තත්ත්වය:** `BLOCKED_BY_CONFIGURATION` (Operator විසින් අත්‍යවශ්‍ය Secrets ලබා දෙන තුරු සැබෑ RDP Session එකක් ආරම්භ කළ නොහැක).
+
 ## ඊළඟ පියවර
 ඔබගේ අවසරය ලබා දුන් වහාම මෙම කේතය (Pull Request) අනුමත කිරීමට සියලු කටයුතු සූදානම් කර ඇත. මෙය සම්පූර්ණයෙන්ම ක්‍රියාකාරී වන අතර නිෂ්පාදන මට්ටමේ v4 අතුරුමුහුණත දැන් සක්‍රීයව පවතී.
