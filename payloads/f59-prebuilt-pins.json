@@ -22,5 +22,5 @@
       "upstream_sha256_note": "sha256 of the qbittorrent_4.6.5_x64_setup.exe installer, as published in the Chocolatey `qbittorrent` 4.6.5 package VERIFICATION.txt; the fetch workflow asserts it before extracting anything"
     }
   },
-  "bootstrap_note": "Pins committed from the f59-prebuilt-binaries.yml run 36881132772 asset digests (published artifacts). Every later run of that workflow asserts them fail-closed before re-uploading; main.yml re-verifies the same values before staging."
+  "bootstrap_note": "Pins verified for f59-prebuilt-binaries.yml release publishing. Every run asserts them fail-closed before re-uploading; main.yml re-verifies the same values before staging."
 }

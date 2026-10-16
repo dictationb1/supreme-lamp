@@ -182,6 +182,10 @@ jobs:
     name: Preflight Configuration Check
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - name: Preflight Configuration Check (Readiness Gate)
         shell: pwsh
         env:
@@ -190,36 +194,75 @@ jobs:
           RENTRY_EDIT_PASSWORD: ${{ secrets.RENTRY_EDIT_PASSWORD }}
           MIRROR_INPUT: ${{ github.event.inputs.mirror_enable }}
           EXEC_MODE: ${{ github.event.inputs.mode || 'readiness' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Continue'
           $S = $env:GITHUB_STEP_SUMMARY
-          $missing = @()
+          $missingSecrets = @()
 
-          if (-not $env:TS_AUTHKEY) { $missing += 'TS_AUTHKEY' }
-          if (-not $env:VNC_PASS) { $missing += 'VNC_PASS' }
-          if ($env:MIRROR_INPUT -eq 'true' -and -not $env:RENTRY_EDIT_PASSWORD) { $missing += 'RENTRY_EDIT_PASSWORD (Mirror mode සක්‍රීය නිසා)' }
+          if (-not $env:TS_AUTHKEY) { $missingSecrets += 'TS_AUTHKEY' }
+          if (-not $env:VNC_PASS) { $missingSecrets += 'VNC_PASS' }
+          if ($env:MIRROR_INPUT -eq 'true' -and -not $env:RENTRY_EDIT_PASSWORD) { $missingSecrets += 'RENTRY_EDIT_PASSWORD (Mirror mode සක්‍රීය නිසා)' }
 
-          if ($missing.Count -gt 0) {
-              $msg = "අත්‍යවශ්‍ය Configuration Secrets නොමැත: " + ($missing -join ', ')
+          # Prebuilt binary release assets readiness check
+          $missingAssets = @()
+          $repoArg = $env:GITHUB_REPOSITORY
+          if (-not $repoArg) { $repoArg = 'dictationb1/supreme-lamp' }
+
+          if (Test-Path -LiteralPath 'payloads/f59-prebuilt-pins.json') {
+              try {
+                  $pins = Get-Content -LiteralPath 'payloads/f59-prebuilt-pins.json' -Raw | ConvertFrom-Json
+                  $tag = [string]$pins.release_tag
+                  $relJson = gh release view $tag --repo $repoArg --json tagName,assets 2>$null | ConvertFrom-Json
+                  if (-not $relJson -or -not $relJson.tagName) {
+                      $missingAssets += ("Release '" + $tag + "' හමු නොවුණි (404 Not Found)")
+                  } else {
+                      $assetNames = @($relJson.assets | ForEach-Object { [string]$_.name })
+                      if ([string]$pins.checksums_asset -notin $assetNames) {
+                          $missingAssets += ("Asset '" + $pins.checksums_asset + "' release '" + $tag + "' හි නොමැත")
+                      }
+                      foreach ($p in @($pins.assets.PSObject.Properties)) {
+                          $aname = [string]$p.Value.name
+                          if ($aname -notin $assetNames) {
+                              $missingAssets += ("Asset '" + $aname + "' release '" + $tag + "' හි නොමැත")
+                          }
+                      }
+                  }
+              } catch {
+                  $missingAssets += ("Release '" + $tag + "' පරීක්ෂා කිරීමට නොහැකි විය: " + $_.Exception.Message)
+              }
+          }
+
+          if ($missingSecrets.Count -gt 0 -or $missingAssets.Count -gt 0) {
+              $msg = ""
+              if ($missingSecrets.Count -gt 0) { $msg += "අත්‍යවශ්‍ය Configuration Secrets නොමැත: " + ($missingSecrets -join ', ') + ". " }
+              if ($missingAssets.Count -gt 0) { $msg += "Prebuilt release assets නොමැත: " + ($missingAssets -join ', ') + "." }
               Write-Host "::error::$msg"
 
               if ($S) {
                   "### ❌ RDP ආරම්භ කිරීම අවහිර කර ඇත (Launch Blocked)" | Add-Content -Path $S
-                  "**හේතුව:** අත්‍යවශ්‍ය රහස්‍ය දත්ත (secrets) Github හි සකසා නොමැත." | Add-Content -Path $S
+                  "**හේතුව:** අත්‍යවශ්‍ය Configuration Data හෝ Prebuilt Release Assets නොමැත." | Add-Content -Path $S
                   "" | Add-Content -Path $S
-                  "**අඩුපාඩු:**" | Add-Content -Path $S
-                  foreach ($m in $missing) {
-                      "- ``$m``" | Add-Content -Path $S
+                  if ($missingSecrets.Count -gt 0) {
+                      "**අඩුපාඩු (Secrets):**" | Add-Content -Path $S
+                      foreach ($m in $missingSecrets) { "- ``$m``" | Add-Content -Path $S }
+                      "" | Add-Content -Path $S
+                      "**විසඳුම (Secrets):** [SETUP-GUIDE-si.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/docs/mission-control/v4/SETUP-GUIDE-si.md) බලන්න: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S
+                      "" | Add-Content -Path $S
                   }
-                  "" | Add-Content -Path $S
-                  "**විසඳුම:** [SETUP-GUIDE-si.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/docs/mission-control/v4/SETUP-GUIDE-si.md) කියවා අදාල Secrets මෙහි ඇතුලත් කරන්න: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S
+                  if ($missingAssets.Count -gt 0) {
+                      "**අඩුපාඩු (Release Assets):**" | Add-Content -Path $S
+                      foreach ($a in $missingAssets) { "- $a" | Add-Content -Path $S }
+                      "" | Add-Content -Path $S
+                      "**විසඳුම (Release Assets):** F59 prebuilt binaries workflow එක ධාවනය කර assets ප්‍රකාශයට පත් කරන්න: [Run F59 Workflow](https://github.com/$env:GITHUB_REPOSITORY/actions/workflows/f59-prebuilt-binaries.yml)" | Add-Content -Path $S
+                  }
               }
-              throw "CONFIGURATION_MISSING: $msg"
+              throw "READINESS_GATE_FAILED: $msg"
           } else {
-              Write-Host "CONFIGURATION_PRESENT: All required secrets found."
+              Write-Host "CONFIGURATION_PRESENT: All required secrets and prebuilt release assets verified."
               if ($S) {
-                  "### ✅ Configuration Validated" | Add-Content -Path $S
-                  "අත්‍යවශ්‍ය සියළුම රහස්‍ය දත්ත සකසා ඇත. (Mode: $env:EXEC_MODE)" | Add-Content -Path $S
+                  "### ✅ Configuration & Prebuilt Assets Validated" | Add-Content -Path $S
+                  "අත්‍යවශ්‍ය සියළුම Secrets සහ Prebuilt Release Assets සාර්ථකව තහවුරු කරන ලදී. (Mode: $env:EXEC_MODE)" | Add-Content -Path $S
               }
           }
 
@@ -597,9 +640,15 @@ jobs:
                   if (-not (Test-Path -LiteralPath (Join-Path $cacheDir $name))) { $need += $name }
               }
               if ($need.Count -gt 0) {
-                  gh release download $tag --pattern ([string]$pins.checksums_asset) --dir $tmp --clobber 2>$null | Out-Null
-                  foreach ($n in $need) { gh release download $tag --pattern $n --dir $tmp --clobber 2>$null | Out-Null }
-                  if ($LASTEXITCODE -ne 0) { throw ('[F59 prebuilt] gh release download failed for ' + ($need -join ', ') + ' (release ' + $tag + ') - assets must be published by f59-prebuilt-binaries.yml') }
+                  $repoArg = $env:GITHUB_REPOSITORY
+                  if (-not $repoArg) { $repoArg = 'dictationb1/supreme-lamp' }
+                  Write-Host ('[F59 prebuilt] downloading assets for release ' + $tag + ' from repo ' + $repoArg + '...')
+                  & gh release download $tag --repo $repoArg --pattern ([string]$pins.checksums_asset) --dir $tmp --clobber
+                  if ($LASTEXITCODE -ne 0) { throw ('[F59 prebuilt] gh release download failed for checksums asset ' + [string]$pins.checksums_asset + ' (release ' + $tag + ' on ' + $repoArg + ')') }
+                  foreach ($n in $need) {
+                      & gh release download $tag --repo $repoArg --pattern $n --dir $tmp --clobber
+                      if ($LASTEXITCODE -ne 0) { throw ('[F59 prebuilt] gh release download failed for ' + $n + ' (release ' + $tag + ' on ' + $repoArg + ')') }
+                  }
                   if (-not (Test-Path -LiteralPath $ck)) { throw ('[F59 prebuilt] release ' + $tag + ' did not deliver ' + [string]$pins.checksums_asset) }
                   foreach ($p in @($pins.assets.PSObject.Properties)) {
                       $name = [string]$p.Value.name
