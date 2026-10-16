@@ -54,5 +54,10 @@
 - **හේතුව:** අප විසින් `main.yml` හි `rdp` job එකට `preflight` නමින් අලුත් dependency එකක් එක් කළ නිසා (e.g. `needs: [preflight, build-ui]`), පැරණි string check එක (`wf.includes('needs: [build-ui]')`) ගැළපීමෙන් අසමත් විය.
 - **විසඳුම:** `tests/f43-default-v2.test.js` හි අදාල string පරීක්ෂාව ඉවත් කර, නිවැරදිව workflow yaml එක parse කර `rdp` job එකෙහි `needs` array එක තුල `build-ui` සහ `preflight` යන දෙකම ඇති දැයි පරීක්ෂා කරන robust parser එකක් හඳුන්වා දෙන ලදී. එසේම ඊට අදාල positive සහ negative regression tests ද ඇතුලත් කරන ලදී.
 
+
+## අදියර 9: අතිරේක CI Gate (autologin-lab) Parser දෝෂය නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** පෙර අදියරේදී (අදියර 6) `autologin-lab.yml` හි `needs:.*build-ui` ලෙස භාවිතා කළ regex එක ප්‍රමාණවත් තරම් robust නොවන බව හඳුනා ගන්නා ලදී (එය වෙනත් job එකක් හෝ comment එකක් match වීමට ඉඩ ඇත).
+- **විසඳුම:** එම broad regex එක ඉවත් කර, PowerShell හරහා `main.yml` හි `rdp` job block එක වෙන්කර ගෙන, එහි ඇති `needs` array එක නිවැරදිව parse කරන (comments මඟහැර) robust structural check එකක් `autologin-lab.yml` වෙත හඳුන්වා දෙන ලදී.
+
 ## ඊළඟ පියවර
 ඔබගේ අවසරය ලබා දුන් වහාම මෙම කේතය (Pull Request) අනුමත කිරීමට සියලු කටයුතු සූදානම් කර ඇත. මෙය සම්පූර්ණයෙන්ම ක්‍රියාකාරී වන අතර නිෂ්පාදන මට්ටමේ v4 අතුරුමුහුණත දැන් සක්‍රීයව පවතී.
