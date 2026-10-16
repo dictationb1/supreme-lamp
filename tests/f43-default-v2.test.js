@@ -29,7 +29,23 @@ test('F43-1 main.yml has a parallel build-ui job that uploads dist-ui', () => {
 });
 
 test('F43-1 rdp job needs build-ui and downloads dist-ui BEFORE staging', () => {
-  assert.ok(wf.includes('needs: [build-ui]'), 'rdp must needs: [build-ui]');
+  // Find the rdp job definition and parse its needs array
+  const rdpJobStart = wf.indexOf('\n  rdp:\n');
+  assert.ok(rdpJobStart > 0, 'rdp job missing');
+
+  const rdpJobEndMatch = wf.slice(rdpJobStart + 1).match(/\n  [a-zA-Z0-9_-]+:\n/);
+  const rawRdpJobText = rdpJobEndMatch ? wf.slice(rdpJobStart, rdpJobStart + 1 + rdpJobEndMatch.index) : wf.slice(rdpJobStart);
+
+  // Strip lines starting with # to avoid matching comments
+  const rdpJobText = rawRdpJobText.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
+
+  const needsMatch = rdpJobText.match(/\n    needs:\s*\[([^\]]+)\]/);
+  assert.ok(needsMatch, 'rdp job must declare needs');
+
+  const needsArray = needsMatch[1].split(',').map(n => n.trim());
+  assert.ok(needsArray.includes('build-ui'), 'rdp job needs must include build-ui');
+  assert.ok(needsArray.includes('preflight'), 'rdp job needs must include preflight for readiness protection');
+
   assert.ok(wf.includes('actions/download-artifact@v4'), 'download-artifact missing');
   const dl = wf.indexOf('actions/download-artifact@v4');
   const stage = wf.indexOf('Stage files + write config.json');
@@ -123,4 +139,41 @@ test('F43-3 219-id lock file still present (jsdom smoke asserts under default)',
   const ids = [...lock.matchAll(/'([^']+)'/g)].map((m) => m[1]);
   assert.equal(ids.length, 219, 'regression lock must stay at 219 ids, got ' + ids.length);
   assert.ok(fs.existsSync('src/tests/smoke/ids-regression.test.tsx'), 'jsdom 219-id smoke missing');
+});
+
+// --- Readiness Guard Negative/Positive Checks ---
+test('F43-1a rdp job dependency parser handles reordering', () => {
+  const mockWf = "\n  rdp:\n    needs: [build-ui, preflight]\n";
+  const start = mockWf.indexOf('\n  rdp:\n');
+  const needsMatch = mockWf.slice(start).match(/\n    needs:\s*\[([^\]]+)\]/);
+  const arr = needsMatch[1].split(',').map(n => n.trim());
+  assert.ok(arr.includes('build-ui'));
+  assert.ok(arr.includes('preflight'));
+});
+
+test('F43-1b rdp job dependency parser fails if build-ui missing', () => {
+  const mockWf = "\n  rdp:\n    needs: [preflight]\n\n  other:\n    needs: [build-ui]\n";
+  const start = mockWf.indexOf('\n  rdp:\n');
+  const endMatch = mockWf.slice(start + 1).match(/\n  [a-zA-Z0-9_-]+:\n/);
+  const rdpText = endMatch ? mockWf.slice(start, start + 1 + endMatch.index) : mockWf.slice(start);
+  const needsMatch = rdpText.match(/\n    needs:\s*\[([^\]]+)\]/);
+  const arr = needsMatch[1].split(',').map(n => n.trim());
+  assert.ok(!arr.includes('build-ui'));
+});
+
+test('F43-1c rdp job dependency parser fails if preflight missing', () => {
+  const mockWf = "\n  rdp:\n    needs: [build-ui]\n";
+  const start = mockWf.indexOf('\n  rdp:\n');
+  const needsMatch = mockWf.slice(start).match(/\n    needs:\s*\[([^\]]+)\]/);
+  const arr = needsMatch[1].split(',').map(n => n.trim());
+  assert.ok(!arr.includes('preflight'));
+});
+
+test('F43-1d rdp job dependency parser ignores comments', () => {
+  const mockWf = "\n  rdp:\n    # needs: [build-ui, preflight]\n    needs: [other]\n";
+  const start = mockWf.indexOf('\n  rdp:\n');
+  const cleaned = mockWf.slice(start).split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
+  const needsMatch = cleaned.match(/\n    needs:\s*\[([^\]]+)\]/);
+  const arr = needsMatch[1].split(',').map(n => n.trim());
+  assert.ok(!arr.includes('build-ui'));
 });

@@ -48,5 +48,11 @@
 - **හේතුව:** අප විසින් `main.yml` හි `Preflight Configuration Check` පියවරට එක් කළ PowerShell කේතයේ (code block) ද්විත්ව උද්ධෘත (double quotes) ඇතුලත Markdown backtick (`` ` ``) භාවිතා කර තිබුණි (`"- `$m`"`). PowerShell හි backtick යනු escape character එකක් වන බැවින්, එය ඊළඟ අක්ෂරය escape කරන අතර අවසාන backtick එක නිසා ද්විත්ව උද්ධෘතය පවා escape වී string එකේ අවසානය හඳුනාගත නොහැකිව imbalance error එකක් ඇති විය.
 - **විසඳුම:** ද්විත්ව උද්ධෘත ඇතුලත backtick භාවිතය ඉවත් කර, නිවැරදි string concatenation ක්‍රමය ("``$m``") භාවිතා කර ගැටලුව නිරාකරණය කරන ලදී.
 
+
+## අදියර 8: CI Gate (tests/f43-default-v2.test.js) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `launch-gates / gates` අසමත් වී තිබුණි (Error: `F43-1 rdp job needs build-ui and downloads dist-ui BEFORE staging`).
+- **හේතුව:** අප විසින් `main.yml` හි `rdp` job එකට `preflight` නමින් අලුත් dependency එකක් එක් කළ නිසා (e.g. `needs: [preflight, build-ui]`), පැරණි string check එක (`wf.includes('needs: [build-ui]')`) ගැළපීමෙන් අසමත් විය.
+- **විසඳුම:** `tests/f43-default-v2.test.js` හි අදාල string පරීක්ෂාව ඉවත් කර, නිවැරදිව workflow yaml එක parse කර `rdp` job එකෙහි `needs` array එක තුල `build-ui` සහ `preflight` යන දෙකම ඇති දැයි පරීක්ෂා කරන robust parser එකක් හඳුන්වා දෙන ලදී. එසේම ඊට අදාල positive සහ negative regression tests ද ඇතුලත් කරන ලදී.
+
 ## ඊළඟ පියවර
 ඔබගේ අවසරය ලබා දුන් වහාම මෙම කේතය (Pull Request) අනුමත කිරීමට සියලු කටයුතු සූදානම් කර ඇත. මෙය සම්පූර්ණයෙන්ම ක්‍රියාකාරී වන අතර නිෂ්පාදන මට්ටමේ v4 අතුරුමුහුණත දැන් සක්‍රීයව පවතී.
