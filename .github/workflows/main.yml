@@ -209,7 +209,7 @@ jobs:
                   "" | Add-Content -Path $S
                   "**අඩුපාඩු:**" | Add-Content -Path $S
                   foreach ($m in $missing) {
-                      "- `$m`" | Add-Content -Path $S
+                      "- ``$m``" | Add-Content -Path $S
                   }
                   "" | Add-Content -Path $S
                   "**විසඳුම:** [SETUP-GUIDE-si.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/docs/mission-control/v4/SETUP-GUIDE-si.md) කියවා අදාල Secrets මෙහි ඇතුලත් කරන්න: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S

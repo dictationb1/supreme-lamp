@@ -2917,7 +2917,7 @@ jobs:
           # main.yml wiring pins
           $wf = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\main.yml') -Raw
           if ($wf -notmatch '(?m)^  build-ui:') { throw 'F43: build-ui job missing from main.yml' }
-          if ($wf -notmatch 'needs: \[build-ui\]') { throw 'F43: rdp needs build-ui missing' }
+          if ($wf -notmatch 'needs:.*build-ui') { throw 'F43: rdp needs build-ui missing' }
           if ($wf -notmatch 'actions/download-artifact') { throw 'F43: download-artifact missing' }
           Write-Host '[F43] PASS: stage sim size OK, banner fail-visible, default=v2, build-ui wired'
       - name: "G: setup-time measurement + lab matrix summary"

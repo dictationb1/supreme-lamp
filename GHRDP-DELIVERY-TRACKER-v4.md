@@ -36,5 +36,17 @@
   4. Github Issues (01-readiness-tracker.md, 02-ts-authkey.md, 03-vnc-pass.md) නිර්මාණය කරන ලදී.
 - **වත්මන් තත්ත්වය:** `BLOCKED_BY_CONFIGURATION` (Operator විසින් අත්‍යවශ්‍ය Secrets ලබා දෙන තුරු සැබෑ RDP Session එකක් ආරම්භ කළ නොහැක).
 
+
+## අදියර 6: CI Gate (autologin-lab) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `autologin-lab` අසමත් වී තිබුණි (Error: `F43: rdp needs build-ui missing`).
+- **හේතුව:** අප විසින් `main.yml` හි `rdp` job එකට `preflight` නමින් අලුත් dependency එකක් එක් කළ නිසා (e.g. `needs: [preflight, build-ui]`), පැරණි regex එක (`needs: [build-ui]`) ගැළපීමෙන් අසමත් විය.
+- **විසඳුම:** `autologin-lab.yml` හි අදාල regex පරීක්ෂාව `needs:.*build-ui` ලෙස වඩාත් නම්‍යශීලී (resilient) අයුරින් යාවත්කාලීන කරන ලදී.
+
+
+## අදියර 7: CI Gate (ps-balance-audit) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `gates` අසමත් වී තිබුණි (Error: `ps-balance-audit: 1 surface(s) failed` in `main.yml`).
+- **හේතුව:** අප විසින් `main.yml` හි `Preflight Configuration Check` පියවරට එක් කළ PowerShell කේතයේ (code block) ද්විත්ව උද්ධෘත (double quotes) ඇතුලත Markdown backtick (`` ` ``) භාවිතා කර තිබුණි (`"- `$m`"`). PowerShell හි backtick යනු escape character එකක් වන බැවින්, එය ඊළඟ අක්ෂරය escape කරන අතර අවසාන backtick එක නිසා ද්විත්ව උද්ධෘතය පවා escape වී string එකේ අවසානය හඳුනාගත නොහැකිව imbalance error එකක් ඇති විය.
+- **විසඳුම:** ද්විත්ව උද්ධෘත ඇතුලත backtick භාවිතය ඉවත් කර, නිවැරදි string concatenation ක්‍රමය ("``$m``") භාවිතා කර ගැටලුව නිරාකරණය කරන ලදී.
+
 ## ඊළඟ පියවර
 ඔබගේ අවසරය ලබා දුන් වහාම මෙම කේතය (Pull Request) අනුමත කිරීමට සියලු කටයුතු සූදානම් කර ඇත. මෙය සම්පූර්ණයෙන්ම ක්‍රියාකාරී වන අතර නිෂ්පාදන මට්ටමේ v4 අතුරුමුහුණත දැන් සක්‍රීයව පවතී.
