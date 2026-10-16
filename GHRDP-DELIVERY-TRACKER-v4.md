@@ -21,5 +21,43 @@
 ## අදියර 4: CI අසමත්වීම් නිවැරදි කිරීම (Final CI Workflow Repairs)
 - Github CI හි `Native UI and VPS contracts (Node)` අසමත් වූයේ අලුතින් එකතු කළ වචන 2 හේතුවෙන් `f109-debug-hud.test.js`, `f110-live-patch.test.js`, සහ `f110b-signing.test.js` හි ඇති "EXPECTED_FLAT_KEYS" lock අගය 1243 සිට 1245 දක්වා යාවත්කාලීන නොකිරීමෙනි. එයද සම්පුර්ණයෙන්ම නිවැරදි කර ඇත. දැන් සියළුම native UI පරීක්ෂණ සාර්ථකව සමත් වේ.
 
+
+## අදියර 5: RDP ආරම්භක සූදානම සහ වින්‍යාසකරණය (RDP Readiness & Configuration)
+- **ගැටලුව විමර්ශනය:** `Windows RDP - Tailscale Mission Control` Workflow හි අවලංගු කරන ලද (cancelled) 38882965315 Run එක පරීක්ෂා කිරීමෙන්, `TS_AUTHKEY` සහ `VNC_PASS` වැනි අත්‍යවශ්‍ය රහස්‍ය දත්ත නොමැති වීම නිසා Workflow අසමත් වන බව තහවුරු කරගන්නා ලදී.
+- **Readiness Gate එකතු කිරීම:** `main.yml` Workflow එක වෙත අලුතින් `Preflight Configuration Check (Readiness Gate)` පියවරක් එක් කරන ලදී. මෙමගින් RDP Provisioning ආරම්භ වීමට පෙර අවශ්‍ය සියලු Secrets තිබේදැයි පරීක්ෂා කර, නොමැති නම් සිංහලෙන් නිවැරදි කිරීමේ උපදෙස් (Step Summary හරහා) ලබා දෙයි.
+
+- **Readiness Mode (Non-Provisioning):** `main.yml` Workflow එක වෙත අලුතින් `mode` input එකක් එක් කරන ලදී. මෙහි පෙරනිමි අගය `readiness` වන අතර, එය තෝරාගත් විට අත්‍යවශ්‍ය Secrets පරීක්ෂා කර සත්‍ය RDP Session එකක් නිර්මාණය නොකරම Workflow එක සාර්ථකව අවසන් කරයි.
+- **Service Readiness Check:** සේවාදායකයේ (Dashboard) `http://localhost:7331` සේවාව 5h30 Keep-alive අදියරට පෙර පරීක්ෂා කිරීමට `Service Readiness Check (Pre-Keepalive)` පියවරක් එක් කරන ලදී. එය ප්‍රතිචාර නොදක්වයි නම් Keep-alive අදියර අවලංගු වේ.
+- **මූලික README.md නිර්මාණය:** සම්පූර්ණ උපදෙස් ඇතුලත් ප්‍රධාන `README.md` ගොනුවක් repository හි root හි නිර්මාණය කරන ලදී.
+- **සිංහල මාර්ගෝපදේශ සහ Issues:**
+  1. `docs/mission-control/v4/SETUP-GUIDE-si.md` - අවශ්‍ය Secrets සැකසීමේ සම්පූර්ණ උපදෙස්.
+  2. `docs/mission-control/v4/MIGRATION-READINESS.md` - Migration හි වත්මන් තත්ත්වය.
+  3. `NEXT-RUN-GUIDE-si.md` - ඊළඟ RDP Session එක ආරම්භ කිරීමේ නිවැරදි ක්‍රමවේදය සහ Troubleshooting.
+  4. Github Issues (01-readiness-tracker.md, 02-ts-authkey.md, 03-vnc-pass.md) නිර්මාණය කරන ලදී.
+- **වත්මන් තත්ත්වය:** `BLOCKED_BY_CONFIGURATION` (Operator විසින් අත්‍යවශ්‍ය Secrets ලබා දෙන තුරු සැබෑ RDP Session එකක් ආරම්භ කළ නොහැක).
+
+
+## අදියර 6: CI Gate (autologin-lab) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `autologin-lab` අසමත් වී තිබුණි (Error: `F43: rdp needs build-ui missing`).
+- **හේතුව:** අප විසින් `main.yml` හි `rdp` job එකට `preflight` නමින් අලුත් dependency එකක් එක් කළ නිසා (e.g. `needs: [preflight, build-ui]`), පැරණි regex එක (`needs: [build-ui]`) ගැළපීමෙන් අසමත් විය.
+- **විසඳුම:** `autologin-lab.yml` හි අදාල regex පරීක්ෂාව `needs:.*build-ui` ලෙස වඩාත් නම්‍යශීලී (resilient) අයුරින් යාවත්කාලීන කරන ලදී.
+
+
+## අදියර 7: CI Gate (ps-balance-audit) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `gates` අසමත් වී තිබුණි (Error: `ps-balance-audit: 1 surface(s) failed` in `main.yml`).
+- **හේතුව:** අප විසින් `main.yml` හි `Preflight Configuration Check` පියවරට එක් කළ PowerShell කේතයේ (code block) ද්විත්ව උද්ධෘත (double quotes) ඇතුලත Markdown backtick (`` ` ``) භාවිතා කර තිබුණි (`"- `$m`"`). PowerShell හි backtick යනු escape character එකක් වන බැවින්, එය ඊළඟ අක්ෂරය escape කරන අතර අවසාන backtick එක නිසා ද්විත්ව උද්ධෘතය පවා escape වී string එකේ අවසානය හඳුනාගත නොහැකිව imbalance error එකක් ඇති විය.
+- **විසඳුම:** ද්විත්ව උද්ධෘත ඇතුලත backtick භාවිතය ඉවත් කර, නිවැරදි string concatenation ක්‍රමය ("``$m``") භාවිතා කර ගැටලුව නිරාකරණය කරන ලදී.
+
+
+## අදියර 8: CI Gate (tests/f43-default-v2.test.js) අසමත්වීම් නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** PR එකෙහි CI Check එකක් වන `launch-gates / gates` අසමත් වී තිබුණි (Error: `F43-1 rdp job needs build-ui and downloads dist-ui BEFORE staging`).
+- **හේතුව:** අප විසින් `main.yml` හි `rdp` job එකට `preflight` නමින් අලුත් dependency එකක් එක් කළ නිසා (e.g. `needs: [preflight, build-ui]`), පැරණි string check එක (`wf.includes('needs: [build-ui]')`) ගැළපීමෙන් අසමත් විය.
+- **විසඳුම:** `tests/f43-default-v2.test.js` හි අදාල string පරීක්ෂාව ඉවත් කර, නිවැරදිව workflow yaml එක parse කර `rdp` job එකෙහි `needs` array එක තුල `build-ui` සහ `preflight` යන දෙකම ඇති දැයි පරීක්ෂා කරන robust parser එකක් හඳුන්වා දෙන ලදී. එසේම ඊට අදාල positive සහ negative regression tests ද ඇතුලත් කරන ලදී.
+
+
+## අදියර 9: අතිරේක CI Gate (autologin-lab) Parser දෝෂය නිවැරදි කිරීම
+- **ගැටලුව විමර්ශනය:** පෙර අදියරේදී (අදියර 6) `autologin-lab.yml` හි `needs:.*build-ui` ලෙස භාවිතා කළ regex එක ප්‍රමාණවත් තරම් robust නොවන බව හඳුනා ගන්නා ලදී (එය වෙනත් job එකක් හෝ comment එකක් match වීමට ඉඩ ඇත).
+- **විසඳුම:** එම broad regex එක ඉවත් කර, PowerShell හරහා `main.yml` හි `rdp` job block එක වෙන්කර ගෙන, එහි ඇති `needs` array එක නිවැරදිව parse කරන (comments මඟහැර) robust structural check එකක් `autologin-lab.yml` වෙත හඳුන්වා දෙන ලදී.
+
 ## ඊළඟ පියවර
 ඔබගේ අවසරය ලබා දුන් වහාම මෙම කේතය (Pull Request) අනුමත කිරීමට සියලු කටයුතු සූදානම් කර ඇත. මෙය සම්පූර්ණයෙන්ම ක්‍රියාකාරී වන අතර නිෂ්පාදන මට්ටමේ v4 අතුරුමුහුණත දැන් සක්‍රීයව පවතී.

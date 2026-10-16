@@ -2917,7 +2917,12 @@ jobs:
           # main.yml wiring pins
           $wf = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\main.yml') -Raw
           if ($wf -notmatch '(?m)^  build-ui:') { throw 'F43: build-ui job missing from main.yml' }
-          if ($wf -notmatch 'needs: \[build-ui\]') { throw 'F43: rdp needs build-ui missing' }
+          $rdpBlock = [regex]::Match($wf, '(?s)`n  rdp:`n.*?`n  [a-zA-Z0-9_-]+:`n').Value
+          if (-not $rdpBlock) { $rdpBlock = [regex]::Match($wf, '(?s)`n  rdp:`n.*').Value }
+          $needsLine = [regex]::Match($rdpBlock, '`n    needs:\s*\[(.*?)\]').Groups[1].Value
+          $needsArr = $needsLine -split ',' | ForEach-Object { $_.Trim() }
+          if ('build-ui' -notin $needsArr) { throw 'F43: rdp needs build-ui missing' }
+          if ('preflight' -notin $needsArr) { throw 'F43: rdp needs preflight missing' }
           if ($wf -notmatch 'actions/download-artifact') { throw 'F43: download-artifact missing' }
           Write-Host '[F43] PASS: stage sim size OK, banner fail-visible, default=v2, build-ui wired'
       - name: "G: setup-time measurement + lab matrix summary"

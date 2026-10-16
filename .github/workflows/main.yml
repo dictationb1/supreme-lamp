@@ -2,6 +2,14 @@ name: Windows RDP - Tailscale Mission Control (6h ephemeral)
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'ක්‍රියාත්මක කරන මාදිලිය (Mode). "readiness" මගින් RDP ආරම්භ නොකර වින්‍යාසයන් පමණක් පරීක්ෂා කරයි. "rdp" මගින් සැබෑ සැසිය ආරම්භ කරයි.'
+        type: choice
+        options:
+          - readiness
+          - rdp
+        default: readiness
+        required: true
       runner_target:
         description: 'Runner: windows-latest = US Azure (fast DL, ~260ms RDP) | self-hosted-windows-near = your nearby runner (10-60ms RDP)'
         type: choice
@@ -170,12 +178,66 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  preflight:
+    name: Preflight Configuration Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preflight Configuration Check (Readiness Gate)
+        shell: pwsh
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          VNC_PASS: ${{ secrets.VNC_PASS }}
+          RENTRY_EDIT_PASSWORD: ${{ secrets.RENTRY_EDIT_PASSWORD }}
+          MIRROR_INPUT: ${{ github.event.inputs.mirror_enable }}
+          EXEC_MODE: ${{ github.event.inputs.mode || 'readiness' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $S = $env:GITHUB_STEP_SUMMARY
+          $missing = @()
+
+          if (-not $env:TS_AUTHKEY) { $missing += 'TS_AUTHKEY' }
+          if (-not $env:VNC_PASS) { $missing += 'VNC_PASS' }
+          if ($env:MIRROR_INPUT -eq 'true' -and -not $env:RENTRY_EDIT_PASSWORD) { $missing += 'RENTRY_EDIT_PASSWORD (Mirror mode සක්‍රීය නිසා)' }
+
+          if ($missing.Count -gt 0) {
+              $msg = "අත්‍යවශ්‍ය Configuration Secrets නොමැත: " + ($missing -join ', ')
+              Write-Host "::error::$msg"
+
+              if ($S) {
+                  "### ❌ RDP ආරම්භ කිරීම අවහිර කර ඇත (Launch Blocked)" | Add-Content -Path $S
+                  "**හේතුව:** අත්‍යවශ්‍ය රහස්‍ය දත්ත (secrets) Github හි සකසා නොමැත." | Add-Content -Path $S
+                  "" | Add-Content -Path $S
+                  "**අඩුපාඩු:**" | Add-Content -Path $S
+                  foreach ($m in $missing) {
+                      "- ``$m``" | Add-Content -Path $S
+                  }
+                  "" | Add-Content -Path $S
+                  "**විසඳුම:** [SETUP-GUIDE-si.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/docs/mission-control/v4/SETUP-GUIDE-si.md) කියවා අදාල Secrets මෙහි ඇතුලත් කරන්න: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S
+              }
+              throw "CONFIGURATION_MISSING: $msg"
+          } else {
+              Write-Host "CONFIGURATION_PRESENT: All required secrets found."
+              if ($S) {
+                  "### ✅ Configuration Validated" | Add-Content -Path $S
+                  "අත්‍යවශ්‍ය සියළුම රහස්‍ය දත්ත සකසා ඇත. (Mode: $env:EXEC_MODE)" | Add-Content -Path $S
+              }
+          }
+
+      - name: Readiness Only Mode Exit
+        if: github.event.inputs.mode == 'readiness' || github.event.inputs.mode == ''
+        shell: pwsh
+        run: |
+          $S = $env:GITHUB_STEP_SUMMARY
+          Write-Host "::notice::Readiness check complete. Stopping here as mode=readiness."
+          if ($S) {
+             "### 🛑 Readiness Check Complete" | Add-Content -Path $S
+             "වින්‍යාසකරණ (Configuration) දත්ත සාර්ථකව පරීක්ෂා කරන ලදී." | Add-Content -Path $S
+             "RDP Session එක ආරම්භ කිරීම සඳහා `mode=rdp` ලෙස තෝරාගෙන නැවත Workflow එක ක්‍රියාත්මක කරන්න." | Add-Content -Path $S
+          }
+
   rdp:
-    # [F92 §3.2] the build-ui-via-call ordering is TRANSITIVE here: build-ui
-    # itself needs [build-ui-via-call] (the reusable-workflow call that
-    # replaced the asset poll), and tests/f43-default-v2 pins this exact
-    # needs:[build-ui] line, so the chain is expressed one level up.
-    needs: [build-ui]
+    needs: [preflight, build-ui]
+    if: github.event.inputs.mode == 'rdp'
     runs-on: ${{ github.event.inputs.runner_target || 'windows-latest' }}
     timeout-minutes: 357
     env:
@@ -5429,8 +5491,48 @@ jobs:
           if ($env:GITHUB_STEP_SUMMARY) { ('### Setup time: ' + $mins + ' minutes (target <= 6; keep-alive window untouched)') | Add-Content -Path $env:GITHUB_STEP_SUMMARY }
           exit 0
 
+      - name: Service Readiness Check (Pre-Keepalive)
+        if: ${{ always() && (github.event.inputs.mode == 'rdp') && success() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $S = $env:GITHUB_STEP_SUMMARY
+
+          Write-Host "Verifying Mission Control Dashboard responsiveness..."
+          $dashboardReady = $false
+          for ($i = 0; $i -lt 12; $i++) {
+              try {
+                  $res = Invoke-WebRequest -Uri "http://localhost:7331" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                  if ($res.StatusCode -eq 200) {
+                      $dashboardReady = $true
+                      Write-Host "Dashboard responded with 200 OK."
+                      break
+                  }
+              } catch {
+                  Write-Host "Dashboard not ready yet. Retrying in 5 seconds..."
+                  Start-Sleep -Seconds 5
+              }
+          }
+
+          if (-not $dashboardReady) {
+              $msg = "Dashboard service failed to start or respond within 60 seconds."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  "### ❌ Service Readiness Failed" | Add-Content -Path $S
+                  "Mission Control Dashboard එක නියමිත කාලය තුළ ආරම්භ වීමට අපොහොසත් විය." | Add-Content -Path $S
+                  "**ගැටලුව:** `http://localhost:7331` (Dashboard endpoint) ප්‍රතිචාර නොදක්වයි." | Add-Content -Path $S
+                  "Keep-alive ක්‍රියාවලිය අවලංගු කරන ලදී." | Add-Content -Path $S
+              }
+              throw "SERVICE_READINESS_FAILED: $msg"
+          }
+
+          if ($S) {
+              "### ✅ Service Readiness Verified" | Add-Content -Path $S
+              "Mission Control Dashboard සාර්ථකව ආරම්භ විය. (HTTP 200 OK)" | Add-Content -Path $S
+          }
+
       - name: Keep-alive 5h30 (60s heartbeat, rust probe, auto-restart, banners)
-        if: ${{ always() }}
+        if: ${{ success() && (github.event.inputs.mode == 'rdp') }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
@@ -6757,7 +6859,7 @@ jobs:
   # so a red smoke never ships a green "Ready" banner.
   publish-url:
     needs: [rdp]
-    if: needs.rdp.result == 'success'
+    if: github.event.inputs.mode == 'rdp' && needs.rdp.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - run: echo "::notice title=Dashboard Ready::http://${{ github.event.inputs.runner_target || 'windows-latest' }}/#/health  (F92 self-test green; open the run's tailnet/FQDN link from the rdp job for the real host)"
