@@ -1,3 +1,4 @@
+import * as devFixture from "@/pages/search/devFixture";
 // [R-FILES / #217 / #225] FILES DATA PROVENANCE — through the REAL routed page.
 //
 // The existing src/tests/smoke/r-files-explorer-scale.test.tsx mounts
@@ -318,16 +319,19 @@ describe("Files provenance — live index through the routed page", () => {
     expect(screen.getByTestId("evidence-message").textContent || "").toMatch(/schemaVersion/i);
   });
 
-  it("without a dashboard key the page says the rows are a synthetic sample", async () => {
+  it("without a dashboard key the page does not fallback to demo mode, it stays empty", async () => {
+    vi.spyOn(devFixture, "isDevMode").mockReturnValue(false);
     clearDashToken();
     window.history.replaceState({}, "", "/");
     const calls = installFetch(() => ({ status: 200, body: indexOf([]) }));
     render(<FileExplorer />);
+
     const provenance = await screen.findByTestId("explorer-provenance");
-    expect(provenance.textContent).toContain("Sample data (synthetic)");
-    // Sample mode must not pretend to be a live read.
+    expect(provenance.textContent).toContain("No token/Auth pending");
+
     expect(calls.length).toBe(0);
-    await waitFor(() => expect(screen.getAllByTestId("explorer-row").length).toBe((fixture.rows as unknown[]).length));
+    expect(screen.queryAllByTestId("explorer-row").length).toBe(0);
+    vi.restoreAllMocks();
   });
 });
 

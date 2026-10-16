@@ -406,9 +406,9 @@ export default function Collector() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse" data-testid="collector-actions-table">
+            <table className="w-full text-left text-xs whitespace-nowrap" data-testid="collector-actions-table">
               <thead>
-                <tr className="text-left border-b border-default">
+                <tr className="border-b border-default bg-surface-raised/50 text-secondary">
                   <th className="py-1 pr-2">{t("collector.when", { defaultValue: "When" })}</th>
                   <th className="py-1 pr-2">{t("collector.feature", { defaultValue: "Feature" })}</th>
                   <th className="py-1 pr-2">{t("collector.action", { defaultValue: "Action" })}</th>
@@ -508,9 +508,9 @@ export default function Collector() {
                                 </div>
                               ) : deepTab === "services" ? (
                                 <div className="overflow-x-auto">
-                                  <table className="w-full text-[11px] font-mono border-collapse" data-testid="collector-services">
+                                  <table className="w-full text-left text-[11px] font-mono whitespace-nowrap" data-testid="collector-services">
                                     <thead>
-                                      <tr className="text-left text-tertiary border-b border-default/50">
+                                      <tr className="border-b border-default/50 bg-surface-raised/50 text-tertiary">
                                         <th className="py-1 pr-3">service</th>
                                         <th className="py-1 pr-3">pre</th>
                                         <th className="py-1 pr-3">post</th>
@@ -573,9 +573,9 @@ export default function Collector() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse" data-testid="collector-global-table">
+            <table className="w-full text-left text-xs whitespace-nowrap" data-testid="collector-global-table">
               <thead>
-                <tr className="text-left border-b border-default">
+                <tr className="border-b border-default bg-surface-raised/50 text-secondary">
                   <th className="py-1 pr-2">{t("collector.when", { defaultValue: "When" })}</th>
                   <th className="py-1 pr-2">{t("collector.control", { defaultValue: "Control" })}</th>
                   <th className="py-1 pr-2">{t("collector.route", { defaultValue: "Route" })}</th>
@@ -640,9 +640,9 @@ export default function Collector() {
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse" data-testid="collector-known-buttons">
+          <table className="w-full text-left text-xs whitespace-nowrap" data-testid="collector-known-buttons">
             <thead>
-              <tr className="text-left border-b border-default">
+              <tr className="border-b border-default bg-surface-raised/50 text-secondary">
                 <th className="py-1 pr-2">{t("collector.feature", { defaultValue: "Feature" })}</th>
                 <th className="py-1 pr-2">{t("collector.button", { defaultValue: "Button" })}</th>
                 <th className="py-1 pr-2">{t("collector.hostPage", { defaultValue: "Host page" })}</th>
@@ -762,9 +762,9 @@ export default function Collector() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse" data-testid="collector-table">
+            <table className="w-full text-left text-sm whitespace-nowrap" data-testid="collector-table">
               <thead>
-                <tr className="text-left border-b border-default">
+                <tr className="border-b border-default bg-surface-raised/50 text-secondary">
                   <th className="py-1 pr-2">{t("collector.feature", { defaultValue: "Feature" })}</th>
                   <th className="py-1 pr-2">{t("collector.status", { defaultValue: "Status" })}</th>
                   <th className="py-1">{t("collector.detail", { defaultValue: "Detail" })}</th>

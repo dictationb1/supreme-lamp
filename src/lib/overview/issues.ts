@@ -28,7 +28,7 @@ export interface Issue {
   cause: { kind: CauseKind; text: string };
   /** The next safe corrective action. i18n key suffix + optional action id. */
   nextActionKey: string;
-  actionId?: "ws-reconnect" | "diagnose" | "keys" | "health";
+  actionId?: "ws-reconnect" | "diagnose" | "keys" | "health" | "preflight-retry";
 }
 
 /** How old a reading may be before the UI calls it stale instead of current. */
@@ -156,7 +156,7 @@ export function deriveIssues(input: IssueInput): Issue[] {
       observedAtMs: input.serverNowMs,
       cause: { kind: "confirmed", text: "one or more launch gates are failing" },
       nextActionKey: "issues.action.launchGate",
-      actionId: "keys",
+      actionId: "preflight-retry",
     });
   }
   if (input.connState === "failed") {

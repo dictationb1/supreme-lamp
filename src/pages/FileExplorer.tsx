@@ -33,6 +33,7 @@ import { useExplorerQueueStore } from "@/lib/explorer/queueStore";
 import { useToastStore } from "@/stores/toastStore";
 import { copyText } from "@/lib/clipboard";
 import { PageHeader } from "@/components/primitives/PageHeader";
+import { isDevMode } from "@/pages/search/devFixture";
 import { hasDashToken } from "@/lib/dashToken";
 import { useListing } from "@/lib/explorer/useListing";
 import { ExplorerListingState } from "./file-explorer/ExplorerListingState";
@@ -73,7 +74,7 @@ export default function FileExplorer() {
   // [R-FILES / #217] The sample is the INITIAL value only in sample mode. In
   // live mode the list starts EMPTY, so no frame of this page can ever show
   // checked-in sample rows while a runner read is in flight or has failed.
-  const [rows, setRows] = useState<FixtureRow[]>(() => (hasDashToken() ? [] : (fixture.rows as FixtureRow[])));
+  const [rows, setRows] = useState<FixtureRow[]>(() => (!hasDashToken() && isDevMode() ? (fixture.rows as FixtureRow[]) : []));
   const [fetchedFiles, setFetchedFiles] = useState<FixtureRow[]>([]);
   const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION);
   const [clipboard, setClipboard] = useState<{ mode: "copy" | "cut"; entries: FixtureRow[] } | null>(null);
@@ -352,7 +353,7 @@ export default function FileExplorer() {
           // provenance investigation traced. The sample is re-seeded only in
           // sample mode, where the page already says the data is synthetic.
           if (live) listing.reload();
-          else setRows(fixture.rows as FixtureRow[]);
+          else setRows(!hasDashToken() && isDevMode() ? (fixture.rows as FixtureRow[]) : []);
           setSelection(EMPTY_SELECTION);
           useTrashStore.getState().sweep();
           void useExplorerQueueStore.getState().run();
@@ -518,7 +519,7 @@ export default function FileExplorer() {
                 operator must never have to guess whether these rows came from
                 the runner or from a checked-in sample. */}
             <Chip id="page-files-provenance" tone={live ? "success" : "accent"} data-testid="explorer-provenance">
-              {live ? t("files.listing.provenance.live") : t("files.listing.provenance.sample")}
+              {live ? t("files.listing.provenance.live") : isDevMode() ? t("files.listing.provenance.sample") : t("files.listing.provenance.auth_required", { defaultValue: "No token/Auth pending" })}
             </Chip>
           </>
         }

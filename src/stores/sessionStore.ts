@@ -4,7 +4,6 @@
 // state (the v1 closure equivalent) and are never rendered unmasked; the
 // masked field shows bullets and the copy action pulls from here.
 import { create } from "zustand";
-import { announceSearchLane } from "@/lib/search/lane";
 import { postRdpToken, launchProto, mintTraceId, fetchPurgeCommand } from "@/lib/api";
 import { hasDashToken } from "@/lib/dashToken";
 import { FQDN_RE, CGNAT_RE, parseTsUtc } from "@/lib/format";
@@ -61,6 +60,11 @@ interface SessionState {
   setDiag: (open: boolean, text?: string) => void;
   loadPurgeCmd: () => Promise<void>;
   runDiag: () => Promise<void>;
+  fetchCompBundle: () => Promise<void>;
+  compBundle: any;
+  compBundleStatus: 'idle' | 'fetching' | 'error';
+  compBundleError: string;
+  compBundleLastFetched: number;
   fireAutoLogin: () => Promise<void>;
   fireFixReconnect: () => Promise<void>;
   fireRunCheck: () => void;
@@ -91,6 +95,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   purgeCmd: "",
   beaconInvokedAt: null,
   lastHandlerTs: "",
+  compBundle: null as any,
+  compBundleStatus: 'idle',
+  compBundleError: '',
+  compBundleLastFetched: 0,
   diagOpen: false,
   diagText: "",
 
@@ -152,29 +160,62 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ purgeCmd: cmd });
   },
 
-  runDiag: async () => {
-    set({ diagOpen: true, diagText: "running /diag..." });
+
+
+  fetchCompBundle: async () => {
+    const state = get();
+    if (state.compBundleStatus === 'fetching') return;
+    if (Date.now() - state.compBundleLastFetched < 10000) return;
+
+    set({ compBundleStatus: 'fetching', compBundleError: '' });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
     try {
-      const r = await fetch("/diag", { cache: "no-store" });
+      const { fetchComprehensiveDiag } = await import("@/api/diag");
+      const res = await fetchComprehensiveDiag({ signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        set({ compBundleStatus: 'error', compBundleError: res.errorKey });
+      } else {
+        set({ compBundle: res.bundle, compBundleStatus: 'idle', compBundleLastFetched: Date.now() });
+      }
+    } catch (e) {
+      clearTimeout(timeout);
+      set({ compBundleStatus: 'error', compBundleError: "Network or timeout error" });
+    }
+  },
+
+  runDiag: async () => {
+    const state = get();
+    if (state.diagText === "running /diag...") return;
+
+    set({ diagOpen: true, diagText: "running /diag..." });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s bound
+
+    try {
+      const r = await fetch("/diag", { cache: "no-store", signal: controller.signal });
+      clearTimeout(timeout);
       const d = r.ok ? await r.json() : null;
       set({ diagText: d ? JSON.stringify(d, null, 2) : "Diagnostics failed - server not reachable." });
+
       try {
-        // [F56-d §3] Search surface reads window.__GHRDP_SEARCH_ENABLED from /diag.
-        // [F77 §2.3] Diagnostic mirror only (see useDashboardPolling): the flag no
-        // longer moves any UI decision - the Search entry + routes are unconditional.
         if (d && d.searchEnabled !== undefined) {
           const enabled = !!(d.searchEnabled === true || d.searchEnabled === 'true');
-          // @ts-ignore
           if (typeof window !== 'undefined') (window as any).__GHRDP_SEARCH_ENABLED = enabled;
-          announceSearchLane(); // [F77] no-op (lane.ts); kept for the diag subscribers
+          const { announceSearchLane } = await import("@/lib/search/lane");
+          announceSearchLane();
         }
-        // Also set searchInput echo for SEARCH_INPUT propagation lab
-        // @ts-ignore
         if (typeof window !== 'undefined') (window as any).__GHRDP_SEARCH_INPUT = d?.searchInput || '';
       } catch {}
-    } catch {
-      set({ diagText: "Diagnostics failed - server not reachable." });
+    } catch (err: any) {
+      clearTimeout(timeout);
+      set({ diagText: "Diagnostics failed - " + ((err instanceof Error && err.name === 'AbortError') ? 'timed out after 10s' : 'server not reachable') });
     }
+
+    await get().fetchCompBundle();
   },
 
   armHelloWatch: () => set({ helloWatchArmed: true, helloWatchSeen: false, helloWatchArmedAt: Date.now() }),

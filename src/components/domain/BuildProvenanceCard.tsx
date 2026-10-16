@@ -66,28 +66,36 @@ export function BuildProvenanceCard() {
     setServed(readServedSha());
   }, []);
 
+
   const check = useCallback(async () => {
+    if (backend.status === "checking") return;
     setBackend({ status: "checking" });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const r = await fetch(
         apiBase() + "/api/f92-selftest?frontendSha=" + encodeURIComponent(F92_FRONTEND_SHA),
-        { cache: "no-store" }
+        { cache: "no-store", signal: controller.signal }
       );
-      const j = (await r.json()) as { releaseId?: string; version?: string; status?: string };
-      const v = j.releaseId || "";
+      clearTimeout(timeout);
+      if (!r.ok) {
+        setBackend({ status: "error", message: `HTTP ${r.status}` });
+        return;
+      }
+      const j = await r.json();
+      const v = j?.checks?.["version:match"];
+      const v0 = Array.isArray(v) ? v[0] : v;
       setBackend({
         status: "ok",
-        releaseId: v,
-        version: j.version,
-        // Only the backend's own release id and THIS bundle's sha are compared.
-        // `main`'s head is deliberately not part of the comparison: it says
-        // nothing about which interface is running.
-        match: v ? v.startsWith(BUILD_SHA.slice(0, 7)) || BUILD_SHA.startsWith(v.slice(0, 7)) : null,
+        releaseId: j?.releaseId || "",
+        match: v0?.status === "pass" ? true : v0?.status === "fail" ? false : null,
       });
     } catch (e) {
-      setBackend({ status: "error", message: String(e) });
+      clearTimeout(timeout);
+      setBackend({ status: "error", message: e instanceof Error && e.name === 'AbortError' ? 'Timeout' : 'Fetch failed' });
     }
-  }, []);
+  }, [backend.status]);
+
 
   const agrees = served === BUILD_SHA || (served === "" && BUILD_SHA === "");
   const artifact = BUILD_SHA ? "ui-dist-" + BUILD_SHA + ".zip" : t("about.unknown");

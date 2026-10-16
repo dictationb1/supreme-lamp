@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Activity } from "lucide-react";
 import { PageHeader } from "@/components/primitives/PageHeader";
+import { Card } from "@/components/primitives/Data";
 import { Chip } from "@/components/primitives/Chip";
 import { apiBase } from "@/lib/api";
 import { F92_FRONTEND_SHA } from "@/lib/f92";
@@ -32,8 +33,7 @@ export type F92Health = {
   links?: Record<string, string>;
 };
 
-const cls = (s: string) =>
-  s === "pass" ? "bg-green-100 text-black" : s === "warn" ? "bg-amber-100 text-black" : "bg-red-200 text-black";
+const cls = (s: string) => s === "pass" ? "text-success" : s === "warn" ? "text-warning" : "text-danger";
 
 /** Latest value of a health+json check (arrays per the IETF draft). */
 export function f92First(c: F92Check[] | F92Check | undefined): F92Check | undefined {
@@ -106,8 +106,7 @@ export function HealthPage() {
   // renders its degraded (all-red) state instead of a crash card.
   const checks: Record<string, F92Check[]> = (d && d.checks) || {};
   const v = f92First(checks["version:match"]);
-  const banner = v?.status === "pass" ? "bg-green-100 text-black" : "bg-red-600 text-white";
-  const sites = Object.keys(checks)
+    const sites = Object.keys(checks)
     .filter((k) => k.startsWith("search:"))
     .sort();
   const sys = ["launcher:status", "download:writable", "streaming:proxy", "version:match"];
@@ -139,25 +138,25 @@ export function HealthPage() {
         }
       />
       <div className="font-mono">
-      <div data-testid="health-version-banner" className={`p-3 ${banner}`}>
+      <div data-testid="health-version-banner" className={`p-4 rounded-xl border font-mono text-sm ${v?.status === "pass" ? "bg-success/10 border-success/20 text-success" : "bg-danger/10 border-danger/20 text-danger"}`}>
         Backend {String(d.releaseId ?? "?").slice(0, 7)} · Frontend {F92_FRONTEND_SHA.slice(0, 7)} · overall{" "}
         {d.status}
         {v?.output ? <div className="text-sm mt-1">{v.output}</div> : null}
       </div>
-      <table className="mt-4 w-full border" data-testid="health-sites">
+      <Card title="Site Probes" className="overflow-hidden mt-4 !p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap" data-testid="health-sites">
         <thead>
           <tr>
-            <th>Site</th>
-            <th>Status</th>
-            <th>Results</th>
-            <th>Last</th>
-            <th>Fix</th>
+            <th className="p-3 font-semibold text-secondary border-b border-default bg-surface-raised">Site</th>
+            <th className="p-3 font-semibold text-secondary border-b border-default bg-surface-raised">Status</th>
+            <th className="p-3 font-semibold text-secondary border-b border-default bg-surface-raised">Results</th>
+            <th className="p-3 font-semibold text-secondary border-b border-default bg-surface-raised">Last</th>
+            <th className="p-3 font-semibold text-secondary border-b border-default bg-surface-raised">Fix</th>
           </tr>
         </thead>
         <tbody>
           {noChecks ? (
             <tr data-testid="health-no-checks">
-              <td colSpan={5} className="p-3 font-sans text-xs text-secondary">
+              <td colSpan={5} className="p-3 font-sans text-xs text-secondary border-b border-default/50">
                 {t("health.noChecks")}
                 <span className="mt-1 block text-tertiary">{t("health.noChecksDetail")}</span>
               </td>
@@ -168,11 +167,11 @@ export function HealthPage() {
             if (!c) return null;
             return (
               <tr key={k} className={cls(c.status)} data-testid={"health-row-" + k} data-status={c.status}>
-                <td>{k.replace("search:", "")}</td>
-                <td>{c.status}</td>
-                <td>{String(c.observedValue)}</td>
-                <td>{c.time ? c.time.slice(11, 19) : ""}</td>
-                <td>
+                <td className="p-3 border-b border-default/50">{k.replace("search:", "")}</td>
+                <td className="p-3 border-b border-default/50">{c.status}</td>
+                <td className="p-3 border-b border-default/50">{String(c.observedValue)}</td>
+                <td className="p-3 border-b border-default/50">{c.time ? c.time.slice(11, 19) : ""}</td>
+                <td className="p-3 border-b border-default/50">
                   {c.output ? (
                     <details>
                       <summary>fix</summary>
@@ -184,8 +183,8 @@ export function HealthPage() {
             );
           })}
         </tbody>
-      </table>
-      <table className="mt-4 w-full border" data-testid="health-system">
+      </table></div></Card>
+      <Card title="System Probes" className="overflow-hidden mt-4 !p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm whitespace-nowrap" data-testid="health-system">
         <tbody>
           {sys.map((k) => {
             const c = f92First(checks[k]);
@@ -198,17 +197,17 @@ export function HealthPage() {
                     its value landed under `status`. Pin the label and status
                     columns (nowrap) and align every cell to the top, so the
                     value column is the only one that wraps. */}
-                <td className="w-px whitespace-nowrap pr-3 align-top">{k}</td>
-                <td className="whitespace-nowrap pr-3 align-top">{c.status}</td>
-                <td className="break-all align-top">{String(c.observedValue ?? "")}</td>
-                <td className="align-top">
+                <td className="p-3 border-b border-default/50 w-px whitespace-nowrap align-top">{k}</td>
+                <td className="p-3 border-b border-default/50 whitespace-nowrap align-top">{c.status}</td>
+                <td className="p-3 border-b border-default/50 break-all align-top">{String(c.observedValue ?? "")}</td>
+                <td className="p-3 border-b border-default/50 align-top">
                   {c.output ? <pre className="whitespace-pre-wrap text-sm">{c.output}</pre> : null}
                 </td>
               </tr>
             );
           })}
         </tbody>
-        </table>
+        </table></div></Card>
       </div>
     </div>
   );

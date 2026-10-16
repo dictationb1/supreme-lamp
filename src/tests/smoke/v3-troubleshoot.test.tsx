@@ -206,7 +206,7 @@ describe("V3-05-c: every action the producers emit is actionable", () => {
     // PRECONDITION: more than one kind of action, so the check is not vacuous.
     expect(actionIds.size, "only one action id exercised: " + [...actionIds].join(",")).toBeGreaterThan(2);
     // And all four kinds the producers can emit were actually seen.
-    expect([...actionIds].sort()).toEqual(["diagnose", "health", "keys", "ws-reconnect"]);
+    expect([...actionIds].sort()).toEqual(["diagnose", "health", "preflight-retry", "ws-reconnect"]);
   });
 
   it("a row with no actionId renders no control rather than a dead one", () => {
@@ -235,10 +235,10 @@ describe("V3-05-c: every action the producers emit is actionable", () => {
 
   it("navigational actions point at a real in-app route, not a dead anchor", () => {
     const { container } = renderPanel(deriveIssues(KEYS_GATE));
-    const gate = deriveIssues(KEYS_GATE).find((i) => i.actionId === "keys");
+    const gate = deriveIssues(KEYS_GATE).find((i) => i.actionId === "preflight-retry");
     expect(gate, "no keys action produced").toBeTruthy();
     const a = container.querySelector(`[data-testid="issue-action-${gate!.id}"]`);
-    expect(a?.getAttribute("href"), "the keys action has no href").toBe("/keys");
+    expect(a?.tagName, "the action is a button").toBe("BUTTON");
 
     cleanup();
     const healthIssues = deriveIssues({ ...BASE, collectorDead: true });
@@ -289,7 +289,7 @@ describe("V3-05-d: freshness is stated, and Diagnose opens the real drawer", () 
   it("the in-row Diagnose control opens the same drawer", () => {
     useSessionStore.setState({ diagOpen: false } as never);
     const issues = deriveIssues(KEYS_GATE);
-    const gate = issues.find((i) => i.actionId === "keys");
+    const gate = issues.find((i) => i.actionId === "preflight-retry");
     const { container } = renderPanel(issues);
     const keysLink = container.querySelector(`[data-testid="issue-action-${gate!.id}"]`);
     expect(keysLink, "the gate row has no control").not.toBeNull();

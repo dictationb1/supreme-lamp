@@ -31,10 +31,11 @@
 // writes server state.
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSessionStore } from "@/stores/sessionStore";
 import { Download, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { Drawer } from "@/components/primitives/Collapse";
 import GlassContainer from "@/components/primitives/GlassContainer";
-import { diagAtGlance, downloadDiagBundle, fetchComprehensiveDiag, type DiagBundle, type GlanceColor } from "@/api/diag";
+import { diagAtGlance, downloadDiagBundle, type GlanceColor } from "@/api/diag";
 
 function Dot({ color, id }: { color: GlanceColor; id: string }) {
   const cls =
@@ -46,31 +47,40 @@ function Dot({ color, id }: { color: GlanceColor; id: string }) {
   return <span id={id} data-state={color} className={"inline-block w-2.5 h-2.5 rounded-full " + cls} aria-hidden="true" />;
 }
 
+
 export function DiagBundleCard() {
   const { t } = useTranslation();
-  const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
-  const [bundle, setBundle] = useState<DiagBundle | null>(null);
   const [open, setOpen] = useState(false);
+  const bundle = useSessionStore((s) => s.compBundle);
+  const status = useSessionStore((s) => s.compBundleStatus);
+  const fetchCompBundle = useSessionStore((s) => s.fetchCompBundle);
 
   const glance = diagAtGlance(bundle);
 
   const onDownload = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
     setToast("");
-    const res = await fetchComprehensiveDiag();
-    setBusy(false);
-    if (!res.ok) {
-      setToast(t(res.errorKey));
-      return;
+    let currentBundle = useSessionStore.getState().compBundle;
+
+    if (!currentBundle) {
+      await fetchCompBundle();
+      currentBundle = useSessionStore.getState().compBundle;
     }
-    setBundle(res.bundle);
-    const name = downloadDiagBundle(res.bundle);
-    // The message the operator must be able to act on: WHERE the file went and
-    // WHAT to do with it. Never a bare "done".
-    setToast(t("diagBundle.downloaded", { file: name }));
-  }, [busy, t]);
+
+    const currentStatus = useSessionStore.getState().compBundleStatus;
+    if (currentStatus === 'error') {
+       setToast(t(useSessionStore.getState().compBundleError || "diagBundle.errors.server"));
+       return;
+    }
+    if (currentBundle) {
+       const name = downloadDiagBundle(currentBundle);
+       setToast(t("diagBundle.downloaded", { file: name }));
+       setOpen(true);
+    } else {
+       setToast("Failed to fetch diagnostics.");
+    }
+  }, [fetchCompBundle, t]);
+
 
   return (
     <GlassContainer
@@ -89,11 +99,11 @@ export function DiagBundleCard() {
           id="f96.downloadDiag"
           type="button"
           onClick={onDownload}
-          disabled={busy}
+          disabled={status === "fetching"}
           className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-secondary hover:bg-raised hover:text-primary disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <Download size={14} aria-hidden="true" />
-          {busy ? t("diagBundle.fetching") : t("diagBundle.export")}
+          {status === "fetching" ? t("diagBundle.fetching") : t("diagBundle.export")}
         </button>
         <span className="text-xs text-tertiary">{t("diagBundle.hint")}</span>
       </div>
@@ -136,7 +146,7 @@ export function DiagBundleCard() {
         </button>
       </div>
 
-      {!bundle && !busy ? (
+      {!bundle && status !== "fetching" ? (
         <p className="mt-2 text-xs text-tertiary inline-flex items-center gap-1.5">
           <AlertTriangle size={13} aria-hidden="true" />
           {t("diagBundle.notFetched")}
