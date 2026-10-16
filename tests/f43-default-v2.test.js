@@ -123,7 +123,7 @@ test('F43-2 v2 TopBar has a Classic UI link href=?ui=v1 (i18n en+si)', () => {
 test('F43-3 launch-gates pins the F43 contract and e2e covers default/v1/banner', () => {
   assert.ok(gates.includes('F43'), 'launch-gates carries no F43 gate');
   assert.ok(gates.includes('$script:UiV2Default = $true'), 'gates must pin default=true');
-  assert.ok(gates.includes('needs: [build-ui]'), 'gates must pin needs: [build-ui]');
+  assert.ok(gates.includes('"build-ui" in needs'), 'gates must pin build-ui in rdp needs');
   assert.ok(gates.includes('actions/download-artifact'), 'gates must pin download-artifact');
   const spec = lf(fs.readFileSync('src/tests/e2e/f43-default-v2.spec.ts', 'utf8'));
   for (const pin of ['classic-ui-link', 'ui=v1', 'bb-elapsed', 'uiV2MissingBanner', "goto(url + \"/\")"]) {

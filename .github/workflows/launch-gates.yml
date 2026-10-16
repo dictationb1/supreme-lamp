@@ -2493,7 +2493,20 @@ jobs:
           grep -qF 'ui-v2.html staging failed - build artifact missing' .github/workflows/main.yml
           # [F43] build-ui job must exist in main.yml (root-cause fix)
           grep -qE '^[[:space:]]+build-ui:' .github/workflows/main.yml
-          grep -qF 'needs: [build-ui]' .github/workflows/main.yml
+          python3 -c '
+          import sys, re
+          wf = open(".github/workflows/main.yml").read()
+          start = wf.find("\n  rdp:\n")
+          assert start >= 0, "rdp job missing"
+          end_m = re.search(r"\n  [a-zA-Z0-9_-]+:\n", wf[start+1:])
+          raw = wf[start:start+1+end_m.start()] if end_m else wf[start:]
+          cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+          needs_m = re.search(r"\n    needs:\s*\[([^\]]+)\]", cleaned)
+          assert needs_m, "rdp job needs missing"
+          needs = [n.strip() for n in needs_m.group(1).split(",")]
+          assert "build-ui" in needs, "rdp job needs build-ui missing"
+          assert "preflight" in needs, "rdp job needs preflight missing"
+          '
           grep -qF 'actions/download-artifact' .github/workflows/main.yml
           grep -qF 'name: dist-ui' .github/workflows/main.yml
           grep -qF 'if ($v2len -le 51200) { throw' .github/workflows/main.yml
@@ -2636,7 +2649,20 @@ jobs:
           srv=payloads/ghrdp-server.ps1
           # §1.4 gate greps: build-ui job + needs + download-artifact + size assert
           grep -qE '^[[:space:]]+build-ui:' "$wf"
-          grep -qF 'needs: [build-ui]' "$wf"
+          python3 -c '
+          import sys, re
+          wf = open(".github/workflows/main.yml").read()
+          start = wf.find("\n  rdp:\n")
+          assert start >= 0, "rdp job missing"
+          end_m = re.search(r"\n  [a-zA-Z0-9_-]+:\n", wf[start+1:])
+          raw = wf[start:start+1+end_m.start()] if end_m else wf[start:]
+          cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+          needs_m = re.search(r"\n    needs:\s*\[([^\]]+)\]", cleaned)
+          assert needs_m, "rdp job needs missing"
+          needs = [n.strip() for n in needs_m.group(1).split(",")]
+          assert "build-ui" in needs, "rdp job needs build-ui missing"
+          assert "preflight" in needs, "rdp job needs preflight missing"
+          '
           grep -qF 'actions/download-artifact' "$wf"
           grep -qF 'name: dist-ui' "$wf"
           grep -qF 'actions: write' "$wf"
