@@ -11,27 +11,28 @@
 * **`RENTRY_EDIT_PASSWORD`** (Mirror mode භාවිතා කරන්නේ නම් අනිවාර්යයි)
 
 ## 3. RDP ආරම්භ නොකර සූදානම පරීක්ෂා කිරීම (Readiness-only Check)
-ඔබගේ Workflow එකෙහි දැන් අලුතින් **"Preflight Configuration Check (Readiness Gate)"** පියවරක් ඇත.
-මෙම පියවර මඟින් ඔබ අවශ්‍ය Secrets නිවැරදිව ලබා දී ඇත්දැයි පරීක්ෂා කරයි.
-* යම් Secret එකක් අඩුවෙන් ඇත්නම්, මෙම පියවර අසමත් (fail) වන අතර, කුමන Secret එක අඩුවෙන් ඇත්දැයි `GITHUB_STEP_SUMMARY` හි සිංහලෙන් දර්ශනය වේ.
-* මෙයින් අනවශ්‍ය RDP ආරම්භ කිරීම් වළක්වා, වේලාව ඉතිරි කරයි.
+ඔබගේ Workflow එකෙහි **"Preflight Configuration Check (Readiness Gate)"** පියවර මගින් `mode=readiness` තෝරාගත් විට:
+* අවශ්‍ය Secrets (`TS_AUTHKEY`, `VNC_PASS`, `RENTRY_EDIT_PASSWORD`) නිවැරදිව සකසා ඇත්දැයි පරීක්ෂා කරයි.
+* RDP Launch Dependencies (Prebuilt Binaries, UI Bundle) වල පවතින තත්ත්වය පරීක්ෂා කර පෙන්වයි.
+* කිසිදු Asset එකක් Build කිරීම හෝ Publish කිරීම සිදු නොකරයි. නොමැති Assets `mode=rdp` ධාවනයේදී ස්වයංක්‍රීයව සකසන ලෙස සටහන් කරයි.
 
-## 4. RDP Workflow එක ආරම්භ කිරීම
-සියළුම Secrets සකසා ඇති බව තහවුරු වූ පසු:
+## 4. RDP Workflow එක ආරම්භ කිරීම (Single-Dispatch Automatic Orchestration)
+එක් වරක් `mode=rdp` තෝරා Run workflow කිරීමෙන් සම්පූර්ණ RDP පරිසරය ආරම්භ කළ හැක:
 1. Github හි `Actions` ටැබ් එකට යන්න.
-2. වම්පසින් `Windows RDP - Tailscale Mission Control (6h ephemeral)` Workflow එක තෝරන්න.
-3. `Run workflow` ක්ලික් කරන්න.
-4. **Branch එක:** `main` ලෙස තෝරන්න.
-5. අවශ්‍ය නම්, ලබා දී ඇති Input අගයන් (උදා: Mirror mode) සකසන්න.
-6. `Run workflow` බොත්තම ක්ලික් කරන්න.
+2. `Windows RDP - Tailscale Mission Control (6h ephemeral)` Workflow එක තෝරන්න.
+3. **mode:** `rdp` ලෙස තෝරන්න.
+4. `Run workflow` බොත්තම ක්ලික් කරන්න.
+
+* **ස්වයංක්‍රීය Dependency සූදානම් කිරීම:** F59 Prebuilt Binaries හෝ UI Bundle නොමැති නම්, Workflow එක මගින් Reusable Workflows මාර්ගයෙන් ඒවා ස්වයංක්‍රීයව Build කර, Verify කර, RDP Session එක සක්‍රීය කරයි. F59 හෝ build-ui manual dispatch කිරීම අවශ්‍ය නොවේ.
 
 ## 5. Workflow හි අදියර (Expected Startup Stages)
 ඔබගේ RDP Session එක සූදානම් වන විට පහත ප්‍රධාන පියවරයන් සාර්ථකව අවසන් විය යුතුය:
-1. **Preflight Check:** අවශ්‍ය Secrets ඇති බව තහවුරු කිරීම.
-2. **Tailscale up:** Tailscale ජාලයට සම්බන්ධ වීම.
-3. **Web Desktop:** noVNC/TightVNC සේවා සැකසීම.
-4. **Dashboard:** Mission Control පුවරුව ආරම්භ කිරීම.
-5. **Keep-alive:** 5h30 කාලයක් පුරා සේවාදායකය සක්‍රීයව තබා ගැනීම.
+1. **Preflight Check:** Secrets සහ Manifests වලංගු කිරීම.
+2. **Ensure Dependencies (UI & F59):** නොමැති Dependencies ස්වයංක්‍රීයව Build/Verify කිරීම.
+3. **Verify Dependencies & Authorize:** සියලුම Dependencies සූදානම් බව තහවුරු කිරීම.
+4. **Tailscale up & Services:** Tailscale ජාලයට සම්බන්ධ වීම සහ RDP සේවාවන් ආරම්භ කිරීම.
+5. **Service Readiness Check:** Dashboard සහ RDP සේවාවන් සක්‍රීය බව තහවුරු කිරීම.
+6. **Keep-alive:** 5h30 කාලයක් පුරා සේවාදායකය සක්‍රීයව තබා ගැනීම.
 
 ## 6. Ready (සූදානම්) බව හඳුනාගැනීම
 Workflow එක ධාවනය වන විට එහි තත්ත්වය `In progress` ලෙස දර්ශනය වේ. එනමුත් RDP Session එක සැබවින්ම භාවිතයට "සූදානම්" (Ready) වන්නේ:
