@@ -23,6 +23,7 @@ on:
       - '.github/workflows/f59-prebuilt-binaries.yml'
       - 'docs/F59-PREBUILT-BINARIES.md'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write   # create/update the prebuilt-binaries release + upload assets
