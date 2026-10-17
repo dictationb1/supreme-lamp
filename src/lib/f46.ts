@@ -29,7 +29,8 @@ function bytesFromB64(b64: string): Uint8Array {
 
 async function aesGcmEncrypt(plain: string, keyBytes: Uint8Array): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+  const keyMaterial = keyBytes as unknown as BufferSource;
+  const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt']);
   const pt = new TextEncoder().encode(plain);
   const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, pt);
   const ctBytes = new Uint8Array(ctBuf);
@@ -68,14 +69,16 @@ async function fetchEnvelopePublicKey(): Promise<{ publicKeyB64: string; spkiByt
 // [M6] Wrap the ephemeral AES key with the server's RSA-OAEP public key.
 // Uses RSA-OAEP with SHA-256 (matching the server's .NET RSAEncryptionPadding.OaepSHA256).
 async function wrapKeyWithRsaOaep(ephemeralKey: Uint8Array, spkiBytes: Uint8Array): Promise<string> {
+  const spkiMaterial = spkiBytes as unknown as BufferSource;
   const publicKey = await crypto.subtle.importKey(
     'spki',
-    spkiBytes,
+    spkiMaterial,
     { name: 'RSA-OAEP', hash: 'SHA-256' },
     false,
     ['encrypt']
   );
-  const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, ephemeralKey);
+  const ephemeralKeyMaterial = ephemeralKey as unknown as BufferSource;
+  const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, ephemeralKeyMaterial);
   return b64FromBytes(new Uint8Array(wrapped));
 }
 
