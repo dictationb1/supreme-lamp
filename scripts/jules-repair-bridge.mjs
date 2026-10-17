@@ -1,14 +1,56 @@
 #!/usr/bin/env node
 // scripts/jules-repair-bridge.mjs
-// Event-driven Jules API repair bridge logic with deduplication and secret protection.
+// Event-driven Jules API repair bridge logic with HTTP dispatch, durable deduplication, and secret protection.
 
 import { redactSecrets } from "./rdp-evidence.mjs";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+
+const INCIDENTS_FILE = process.env.INCIDENTS_TRACKING_FILE || "jules-repair-incidents.json";
+
+export function loadIncidentTracker(filePath = INCIDENTS_FILE) {
+  if (existsSync(filePath)) {
+    try {
+      return JSON.parse(readFileSync(filePath, "utf8"));
+    } catch {
+      return { incidents: {} };
+    }
+  }
+  return { incidents: {} };
+}
+
+export function saveIncidentTracker(data, filePath = INCIDENTS_FILE) {
+  try {
+    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    console.warn(`[jules-repair-bridge] Failed to save incident tracker: ${err.message}`);
+  }
+}
+
+export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token || !runId || runId === "0") {
+    return "No logs available (run ID or GitHub token missing).";
+  }
+
+  try {
+    const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
+    const res = execSync(cmd, {
+      encoding: "utf8",
+      env: { ...process.env, GH_TOKEN: token },
+    });
+    return redactSecrets(res.slice(0, 4000));
+  } catch (err) {
+    return `Could not fetch logs for run ${runId}: ${err.message}`;
+  }
+}
 
 export function evaluateBridgeDispatch(input = {}) {
   const {
     apiKey = process.env.JULES_API_KEY,
     bridgeEnabled = process.env.BRIDGE_ENABLED !== "false",
+    repo = process.env.GITHUB_REPOSITORY || "dictationb1/supreme-lamp",
+    branch = process.env.TRIGGER_BRANCH || "main",
     runId = process.env.TRIGGER_RUN_ID || "0",
     runAttempt = process.env.TRIGGER_RUN_ATTEMPT || "1",
     headSha = process.env.TRIGGER_HEAD_SHA || "unknown-sha",
@@ -38,9 +80,24 @@ export function evaluateBridgeDispatch(input = {}) {
     };
   }
 
-  const sanitizedLogs = redactSecrets(logsSummary);
+  const deduplicationKey = `${repo}/${runId}/${runAttempt}`;
+  const tracker = loadIncidentTracker(input.incidentsFile || INCIDENTS_FILE);
+
+  if (tracker.incidents && tracker.incidents[deduplicationKey]?.status === "DISPATCHED") {
+    return {
+      status: "ALREADY_DISPATCHED",
+      reason: `Incident ${deduplicationKey} has already been dispatched.`,
+      deduplicationKey,
+      dispatched: true,
+      existingSession: tracker.incidents[deduplicationKey],
+    };
+  }
+
+  const rawLogs = logsSummary || fetchTriggerRunLogs(runId, repo);
+  const sanitizedLogs = redactSecrets(rawLogs);
+
   const promptText = `
-An automated RDP production run failed on dictationb1/supreme-lamp.
+An automated RDP production run failed on ${repo}.
 Run URL: ${runUrl}
 Commit SHA: ${headSha}
 Run ID: ${runId} (Attempt: ${runAttempt})
@@ -54,37 +111,133 @@ Please analyze this failure evidence, reproduce using the reusable lab workflow 
 
   const apiPayload = {
     prompt: promptText,
-    source: "sources/github/dictationb1/supreme-lamp",
+    sourceContext: {
+      source: `sources/github/${repo}`,
+      branch: branch,
+    },
+    automationMode: "AUTO_CREATE_PR",
     requirePlanApproval: false,
+    // Backward compatibility fields
+    source: `sources/github/${repo}`,
     autoCreatePr: true,
   };
 
   return {
     status: "READY_TO_DISPATCH",
-    deduplicationKey: `dictationb1/supreme-lamp/${runId}/${runAttempt}`,
+    deduplicationKey,
     payload: apiPayload,
-    dispatched: false, // Set to true when actual HTTP POST completes
+    apiKey,
+    dispatched: false,
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const evalRes = evaluateBridgeDispatch();
-  console.log(`[jules-repair-bridge] Status: ${evalRes.status}`);
+export async function dispatchJulesSession(input = {}, fetchFn = globalThis.fetch) {
+  const evalRes = evaluateBridgeDispatch(input);
+  if (evalRes.status !== "READY_TO_DISPATCH") {
+    return evalRes;
+  }
 
-  if (evalRes.status === "BRIDGE_NOT_CONFIGURED") {
-    console.log("[jules-repair-bridge] NOTICE: Jules API bridge is not yet configured.");
-    if (process.env.GITHUB_STEP_SUMMARY) {
-      const summaryText = `
+  const endpoint = input.apiEndpoint || process.env.JULES_API_ENDPOINT || "https://jules.googleapis.com/v1alpha/sessions";
+
+  try {
+    if (!fetchFn) {
+      throw new Error("HTTP fetch function is not available in environment");
+    }
+
+    const res = await fetchFn(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": evalRes.apiKey,
+      },
+      body: JSON.stringify(evalRes.payload),
+    });
+
+    if (res.status === 200 || res.status === 201) {
+      const body = await res.json().catch(() => ({}));
+      const record = {
+        status: "DISPATCHED",
+        timestamp: new Date().toISOString(),
+        deduplicationKey: evalRes.deduplicationKey,
+        sessionId: body.name || body.id || "session-created",
+        httpStatus: res.status,
+      };
+
+      const tracker = loadIncidentTracker(input.incidentsFile || INCIDENTS_FILE);
+      tracker.incidents[evalRes.deduplicationKey] = record;
+      saveIncidentTracker(tracker, input.incidentsFile || INCIDENTS_FILE);
+
+      return {
+        ...evalRes,
+        status: "DISPATCHED",
+        dispatched: true,
+        sessionId: record.sessionId,
+        apiResponse: body,
+      };
+    } else if (res.status === 401 || res.status === 403) {
+      return {
+        ...evalRes,
+        status: "AUTH_ERROR",
+        dispatched: false,
+        error: `Jules API rejected authentication (HTTP ${res.status}). Check JULES_API_KEY validity.`,
+      };
+    } else if (res.status === 429) {
+      return {
+        ...evalRes,
+        status: "RATE_LIMITED",
+        dispatched: false,
+        error: `Jules API rate limit reached (HTTP 429).`,
+      };
+    } else {
+      const errBody = await res.text().catch(() => "");
+      return {
+        ...evalRes,
+        status: "DISPATCH_FAILED",
+        dispatched: false,
+        error: `Jules API request failed with status HTTP ${res.status}: ${errBody}`,
+      };
+    }
+  } catch (err) {
+    return {
+      ...evalRes,
+      status: "DISPATCH_ERROR",
+      dispatched: false,
+      error: `Jules API HTTP dispatch exception: ${err.message}`,
+    };
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  dispatchJulesSession().then((res) => {
+    console.log(`[jules-repair-bridge] Result Status: ${res.status}`);
+
+    if (res.status === "BRIDGE_NOT_CONFIGURED") {
+      console.log("[jules-repair-bridge] NOTICE: Jules API bridge is not configured.");
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const summaryText = `
 ### ⚠️ Jules Repair Bridge Status: BRIDGE_NOT_CONFIGURED
 
 Jules API bridge is currently not active because \`JULES_API_KEY\` secret is absent.
 
 **ක්‍රියාත්මක කිරීමේ පියවර (Activation Steps):**
-${evalRes.activationStepsSi.join("\n")}
+${res.activationStepsSi.join("\n")}
 `;
-      writeFileSync(process.env.GITHUB_STEP_SUMMARY, summaryText, { flag: "a" });
+        writeFileSync(process.env.GITHUB_STEP_SUMMARY, summaryText, { flag: "a" });
+      }
+    } else if (res.status === "DISPATCHED") {
+      console.log(`[jules-repair-bridge] Successfully dispatched session ${res.sessionId} for ${res.deduplicationKey}`);
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const summaryText = `
+### 🚀 Jules Repair Session Dispatched
+
+- **Incident Key**: \`${res.deduplicationKey}\`
+- **Session ID**: \`${res.sessionId}\`
+- **Automation Mode**: \`AUTO_CREATE_PR\`
+`;
+        writeFileSync(process.env.GITHUB_STEP_SUMMARY, summaryText, { flag: "a" });
+      }
+    } else if (res.error) {
+      console.error(`[jules-repair-bridge] Error: ${res.error}`);
     }
-  } else if (evalRes.status === "READY_TO_DISPATCH") {
-    console.log(`[jules-repair-bridge] Prepared session dispatch for ${evalRes.deduplicationKey}`);
-  }
+  });
 }

@@ -33,16 +33,23 @@ test("EVIDENCE-3: redactSecrets redacts Authorization headers and env password s
   assert.ok(sanitized.includes("VNC_PASS=[REDACTED]"));
 });
 
-test("EVIDENCE-4: createEvidenceRecord returns complete schema with redaction_verified=true", async () => {
-  const { createEvidenceRecord } = await import("../scripts/rdp-evidence.mjs");
+test("EVIDENCE-4: createEvidenceRecord measures redaction verification and preserves runner measurements", async () => {
+  const { createEvidenceRecord, measureRedactionVerification } = await import("../scripts/rdp-evidence.mjs");
+
   const record = createEvidenceRecord({
     first_causal_failure: "ts-authkey-invalid",
+    runner_os: "win32",
+    cleanup_outcome: "UNKNOWN",
     raw_logs_summary: "Failed with tskey-auth-9876543210123456",
   });
 
   assert.strictEqual(record.first_causal_failure, "ts-authkey-invalid");
+  assert.strictEqual(record.runner_os, "win32");
+  assert.strictEqual(record.cleanup_outcome, "UNKNOWN");
   assert.strictEqual(record.redaction_verified, true);
   assert.ok(!JSON.stringify(record).includes("tskey-auth-9876543210123456"));
-  assert.ok(record.start_timestamp);
-  assert.ok(record.end_timestamp);
+
+  // Negative control test for measureRedactionVerification
+  const dirtyRecord = { unredacted: "tskey-auth-unredactedkey123" };
+  assert.strictEqual(measureRedactionVerification(dirtyRecord), false);
 });
