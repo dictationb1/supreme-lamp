@@ -247,7 +247,13 @@ jobs:
 
   ensure-f59-binaries:
     needs: [preflight, ensure-f59-binaries-call]
-    if: always() && github.event.inputs.mode == 'rdp' && needs.preflight.result == 'success' && (needs.ensure-f59-binaries-call.result == 'success' || needs.ensure-f59-binaries-call.result == 'skipped')
+    if: >-
+      ${{
+        !cancelled() &&
+        github.event.inputs.mode == 'rdp' &&
+        needs.preflight.result == 'success' &&
+        (needs.ensure-f59-binaries-call.result == 'success' || needs.ensure-f59-binaries-call.result == 'skipped')
+      }}
     runs-on: ubuntu-latest
     outputs:
       f59_status: ${{ steps.f59-check.outputs.f59_status }}
@@ -292,7 +298,13 @@ jobs:
 
   build-ui:
     needs: [preflight, build-ui-via-call]
-    if: always() && github.event.inputs.mode == 'rdp' && needs.preflight.result == 'success' && (needs.build-ui-via-call.result == 'success' || needs.build-ui-via-call.result == 'skipped')
+    if: >-
+      ${{
+        !cancelled() &&
+        github.event.inputs.mode == 'rdp' &&
+        needs.preflight.result == 'success' &&
+        (needs.build-ui-via-call.result == 'success' || needs.build-ui-via-call.result == 'skipped')
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -380,7 +392,14 @@ jobs:
   verify-dependencies:
     name: Verify Dependencies & Authorize Launch
     needs: [preflight, ensure-f59-binaries, build-ui]
-    if: always() && github.event.inputs.mode == 'rdp' && needs.preflight.result == 'success' && needs.ensure-f59-binaries.result == 'success' && needs.build-ui.result == 'success'
+    if: >-
+      ${{
+        !cancelled() &&
+        github.event.inputs.mode == 'rdp' &&
+        needs.preflight.result == 'success' &&
+        needs.ensure-f59-binaries.result == 'success' &&
+        needs.build-ui.result == 'success'
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -409,8 +428,16 @@ jobs:
           }
 
   rdp:
-    needs: [preflight, verify-dependencies, build-ui]
-    if: github.event.inputs.mode == 'rdp' && needs.preflight.result == 'success' && needs.verify-dependencies.result == 'success'
+    needs: [preflight, ensure-f59-binaries, build-ui, verify-dependencies]
+    if: >-
+      ${{
+        !cancelled() &&
+        github.event.inputs.mode == 'rdp' &&
+        needs.preflight.result == 'success' &&
+        needs.verify-dependencies.result == 'success' &&
+        needs.build-ui.result == 'success' &&
+        needs.ensure-f59-binaries.result == 'success'
+      }}
     runs-on: ${{ github.event.inputs.runner_target || 'windows-latest' }}
     timeout-minutes: 357
     env:
@@ -5674,38 +5701,119 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $S = $env:GITHUB_STEP_SUMMARY
+          $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
 
+          Write-Host "=== Bounded Pre-Keepalive Service Readiness Verification ==="
+
+          # 1. Dashboard API Contract
           Write-Host "Verifying Mission Control Dashboard responsiveness..."
           $dashboardReady = $false
           for ($i = 0; $i -lt 12; $i++) {
               try {
-                  $res = Invoke-WebRequest -Uri "http://localhost:7331" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                  $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
                   if ($res.StatusCode -eq 200) {
                       $dashboardReady = $true
-                      Write-Host "Dashboard responded with 200 OK."
+                      Write-Host "Dashboard API responded with 200 OK."
                       break
                   }
               } catch {
-                  Write-Host "Dashboard not ready yet. Retrying in 5 seconds..."
+                  Write-Host "Dashboard API not ready yet. Retrying in 5 seconds..."
                   Start-Sleep -Seconds 5
               }
           }
 
+          # 2. Tailscale & MagicDNS State
+          $tsIp = [string]$env:TS_TAILNET_IP
+          $fqdn = [string]$env:TS_MAGICDNS_FQDN
+          if (-not $tsIp -and (Test-Path -LiteralPath $tsExe)) {
+              try {
+                  $j = (& $tsExe status --json 2>$null) | ConvertFrom-Json
+                  if ($j -and $j.Self -and $j.Self.TailscaleIPs) {
+                      $cgnat = '^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.'
+                      foreach ($a in @($j.Self.TailscaleIPs)) {
+                          if (([string]$a).Trim() -match $cgnat) { $tsIp = ([string]$a).Trim(); break }
+                      }
+                  }
+                  if (-not $fqdn -and $j -and $j.Self -and $j.Self.DNSName) {
+                      $candidateDns = ([string]$j.Self.DNSName).TrimEnd('.')
+                      if ($candidateDns -match '^[a-z0-9][a-z0-9\-]*(\.[a-z0-9\-]+)+\.ts\.net$') {
+                          $fqdn = $candidateDns
+                      }
+                  }
+              } catch { }
+          }
+          $tsReady = [bool]($tsIp -match '^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.')
+
+          # 3. RDP Listener Readiness (Port 3389)
+          $rdpReady = $false
+          try {
+              $rdpConn = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+              if ($rdpConn) { $rdpReady = $true }
+          } catch { }
+
+          # 4. Web Desktop Readiness (Port 7333 / 5900 if present)
+          $webdeskReady = $false
+          try {
+              $wdConn = Get-NetTCPConnection -LocalPort 7333 -State Listen -ErrorAction SilentlyContinue
+              if ($wdConn) { $webdeskReady = $true }
+          } catch { }
+
+          Write-Host ("- Dashboard API Ready: " + $dashboardReady)
+          Write-Host ("- Tailscale IP Ready: " + $tsReady + " ($tsIp)")
+          Write-Host ("- MagicDNS FQDN: " + $fqdn)
+          Write-Host ("- RDP Listener (3389) Ready: " + $rdpReady)
+          Write-Host ("- Web Desktop (7333) Listening: " + $webdeskReady)
+
           if (-not $dashboardReady) {
-              $msg = "Dashboard service failed to start or respond within 60 seconds."
+              $msg = "Dashboard service failed to respond on http://localhost:7331/progress within 60s."
               Write-Host "::error::$msg"
               if ($S) {
-                  "### ❌ Service Readiness Failed" | Add-Content -Path $S
-                  "Mission Control Dashboard එක නියමිත කාලය තුළ ආරම්භ වීමට අපොහොසත් විය." | Add-Content -Path $S
-                  "**ගැටලුව:** `http://localhost:7331` (Dashboard endpoint) ප්‍රතිචාර නොදක්වයි." | Add-Content -Path $S
-                  "Keep-alive ක්‍රියාවලිය අවලංගු කරන ලදී." | Add-Content -Path $S
+                  "### ❌ Service Readiness Verification Failed" | Add-Content -LiteralPath $S -Encoding utf8
+                  "Mission Control Dashboard endpoint එක ප්‍රතිචාර නොදක්වයි (`http://localhost:7331`)." | Add-Content -LiteralPath $S -Encoding utf8
               }
               throw "SERVICE_READINESS_FAILED: $msg"
           }
 
+          if (-not $tsReady) {
+              $msg = "Tailscale network interface failed to assign a valid CGNAT tailnet IP."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  "### ❌ Service Readiness Verification Failed" | Add-Content -LiteralPath $S -Encoding utf8
+                  "Tailscale ජාල මුහුණතට වලංගු IP ලිපිනයක් ලැබී නොමැත." | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              throw "SERVICE_READINESS_FAILED: $msg"
+          }
+
+          if (-not $rdpReady) {
+              $msg = "RDP Listener on TCP port 3389 is not listening."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  "### ❌ Service Readiness Verification Failed" | Add-Content -LiteralPath $S -Encoding utf8
+                  "RDP සේවාව Port 3389 මත සක්‍රීය වී නොමැත." | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              throw "SERVICE_READINESS_FAILED: $msg"
+          }
+
+          # Usable, secret-free access instructions printed before keepalive begins
+          Write-Host "============================================================="
+          Write-Host "  RDP & MISSION CONTROL ACCESS ENDPOINTS (SERVICES READY)"
+          Write-Host "  Tailscale IP Endpoint : http://$tsIp`:7331/"
+          if ($fqdn) { Write-Host "  MagicDNS FQDN Endpoint: http://$fqdn`:7331/" }
+          Write-Host "  RDP Command           : mstsc /v:$tsIp"
+          Write-Host "  Status                : SERVICES_READY / CLIENT_CONNECTION_NOT_VERIFIED"
+          Write-Host "============================================================="
+
           if ($S) {
-              "### ✅ Service Readiness Verified" | Add-Content -Path $S
-              "Mission Control Dashboard සාර්ථකව ආරම්භ විය. (HTTP 200 OK)" | Add-Content -Path $S
+              '### 🚀 RDP & Mission Control Session Ready' | Add-Content -LiteralPath $S -Encoding utf8
+              'සියලුම අත්‍යවශ්‍ය සේවාවන් සාර්ථකව ආරම්භ වී සක්‍රීය තත්වයේ පවතී.' | Add-Content -LiteralPath $S -Encoding utf8
+              '' | Add-Content -LiteralPath $S -Encoding utf8
+              '**ලබාගත හැකි ස්ථාන (Endpoints):**' | Add-Content -LiteralPath $S -Encoding utf8
+              ('- Mission Control Dashboard (Tailnet IP): `http://{0}:7331/`' -f $tsIp) | Add-Content -LiteralPath $S -Encoding utf8
+              if ($fqdn) { ('- Mission Control Dashboard (MagicDNS): `http://{0}:7331/`' -f $fqdn) | Add-Content -LiteralPath $S -Encoding utf8 }
+              ('- Direct RDP Command: `mstsc /v:{0}`' -f $tsIp) | Add-Content -LiteralPath $S -Encoding utf8
+              '' | Add-Content -LiteralPath $S -Encoding utf8
+              '**Verification State:** `SERVICES_READY / CLIENT_CONNECTION_NOT_VERIFIED`' | Add-Content -LiteralPath $S -Encoding utf8
+              '*සටහන: මුරපද හෝ සත්‍යාපන ටෝකන Log හෝ Step Summary තුළ කිසිවිටෙකත් ප්‍රකාශයට පත් නොකෙරේ.*' | Add-Content -LiteralPath $S -Encoding utf8
           }
 
       - name: Keep-alive 5h30 (60s heartbeat, rust probe, auto-restart, banners)
@@ -7035,8 +7143,108 @@ jobs:
   # artifact) - but the notice ONLY prints when the whole rdp job is green,
   # so a red smoke never ships a green "Ready" banner.
   publish-url:
-    needs: [rdp]
-    if: github.event.inputs.mode == 'rdp' && needs.rdp.result == 'success'
+    name: Verify Launch Outcome & Publish Summary
+    needs: [preflight, ensure-f59-binaries, build-ui, verify-dependencies, rdp]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: echo "::notice title=Dashboard Ready::http://${{ github.event.inputs.runner_target || 'windows-latest' }}/#/health  (F92 self-test green; open the run's tailnet/FQDN link from the rdp job for the real host)"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Verify Launch Outcome and Publish Summary
+        shell: pwsh
+        env:
+          EXEC_MODE: ${{ github.event.inputs.mode || 'readiness' }}
+          PREFLIGHT_RES: ${{ needs.preflight.result }}
+          F59_RES: ${{ needs.ensure-f59-binaries.result }}
+          UI_RES: ${{ needs.build-ui.result }}
+          VERIFY_RES: ${{ needs.verify-dependencies.result }}
+          RDP_RES: ${{ needs.rdp.result }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $S = $env:GITHUB_STEP_SUMMARY
+
+          $mode = $env:EXEC_MODE
+          $preflightRes = $env:PREFLIGHT_RES
+          $f59Res = $env:F59_RES
+          $uiRes = $env:UI_RES
+          $verifyRes = $env:VERIFY_RES
+          $rdpRes = $env:RDP_RES
+
+          Write-Host "LAUNCH OUTCOME CHECK:"
+          Write-Host "- Mode: $mode"
+          Write-Host "- Preflight Result: $preflightRes"
+          Write-Host "- Ensure F59 Binaries Result: $f59Res"
+          Write-Host "- Build UI Result: $uiRes"
+          Write-Host "- Verify Dependencies Result: $verifyRes"
+          Write-Host "- RDP Job Result: $rdpRes"
+
+          if ($mode -eq 'readiness') {
+              Write-Host "STATE: CONFIGURATION_PRESENT (Mode: readiness)"
+              if ($S) {
+                  '### 🛑 Readiness Check Complete' | Add-Content -LiteralPath $S -Encoding utf8
+                  'වින්‍යාසකරණ (Configuration) දත්ත සාර්ථකව පරීක්ෂා කරන ලදී (Mode: readiness).' | Add-Content -LiteralPath $S -Encoding utf8
+                  'RDP Session එක ආරම්භ කිරීම සඳහා `mode=rdp` ලෙස තෝරාගෙන නැවත Workflow එක ක්‍රියාත්මක කරන්න.' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 0
+          }
+
+          if ($preflightRes -ne 'success') {
+              $msg = "Launch blocked: Preflight configuration check failed or cancelled (result: $preflightRes)."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  '### ❌ RDP Launch Blocked' | Add-Content -LiteralPath $S -Encoding utf8
+                  'Preflight පරීක්ෂාව අසාර්ථක විය.' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 1
+          }
+
+          if ($verifyRes -ne 'success') {
+              $msg = "Launch blocked: Dependency verification failed (result: $verifyRes)."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  '### ❌ RDP Launch Blocked' | Add-Content -LiteralPath $S -Encoding utf8
+                  'අත්‍යවශ්‍ය Dependencies (UI/Binaries) සූදානම් කිරීම අසාර්ථක විය.' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 1
+          }
+
+          if ($rdpRes -eq 'skipped') {
+              $msg = "UNEXPECTED_RDP_SKIP: Workflow requested mode=rdp, preflight and dependency checks succeeded, but the rdp job was unexpectedly skipped."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  '### ❌ RDP Launch Unexpectedly Skipped (Defect Detected)' | Add-Content -LiteralPath $S -Encoding utf8
+                  '**දෝෂය:** `mode=rdp` තෝරාගෙන Preflight සහ Dependency verification සාර්ථක වූ නමුත් RDP job එක ආරම්භ නොවී Skip වී ඇත.' | Add-Content -LiteralPath $S -Encoding utf8
+                  '**State:** DEPENDENCIES_VERIFIED, RDP_JOB_STARTED=False' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 1
+          }
+
+          if ($rdpRes -eq 'cancelled') {
+              Write-Host "RDP job was cancelled."
+              if ($S) {
+                  '### 🛑 RDP Launch Cancelled' | Add-Content -LiteralPath $S -Encoding utf8
+                  'RDP ක්‍රියාවලිය පරිශීලකයා හෝ පද්ධතිය මගින් අවලංගු කරන ලදී.' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 1
+          }
+
+          if ($rdpRes -ne 'success') {
+              $msg = "RDP job failed (result: $rdpRes)."
+              Write-Host "::error::$msg"
+              if ($S) {
+                  '### ❌ RDP Session Failed' | Add-Content -LiteralPath $S -Encoding utf8
+                  'RDP ක්‍රියාත්මක කිරීමේ Job එක අසාර්ථක විය.' | Add-Content -LiteralPath $S -Encoding utf8
+              }
+              exit 1
+          }
+
+          # rdpRes == 'success'
+          Write-Host "STATE: SERVICES_READY, RDP_JOB_STARTED=True"
+          Write-Host "::notice title=RDP Session Completed::RDP session finished and cleaned up successfully."
+          if ($S) {
+              '### ✅ RDP Session Execution Completed' | Add-Content -LiteralPath $S -Encoding utf8
+              'RDP සැසිය සාර්ථකව ආරම්භ වී, නියමිත කාලය අවසානයේ සේවාවන් ආරක්ෂිතව නවතා දමන ලදී.' | Add-Content -LiteralPath $S -Encoding utf8
+              '**State:** CONFIGURATION_PRESENT, DEPENDENCIES_VERIFIED, RDP_JOB_STARTED, SERVICES_READY' | Add-Content -LiteralPath $S -Encoding utf8
+          }
+          exit 0
