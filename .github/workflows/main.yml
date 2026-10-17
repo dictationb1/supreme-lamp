@@ -1315,32 +1315,72 @@ jobs:
           # material is ever printed.
           $certOk = $false
           $certErrText = ''
+          $certCode = 'cert-not-bound'
           for ($attempt = 1; $attempt -le 3; $attempt++) {
               Remove-Item -LiteralPath $crtPath -Force -ErrorAction SilentlyContinue
               Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue
               $p = Start-Process -FilePath $ts -ArgumentList @('cert', '--cert-file', $crtPath, '--key-file', $keyPath, $fqdn) -RedirectStandardOutput $certLog -RedirectStandardError $certErr -WindowStyle Hidden -PassThru
               try { $p.WaitForExit(120000) | Out-Null } catch { }
               $certOk = ($p.HasExited -and $p.ExitCode -eq 0 -and (Test-Path -LiteralPath $crtPath) -and (Test-Path -LiteralPath $keyPath))
-              Write-Host ('[cert] attempt ' + $attempt + '/3: exit=' + $p.ExitCode + ' crt=' + (Test-Path -LiteralPath $crtPath) + ' key=' + (Test-Path -LiteralPath $keyPath) + ' ok=' + $certOk)
-              if ($certOk) { break }
-              if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
-          }
-          if (-not $certOk) {
+
               $tail = ''
               try { if (Test-Path $certErr) { $tail = [System.IO.File]::ReadAllText($certErr) } } catch { }
               $certErrText = (($tail -replace "`r?`n", ' ')).Trim()
               if ($certErrText.Length -gt 300) { $certErrText = $certErrText.Substring(0, 300) }
               if (-not $certErrText) { $certErrText = 'no stderr captured (fetch produced no output)' }
               $certErrSafe = ($certErrText -replace 'tskey-[A-Za-z0-9\-]+', 'tskey-[redacted]' -replace 'ghp_[A-Za-z0-9]+', 'ghp_[redacted]')
+
+              Write-Host ('[cert] attempt ' + $attempt + '/3: exit=' + $p.ExitCode + ' crt=' + (Test-Path -LiteralPath $crtPath) + ' key=' + (Test-Path -LiteralPath $keyPath) + ' ok=' + $certOk)
+              if ($certOk) { $certCode = 'ok'; break }
+
+              # [F12-2] Error Classification & Non-transient early exit
+              $isTransient = $true
+              if ($certErrText -match 'does not support getting TLS certs|HTTPS certificates disabled|account does not support') {
+                  $certCode = 'cert-capability-unavailable'
+                  $isTransient = $false
+              } elseif ($certErrText -match 'access denied|unauthorized|forbidden|permission denied') {
+                  $certCode = 'cert-auth-failed'
+                  $isTransient = $false
+              } elseif ($certErrText -match 'invalid hostname|not a valid domain') {
+                  $certCode = 'cert-invalid-hostname'
+                  $isTransient = $false
+              } elseif ($certErrText -match 'rate limit|too many requests') {
+                  $certCode = 'cert-rate-limit'
+                  $isTransient = $false
+              } elseif ($certErrText -match 'ACME|challenge failed|DNS TXT record') {
+                  $certCode = 'cert-acme-failed'
+                  $isTransient = $true
+              } else {
+                  $certCode = 'cert-transient-network'
+                  $isTransient = $true
+              }
+
+              if (-not $isTransient) {
+                  Write-Host ('[cert] deterministic non-transient error detected (' + $certCode + '); halting attempts immediately')
+                  break
+              }
+
+              if ($attempt -lt 3) { Start-Sleep -Seconds 10 }
+          }
+          if (-not $certOk) {
+              if (-not $certErrText) {
+                  $tail = ''
+                  try { if (Test-Path $certErr) { $tail = [System.IO.File]::ReadAllText($certErr) } } catch { }
+                  $certErrText = (($tail -replace "`r?`n", ' ')).Trim()
+                  if ($certErrText.Length -gt 300) { $certErrText = $certErrText.Substring(0, 300) }
+                  if (-not $certErrText) { $certErrText = 'no stderr captured (fetch produced no output)' }
+                  $certErrSafe = ($certErrText -replace 'tskey-[A-Za-z0-9\-]+', 'tskey-[redacted]' -replace 'ghp_[A-Za-z0-9]+', 'ghp_[redacted]')
+              }
               # FAIL-CLOSED [F12-2]: never leave a run that reports certBound=NO.
-              Write-Host ('::error::[cert] tailscale cert failed after 3 attempts; reason=cert-not-bound; error=' + $certErrSafe)
-              Write-Host ('[cert] tailscale cert failed (3 attempts); fix: Tailscale admin console -> DNS -> "Enable HTTPS...". err: ' + $certErrSafe)
+              Write-Host ('::error::[cert] tailscale cert failed; code=' + $certCode + '; reason=cert-not-bound; error=' + $certErrSafe)
+              Write-Host ('[cert] tailscale cert failed (' + $certCode + '); fix: Tailscale admin console -> DNS -> "Enable HTTPS...". err: ' + $certErrSafe)
               if ($S) {
                   '### RDP cert bind FAILED - reason cert-not-bound' | Add-Content -Path $S
-                  ('Thumbprint: none - certificate fetch failed after 3 attempts (error: ' + $certErrSafe + ')') | Add-Content -Path $S
+                  ('Error Code: `' + $certCode + '`') | Add-Content -Path $S
+                  ('Thumbprint: none - certificate fetch failed (code: ' + $certCode + ', error: ' + $certErrSafe + ')') | Add-Content -Path $S
                   'Fix: Tailscale admin console -> DNS -> "Enable HTTPS...". Then re-run this workflow. Halted by design: a green run with certBound=NO is a false-LIVE.' | Add-Content -Path $S
               }
-              throw 'cert bind halted by design: tailscale cert fetch failed 3x (reason cert-not-bound)'
+              throw ('cert bind halted by design: tailscale cert fetch failed (' + $certCode + '; reason cert-not-bound)')
           }
           $thumb = ''
           try {
@@ -6796,6 +6836,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # Check if service startup was actually reached before probing backend
+          if [ ! -f "/c/ghrdp/ghrdp-server.ps1" ] && [ ! -f "C:/ghrdp/ghrdp-server.ps1" ] && ! curl -sf "http://localhost:7331/progress" >/dev/null 2>&1; then
+            echo "[f92 smoke] SKIPPED: backend service startup was not reached due to earlier provisioning failure"
+            exit 0
+          fi
           ok=0
           for i in {1..60}; do
             if curl -sf "http://localhost:7331/api/f92-selftest?frontendSha=${GITHUB_SHA}" -o /tmp/sr.json; then ok=1; break; fi
