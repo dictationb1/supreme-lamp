@@ -155,11 +155,11 @@ jobs:
           [System.IO.File]::WriteAllLines($rmPath, $readme, (New-Object System.Text.UTF8Encoding($false)))
 
           # --- publish (idempotent) ---
-          gh release view $tag *> $null
+          gh release view $tag -R $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -ne 0) {
-              gh release create $tag --title 'F59 prebuilt binaries (aria2c + qBittorrent)' --notes 'SHA-256-pinned prebuilt binaries for the F59 startup-speed lane. See README.md / checksums.txt.'
+              gh release create $tag -R $env:GITHUB_REPOSITORY --title 'F59 prebuilt binaries (aria2c + qBittorrent)' --notes 'SHA-256-pinned prebuilt binaries for the F59 startup-speed lane. See README.md / checksums.txt.'
           }
-          gh release upload $tag $aout $qout $ckPath $rmPath --clobber
+          gh release upload $tag -R $env:GITHUB_REPOSITORY $aout $qout $ckPath $rmPath --clobber
           if ($LASTEXITCODE -ne 0) { throw '[F59 fetch] gh release upload failed' }
           Write-Host '[F59 fetch] published release assets:'
           Get-ChildItem -LiteralPath $work -File | ForEach-Object { Write-Host ('  ' + $_.Name + '  ' + $_.Length + ' bytes  ' + (Get-F59Sha256 $_.FullName)) }

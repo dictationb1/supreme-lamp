@@ -190,6 +190,7 @@ jobs:
           RENTRY_EDIT_PASSWORD: ${{ secrets.RENTRY_EDIT_PASSWORD }}
           MIRROR_INPUT: ${{ github.event.inputs.mirror_enable }}
           EXEC_MODE: ${{ github.event.inputs.mode || 'readiness' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Continue'
           $S = $env:GITHUB_STEP_SUMMARY
@@ -199,27 +200,60 @@ jobs:
           if (-not $env:VNC_PASS) { $missing += 'VNC_PASS' }
           if ($env:MIRROR_INPUT -eq 'true' -and -not $env:RENTRY_EDIT_PASSWORD) { $missing += 'RENTRY_EDIT_PASSWORD (Mirror mode සක්‍රීය නිසා)' }
 
+          # Validate F59 prebuilt release availability
+          $repo = $env:GITHUB_REPOSITORY
+          $pins = Get-Content -LiteralPath 'payloads/f59-prebuilt-pins.json' -Raw | ConvertFrom-Json
+          $tag = [string]$pins.release_tag
+          $relOk = $true
+          $relErr = ''
+          try {
+              $relJson = gh release view $tag -R $repo --json assets 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                  $relOk = $false
+                  $relErr = 'Release ' + $tag + ' නොමැත (404/Access Error).'
+              } else {
+                  $relObj = $relJson | ConvertFrom-Json
+                  $assetNames = @($relObj.assets | ForEach-Object { [string]$_.name })
+                  $needAssets = @([string]$pins.checksums_asset, [string]$pins.assets.aria2c.name, [string]$pins.assets.qbittorrent.name)
+                  foreach ($na in $needAssets) {
+                      if ($assetNames -notcontains $na) {
+                          $relOk = $false
+                          $relErr += ("Asset missing in release " + $tag + ": " + $na + ". ")
+                      }
+                  }
+              }
+          } catch {
+              $relOk = $false
+              $relErr = $_.Exception.Message
+          }
+
+          if (-not $relOk) {
+              $missing += ('[F59 prebuilt release] ' + $relErr)
+          }
+
           if ($missing.Count -gt 0) {
-              $msg = "අත්‍යවශ්‍ය Configuration Secrets නොමැත: " + ($missing -join ', ')
+              $msg = "අත්‍යවශ්‍ය Configuration Secrets හෝ Launch Dependencies නොමැත: " + ($missing -join '; ')
               Write-Host "::error::$msg"
 
               if ($S) {
                   "### ❌ RDP ආරම්භ කිරීම අවහිර කර ඇත (Launch Blocked)" | Add-Content -Path $S
-                  "**හේතුව:** අත්‍යවශ්‍ය රහස්‍ය දත්ත (secrets) Github හි සකසා නොමැත." | Add-Content -Path $S
+                  "**හේතුව:** අත්‍යවශ්‍ය රහස්‍ය දත්ත (secrets) හෝ Launch Dependencies (prebuilt binaries) සකසා නොමැත." | Add-Content -Path $S
                   "" | Add-Content -Path $S
                   "**අඩුපාඩු:**" | Add-Content -Path $S
                   foreach ($m in $missing) {
                       "- ``$m``" | Add-Content -Path $S
                   }
                   "" | Add-Content -Path $S
-                  "**විසඳුම:** [SETUP-GUIDE-si.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/docs/mission-control/v4/SETUP-GUIDE-si.md) කියවා අදාල Secrets මෙහි ඇතුලත් කරන්න: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S
+                  "**විසඳුම:**" | Add-Content -Path $S
+                  "- Secrets සඳහා: [Secrets Settings](https://github.com/$env:GITHUB_REPOSITORY/settings/secrets/actions)" | Add-Content -Path $S
+                  "- Prebuilt Binaries සඳහා: `.github/workflows/f59-prebuilt-binaries.yml` workflow එක manual dispatch කරන්න." | Add-Content -Path $S
               }
-              throw "CONFIGURATION_MISSING: $msg"
+              throw "CONFIGURATION_OR_DEPENDENCY_MISSING: $msg"
           } else {
-              Write-Host "CONFIGURATION_PRESENT: All required secrets found."
+              Write-Host "CONFIGURATION_PRESENT: All required secrets and prebuilt binaries found."
               if ($S) {
-                  "### ✅ Configuration Validated" | Add-Content -Path $S
-                  "අත්‍යවශ්‍ය සියළුම රහස්‍ය දත්ත සකසා ඇත. (Mode: $env:EXEC_MODE)" | Add-Content -Path $S
+                  "### ✅ Configuration and Launch Dependencies Validated" | Add-Content -Path $S
+                  "අත්‍යවශ්‍ය සියළුම රහස්‍ය දත්ත සහ prebuilt binaries සකසා ඇත. (Mode: $env:EXEC_MODE)" | Add-Content -Path $S
               }
           }
 
@@ -597,8 +631,9 @@ jobs:
                   if (-not (Test-Path -LiteralPath (Join-Path $cacheDir $name))) { $need += $name }
               }
               if ($need.Count -gt 0) {
-                  gh release download $tag --pattern ([string]$pins.checksums_asset) --dir $tmp --clobber 2>$null | Out-Null
-                  foreach ($n in $need) { gh release download $tag --pattern $n --dir $tmp --clobber 2>$null | Out-Null }
+                  $repo = $env:GITHUB_REPOSITORY
+                  gh release download $tag -R $repo --pattern ([string]$pins.checksums_asset) --dir $tmp --clobber | Out-Null
+                  foreach ($n in $need) { gh release download $tag -R $repo --pattern $n --dir $tmp --clobber | Out-Null }
                   if ($LASTEXITCODE -ne 0) { throw ('[F59 prebuilt] gh release download failed for ' + ($need -join ', ') + ' (release ' + $tag + ') - assets must be published by f59-prebuilt-binaries.yml') }
                   if (-not (Test-Path -LiteralPath $ck)) { throw ('[F59 prebuilt] release ' + $tag + ' did not deliver ' + [string]$pins.checksums_asset) }
                   foreach ($p in @($pins.assets.PSObject.Properties)) {
@@ -667,16 +702,19 @@ jobs:
               $name = 'job-' + $j.Id
               $leg = $name
               $r = $null
-              try {
-                  $r = Receive-Job -Job $j -Wait -ErrorAction Stop
-                  $rr = @($r) | Where-Object { $_ -and ($_ -is [hashtable]) -and $_.sw } | Select-Object -First 1
-                  if ($rr) { $leg = 'prewarm-' + [string]$rr.sw }
-              } catch { $fail += ($name + ': ' + $_.Exception.Message) }
+              if ($j.State -eq 'Completed' -or $j.State -eq 'Failed') {
+                  try {
+                      $r = Receive-Job -Job $j -ErrorAction Stop
+                      $rr = @($r) | Where-Object { $_ -and ($_ -is [hashtable]) -and $_.sw } | Select-Object -First 1
+                      if ($rr) { $leg = 'prewarm-' + [string]$rr.sw }
+                  } catch { $fail += ($name + ': ' + $_.Exception.Message) }
+              } else {
+                  $fail += ($name + ': state=' + $j.State + ' (bounded 900s Wait-Job timeout)')
+              }
               $sec = 0.0
               try { $sec = ($j.PSEndTime - $j.PSBeginTime).TotalSeconds } catch { }
               Add-F59Timing -Step $leg -Seconds $sec
               Write-Host ('[F59 prewarm] ' + $name + ' ' + $leg + ' state=' + $j.State + ' ' + [math]::Round($sec, 1) + 's')
-              if ($j.State -ne 'Completed') { $fail += ($name + ': state=' + $j.State + ' (bounded 900s Wait-Job)') }
           }
           $all | Stop-Job -ErrorAction SilentlyContinue
           $all | Remove-Job -Force -ErrorAction SilentlyContinue
