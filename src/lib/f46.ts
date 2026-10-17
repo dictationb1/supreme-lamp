@@ -15,7 +15,7 @@ export interface EncryptedCred {
 }
 
 function b64FromBytes(b: Uint8Array): string {
-  let s = ''
+  let s = '';
   for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
   return btoa(s);
 }
@@ -29,15 +29,10 @@ function bytesFromB64(b64: string): Uint8Array {
 
 async function aesGcmEncrypt(plain: string, keyBytes: Uint8Array): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  // WebCrypto wants an ArrayBuffer-backed view (TS lib types a bare Uint8Array as
-  // Uint8Array<ArrayBufferLike>). Copy the key bytes into a fresh ArrayBuffer for the
-  // import only - process memory, wiped right after, never written to disk.
-  const keyMaterial = new ArrayBuffer(keyBytes.byteLength);
-  new Uint8Array(keyMaterial).set(keyBytes);
+  const keyMaterial = keyBytes as unknown as BufferSource;
   const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt']);
   const pt = new TextEncoder().encode(plain);
   const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, pt);
-  try { new Uint8Array(keyMaterial).fill(0); } catch {}
   const ctBytes = new Uint8Array(ctBuf);
   // ctBuf contains ct + tag (16 bytes at end) in WebCrypto; we split tag for PowerShell format: nonce(12)+tag(16)+ct
   const tag = ctBytes.slice(ctBytes.length - 16);
@@ -74,30 +69,21 @@ async function fetchEnvelopePublicKey(): Promise<{ publicKeyB64: string; spkiByt
 // [M6] Wrap the ephemeral AES key with the server's RSA-OAEP public key.
 // Uses RSA-OAEP with SHA-256 (matching the server's .NET RSAEncryptionPadding.OaepSHA256).
 async function wrapKeyWithRsaOaep(ephemeralKey: Uint8Array, spkiBytes: Uint8Array): Promise<string> {
-  const spkiBuf = new ArrayBuffer(spkiBytes.byteLength);
-  new Uint8Array(spkiBuf).set(spkiBytes);
+  const spkiMaterial = spkiBytes as unknown as BufferSource;
   const publicKey = await crypto.subtle.importKey(
     'spki',
-    spkiBuf,
+    spkiMaterial,
     { name: 'RSA-OAEP', hash: 'SHA-256' },
     false,
     ['encrypt']
   );
-  const keyBuf = new ArrayBuffer(ephemeralKey.byteLength);
-  new Uint8Array(keyBuf).set(ephemeralKey);
-  const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, keyBuf);
-  // Wipe the key material copy
-  try { new Uint8Array(keyBuf).fill(0); } catch {}
+  const ephemeralKeyMaterial = ephemeralKey as unknown as BufferSource;
+  const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, ephemeralKeyMaterial);
   return b64FromBytes(new Uint8Array(wrapped));
 }
 
 async function getPerRunKey(): Promise<{ keyBytes: Uint8Array; keyB64: string }> {
-  // Try fetch /api/config mirrorKey
   try {
-    // [M4] No dash token is sent on this request. The removed `ghrdp-dash-token` read was a
-    // dead read (nothing writes that key), so this request has always gone out without one.
-    // The canonical token is `ghrdp.dashToken`; sending it here is a separate decision (see
-    // getDashToken() in src/api/fetch/index.ts).
     const res = await fetch('/api/config');
     if (res.ok) {
       const j = await res.json();
@@ -110,7 +96,6 @@ async function getPerRunKey(): Promise<{ keyBytes: Uint8Array; keyB64: string }>
       }
     }
   } catch {}
-  // Fallback ephemeral 32B key (lab)
   const rnd = crypto.getRandomValues(new Uint8Array(32));
   return { keyBytes: rnd, keyB64: b64FromBytes(rnd) };
 }
@@ -121,13 +106,10 @@ export async function encryptOwnCreds(username: string, password: string): Promi
   // travels in the request body — only the RSA-wrapped envelope does.
   const envelopeKey = await fetchEnvelopePublicKey();
   if (envelopeKey) {
-    // Ephemeral AES-256 key (never sent raw)
     const ephemeralKey = crypto.getRandomValues(new Uint8Array(32));
     const userEnc = await aesGcmEncrypt(username, ephemeralKey);
     const passEnc = await aesGcmEncrypt(password, ephemeralKey);
-    // Wrap the ephemeral key with server's RSA-OAEP public key
     const envelope = await wrapKeyWithRsaOaep(ephemeralKey, envelopeKey.spkiBytes);
-    // Wipe ephemeral key from memory (best effort)
     try { ephemeralKey.fill(0); } catch {}
     // Return with envelope; keyB64 is empty (the leak is fixed)
     return { userEnc, passEnc, keyB64: '', envelope };
@@ -138,8 +120,7 @@ export async function encryptOwnCreds(username: string, password: string): Promi
   const { keyBytes, keyB64 } = await getPerRunKey();
   const userEnc = await aesGcmEncrypt(username, keyBytes);
   const passEnc = await aesGcmEncrypt(password, keyBytes);
-  // Wipe keyBytes from memory (best effort)
-  try { keyBytes.fill(0) } catch {}
+  try { keyBytes.fill(0); } catch {}
   return { userEnc, passEnc, keyB64, iv: keyB64 };
 }
 
@@ -150,7 +131,6 @@ export function clearCredMemory(obj: { username?: string; password?: string }) {
   } catch {}
 }
 
-// Lab helper: plain base64 fallback (for tests without SubtleCrypto)
 export function encryptOwnCredsPlainFallback(username: string, password: string, keyB64?: string): EncryptedCred {
   const uB64 = btoa(unescape(encodeURIComponent(username)));
   const pB64 = btoa(unescape(encodeURIComponent(password)));

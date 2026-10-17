@@ -18,7 +18,7 @@ import * as devFixture from "@/pages/search/devFixture";
 // folder / N rendered" is a valid state and must not be flattened into one
 // number.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@/i18n";
 import FileExplorer from "@/pages/FileExplorer";
 import fixture from "@/pages/file-explorer/fixture.json";
@@ -199,10 +199,12 @@ describe("Files provenance — live index through the routed page", () => {
     render(<FileExplorer />);
     // Navigate to Downloads (5,000 direct children in the flat dataset).
     const qa = document.getElementById("f57.explorer.quickAccessItem.qa-downloads") as HTMLElement;
-    fireEvent.click(qa);
+    await act(async () => {
+      fireEvent.click(qa);
+    });
 
     await waitFor(() => expect(screen.getByTestId("explorer-counts").getAttribute("data-children-in-dir")).toBe("5000"));
-    const note = screen.getByTestId("explorer-windowed-note");
+    const note = await screen.findByTestId("explorer-windowed-note");
     expect(note.getAttribute("data-total")).toBe("5000");
     expect(note.textContent).toContain("5000");
     // The window is bounded: 5,000 children must NOT be 5,000 DOM rows.

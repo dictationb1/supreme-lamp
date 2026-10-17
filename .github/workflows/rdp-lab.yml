@@ -45,9 +45,22 @@ on:
         required: false
         default: 'NONE'
         type: string
+    secrets:
+      TS_AUTHKEY:
+        required: false
+      JULES_API_KEY:
+        required: false
+      VNC_PASS:
+        required: false
+      RENTRY_EDIT_PASSWORD:
+        required: false
+      TS_API_TOKEN:
+        required: false
+      TS_TAILNET_NAME:
+        required: false
     outputs:
       verdict:
-        description: 'Lab result verdict (PASSED | FAILED | BLOCKED | SKIPPED)'
+        description: 'Lab result verdict (PASSED | FAILED | BLOCKED | SKIPPED | CANCELLED)'
         value: ${{ jobs.lab-report.outputs.verdict }}
       first_causal_failure:
         description: 'Classification code of the first causal failure'
@@ -81,8 +94,13 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Initialize Lab Observer
+        run: node scripts/lab-observer.mjs init CONFIGURATION_PRESENT
+
       - name: Readiness & Dependency Inspection
-        run: node scripts/ensure-rdp-deps.mjs --mode readiness --sha "${{ inputs.source_sha || github.sha }}"
+        run: |
+          node scripts/lab-observer.mjs update DEPENDENCIES_VERIFIED RUNNING
+          node scripts/ensure-rdp-deps.mjs --mode readiness --sha "${{ inputs.source_sha || github.sha }}"
 
       - name: Node Unit Tests & PowerShell Parser
         run: node --test tests/*.test.js
@@ -97,16 +115,34 @@ jobs:
         if: inputs.injected_failure != 'NONE' && inputs.injected_failure != ''
         run: |
           echo "Simulating injected negative failure: ${{ inputs.injected_failure }}"
-          if [ "${{ inputs.injected_failure }}" = "TS_AUTHKEY_INVALID" ]; then
-            echo "::error title=Injected Control Failure::ts-authkey-invalid simulated"
-            exit 1
-          fi
+          node scripts/lab-observer.mjs update NEGATIVE_CONTROL FAILED "${{ inputs.injected_failure }}" "Injected negative control failure: ${{ inputs.injected_failure }}"
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+          exit 1
+        env:
+          LAB_PHASE: static
+          CAUSAL_FAILURE: ${{ inputs.injected_failure }}
+
+      - name: Generate Static Phase Evidence
+        if: always()
+        run: |
+          node scripts/lab-observer.mjs finish PASSED
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+        env:
+          LAB_PHASE: static
+          CAUSAL_FAILURE: none
+
+      - name: Upload Static Evidence Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-lab-evidence-static
+          path: rdp-lab-evidence.json
 
   windows-integration-lab:
     name: Lab Profile - Windows Integration & Local Dashboard
     if: inputs.profile == 'windows-integration'
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,13 +161,26 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build UI Bundle
-        run: pnpm build
+      - name: Initialize Observer
+        shell: pwsh
+        run: |
+          node scripts/lab-observer.mjs init CONFIGURATION_PRESENT
 
-      - name: Verify Windows Startup & NLA Rules
+      - name: Build UI Bundle & Verify Dependencies
+        shell: pwsh
+        run: |
+          node scripts/lab-observer.mjs update DEPENDENCIES_VERIFIED RUNNING
+          node scripts/ensure-rdp-deps.mjs --mode build --auto-build-ui --sha "${{ inputs.source_sha || github.sha }}"
+          if ($LASTEXITCODE -ne 0) {
+              node scripts/lab-observer.mjs update DEPENDENCIES_VERIFIED FAILED build-failed "UI build or dependency check failed"
+              exit 1
+          }
+
+      - name: Verify Windows Startup & Registry/NLA Rules
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          node scripts/lab-observer.mjs update SERVICES_READY RUNNING
           # Assert NLA security rules
           $nla = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp').UserAuthentication
           if ($nla -ne 1) {
@@ -139,6 +188,84 @@ jobs:
           }
           # Run PowerShell balance audit
           node scripts/ps-balance-audit.mjs
+
+      - name: Evaluate Injected Control Failure
+        if: inputs.injected_failure != 'NONE' && inputs.injected_failure != ''
+        shell: pwsh
+        run: |
+          Write-Host "::error title=Injected Control Failure::${{ inputs.injected_failure }} simulated"
+          node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "${{ inputs.injected_failure }}" "Simulated failure: ${{ inputs.injected_failure }}"
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+          exit 1
+        env:
+          LAB_PHASE: windows-integration
+          CAUSAL_FAILURE: ${{ inputs.injected_failure }}
+
+      - name: Start Mission Control Local Dashboard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host "[lab] Starting Mission Control Dashboard on localhost:7331..."
+          $serverScript = Join-Path $env:GITHUB_WORKSPACE 'payloads\ghrdp-server.ps1'
+          if (Test-Path -LiteralPath $serverScript) {
+              Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$serverScript`"" -WindowStyle Hidden
+              Start-Sleep -Seconds 5
+          } else {
+              Write-Host "::warning::[lab] payloads/ghrdp-server.ps1 not found, running serve-dist.mjs fallback"
+              Start-Process node -ArgumentList "scripts/serve-dist.mjs" -WindowStyle Hidden
+              Start-Sleep -Seconds 3
+          }
+
+      - name: Verify Local Dashboard API Endpoint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $ready = $false
+          for ($i = 1; $i -le 10; $i++) {
+              try {
+                  $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                  if ($res.StatusCode -eq 200) { $ready = $true; break }
+              } catch {
+                  Start-Sleep -Seconds 2
+              }
+          }
+          if ($ready) {
+              Write-Host "[lab] Dashboard is responding on http://localhost:7331"
+          } else {
+              Write-Host "::error::[lab] Dashboard failed to answer on port 7331"
+              node scripts/lab-observer.mjs update SERVICES_READY FAILED dashboard-start-failed "Dashboard server failed to start"
+              exit 1
+          }
+
+      - name: Execute Browser Acceptance Tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED RUNNING
+          pnpm exec playwright test --config=playwright.config.ts --reporter=line
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "::warning::[lab] Playwright tests encountered errors"
+              node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED FAILED browser-acceptance-failed "Browser acceptance test failed"
+              exit 1
+          }
+          node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED PASSED
+
+      - name: Generate Windows Integration Evidence
+        if: always()
+        shell: pwsh
+        run: |
+          node scripts/lab-observer.mjs finish PASSED
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+        env:
+          LAB_PHASE: windows-integration
+          CAUSAL_FAILURE: none
+
+      - name: Upload Windows Integration Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-lab-evidence-windows-integration
+          path: rdp-lab-evidence.json
 
   live-integration-lab:
     name: Lab Profile - Live Tailscale & Certificate Integration
@@ -150,25 +277,210 @@ jobs:
         with:
           ref: ${{ inputs.source_sha || github.sha }}
 
-      - name: Check Live Prerequisites
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.15.9
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize Observer
+        shell: pwsh
+        run: |
+          node scripts/lab-observer.mjs init CONFIGURATION_PRESENT
+
+      - name: Stage 1 - Check Live Prerequisites & Credentials
         id: check-live
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
           if (-not $env:TS_AUTHKEY -or $env:TS_AUTHKEY -eq '') {
-              Write-Host '::warning title=Live Lab Blocked::TS_AUTHKEY secret is not present. Live integration profile is BLOCKED.'
+              Write-Host '::warning title=Live Lab Blocked::TS_AUTHKEY secret is absent. Live integration profile is BLOCKED.'
               echo "blocked=true" >> $env:GITHUB_OUTPUT
               echo "causal_reason=ts-authkey-missing" >> $env:GITHUB_OUTPUT
+              node scripts/lab-observer.mjs update CONFIGURATION_PRESENT BLOCKED ts-authkey-missing "TS_AUTHKEY secret is missing"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              exit 1
           } else {
               echo "blocked=false" >> $env:GITHUB_OUTPUT
+              node scripts/lab-observer.mjs update CONFIGURATION_PRESENT PASSED
           }
         env:
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
 
-      - name: Halt if Blocked
-        if: steps.check-live.outputs.blocked == 'true'
+      - name: Stage 2 - Tailscale Installation & Authentication
+        shell: pwsh
         run: |
-          echo "Live profile is BLOCKED due to missing credentials. Never counting skipped live profile as passed."
-          exit 1
+          $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update TAILSCALE_ENROLL RUNNING
+
+          if ("${{ inputs.injected_failure }}" -eq "TS_AUTHKEY_INVALID") {
+              Write-Host "::error title=Injected Control Failure::ts-authkey-invalid simulated"
+              node scripts/lab-observer.mjs update TAILSCALE_ENROLL FAILED ts-authkey-invalid "Simulated auth key rejection"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              exit 1
+          }
+
+          # Download and install Tailscale MSI
+          $url = 'https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi'
+          $out = 'tailscale-setup.msi'
+          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 120
+          Start-Process msiexec.exe -Wait -ArgumentList '/i', $out, '/quiet', '/norestart'
+
+          $ts = 'C:\Program Files\Tailscale\tailscale.exe'
+          if (-not (Test-Path -LiteralPath $ts)) {
+              node scripts/lab-observer.mjs update TAILSCALE_ENROLL FAILED tailscale-install-failed "Tailscale binary missing after install"
+              exit 1
+          }
+
+          $hostname = 'ghrdp-lab-' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
+          & $ts up --authkey=$env:TS_AUTHKEY --accept-dns=true --hostname=$hostname
+
+          $tsIp = ''
+          for ($i = 0; $i -lt 15; $i++) {
+              try {
+                  $j = (& $ts status --json 2>$null) | ConvertFrom-Json
+                  if ($j -and $j.BackendState -eq 'Running' -and $j.Self.TailscaleIPs) {
+                      foreach ($a in @($j.Self.TailscaleIPs)) {
+                          if ([string]$a -match '^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.') { $tsIp = [string]$a; break }
+                      }
+                  }
+              } catch { }
+              if ($tsIp) { break }
+              Start-Sleep -Seconds 2
+          }
+
+          if ($tsIp) {
+              Write-Host "[ts] Tailscale authenticated, IP: $tsIp"
+              echo "TS_TAILNET_IP=$tsIp" >> $env:GITHUB_ENV
+              node scripts/lab-observer.mjs update TAILSCALE_ENROLL PASSED
+          } else {
+              Write-Host "::error::Tailscale auth failed or no CGNAT IP assigned"
+              node scripts/lab-observer.mjs update TAILSCALE_ENROLL FAILED ts-authkey-invalid "Failed to acquire CGNAT Tailscale IP"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              exit 1
+          }
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Stage 3 - MagicDNS & FQDN Verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update FQDN_RESOLUTION RUNNING
+          $ts = 'C:\Program Files\Tailscale\tailscale.exe'
+          $fqdn = ''
+          try {
+              $j = (& $ts status --json 2>$null) | ConvertFrom-Json
+              if ($j -and $j.Self -and $j.Self.DNSName) {
+                  $fqdn = ([string]$j.Self.DNSName).TrimEnd('.')
+              }
+          } catch { }
+
+          if ($fqdn -notmatch '^[a-z0-9][a-z0-9\-]*(\.[a-z0-9\-]+)+\.ts\.net$') {
+              Write-Host "::warning::MagicDNS is OFF or FQDN unavailable. Operator action required at https://login.tailscale.com/admin/dns"
+              node scripts/lab-observer.mjs update FQDN_RESOLUTION BLOCKED ts-magicdns-off "MagicDNS is not enabled on tailnet"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              exit 1
+          }
+
+          Write-Host "[ts] MagicDNS FQDN: $fqdn"
+          echo "TS_MAGICDNS_FQDN=$fqdn" >> $env:GITHUB_ENV
+          node scripts/lab-observer.mjs update FQDN_RESOLUTION PASSED
+
+      - name: Stage 4 - Certificate Acquisition & Capability Check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update CERT_BIND RUNNING
+          $ts = 'C:\Program Files\Tailscale\tailscale.exe'
+          $fqdn = $env:TS_MAGICDNS_FQDN
+
+          if ("${{ inputs.injected_failure }}" -eq "CERT_INVALID") {
+              Write-Host "::error title=Injected Control Failure::cert-invalid simulated"
+              node scripts/lab-observer.mjs update CERT_BIND FAILED cert-invalid-hostname "Simulated cert failure"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              exit 1
+          }
+
+          $workDir = 'C:\ghrdp\tls'
+          New-Item -ItemType Directory -Path $workDir -Force -ErrorAction SilentlyContinue | Out-Null
+          $crtPath = Join-Path $workDir ($fqdn + '.crt')
+          $keyPath = Join-Path $workDir ($fqdn + '.key')
+
+          $certLog = Join-Path $env:RUNNER_TEMP 'ts-cert.log'
+          $certErr = Join-Path $env:RUNNER_TEMP 'ts-cert.err'
+          Remove-Item -LiteralPath $certLog, $certErr -Force -ErrorAction SilentlyContinue
+
+          $p = Start-Process -FilePath $ts -ArgumentList @('cert', '--cert-file', $crtPath, '--key-file', $keyPath, $fqdn) -RedirectStandardOutput $certLog -RedirectStandardError $certErr -WindowStyle Hidden -PassThru
+          try { $p.WaitForExit(60000) } catch { }
+
+          $certOk = ($p.HasExited -and $p.ExitCode -eq 0 -and (Test-Path -LiteralPath $crtPath) -and (Test-Path -LiteralPath $keyPath))
+          $errText = ''
+          if (Test-Path $certErr) { $errText = [System.IO.File]::ReadAllText($certErr) }
+
+          if (-not $certOk) {
+              if ($errText -match 'does not support getting TLS certs|HTTPS certificates disabled|account does not support') {
+                  $causalCode = 'cert-capability-unavailable'
+                  Write-Host "===================================================================================="
+                  Write-Host "::error title=Cert Capability Unavailable::Tailscale account does not support getting TLS certs."
+                  Write-Host "Operator action required:"
+                  Write-Host "1. Tailscale Admin Console -> DNS -> HTTPS Certificates -> Toggle ON"
+                  Write-Host "   URL: https://login.tailscale.com/admin/dns"
+                  Write-Host "2. Re-dispatch the workflow after HTTPS certificates capability is enabled."
+                  Write-Host "===================================================================================="
+                  node scripts/lab-observer.mjs update CERT_BIND BLOCKED cert-capability-unavailable "Tailscale account does not support TLS cert issuance. Enable HTTPS Certificates at https://login.tailscale.com/admin/dns"
+                  node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+                  exit 1
+              } else {
+                  Write-Host "::error::tailscale cert fetch failed: $errText"
+                  node scripts/lab-observer.mjs update CERT_BIND FAILED cert-fetch-failed $errText
+                  node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+                  exit 1
+              }
+          }
+
+          Write-Host "[cert] Tailscale certificate issued and saved for $fqdn"
+          node scripts/lab-observer.mjs update CERT_BIND PASSED
+
+      - name: Stage 5 - Dashboard & Web Acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update SERVICES_READY RUNNING
+          node scripts/ensure-rdp-deps.mjs --mode build --auto-build-ui
+          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$env:GITHUB_WORKSPACE\payloads\ghrdp-server.ps1`"" -WindowStyle Hidden
+          Start-Sleep -Seconds 5
+          pnpm exec playwright test --config=playwright.config.ts --reporter=line
+          if ($LASTEXITCODE -eq 0) {
+              node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED PASSED
+          } else {
+              node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED FAILED browser-test-failed "Playwright browser tests failed"
+              exit 1
+          }
+
+      - name: Generate Live Integration Evidence
+        if: always()
+        shell: pwsh
+        run: |
+          node scripts/lab-observer.mjs finish PASSED
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+        env:
+          LAB_PHASE: live-integration
+          CAUSAL_FAILURE: none
+
+      - name: Upload Live Integration Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-lab-evidence-live-integration
+          path: rdp-lab-evidence.json
 
   lab-report:
     name: Summarize Lab Evidence & Publish Verdict
@@ -186,6 +498,14 @@ jobs:
         with:
           node-version: 20
 
+      - name: Download Lab Evidence Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rdp-lab-evidence-*
+          merge-multiple: true
+          path: ./lab-artifacts
+        continue-on-error: true
+
       - name: Evaluate Final Lab Verdict
         id: eval-verdict
         run: |
@@ -193,19 +513,47 @@ jobs:
           WIN_RES="${{ needs.windows-integration-lab.result }}"
           LIVE_RES="${{ needs.live-integration-lab.result }}"
 
+          PROFILE="${{ inputs.profile || 'static' }}"
+          INJECTED="${{ inputs.injected_failure || 'NONE' }}"
+
           VERDICT="PASSED"
           CAUSAL="none"
 
-          if [ "$STATIC_RES" = "failure" ] || [ "$WIN_RES" = "failure" ] || [ "$LIVE_RES" = "failure" ]; then
-            VERDICT="FAILED"
-            if [ "${{ inputs.injected_failure }}" != "NONE" ] && [ "${{ inputs.injected_failure }}" != "" ]; then
-              CAUSAL="${{ inputs.injected_failure }}"
-            else
-              CAUSAL="lab-execution-failed"
+          # Check if evidence file exists from the runner
+          EVIDENCE_FILE=""
+          if [ -f "./lab-artifacts/rdp-lab-evidence.json" ]; then
+            EVIDENCE_FILE="./lab-artifacts/rdp-lab-evidence.json"
+          elif [ -f "./rdp-lab-evidence.json" ]; then
+            EVIDENCE_FILE="./rdp-lab-evidence.json"
+          fi
+
+          if [ -n "$EVIDENCE_FILE" ]; then
+            OBS_CAUSAL=$(node -e 'try { const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(d.first_causal_failure||"none"); } catch { console.log("none"); }' "$EVIDENCE_FILE")
+            if [ "$OBS_CAUSAL" != "none" ]; then
+              CAUSAL="$OBS_CAUSAL"
             fi
-          elif [ "$LIVE_RES" = "skipped" ] && [ "${{ inputs.profile }}" = "live-integration" ]; then
+          fi
+
+          if [ "$STATIC_RES" = "failure" ] || [ "$WIN_RES" = "failure" ] || [ "$LIVE_RES" = "failure" ]; then
+            if [ "$CAUSAL" = "none" ]; then
+              if [ "$INJECTED" != "NONE" ] && [ "$INJECTED" != "" ]; then
+                CAUSAL="$INJECTED"
+              else
+                CAUSAL="lab-execution-failed"
+              fi
+            fi
+
+            if [ "$CAUSAL" = "ts-authkey-missing" ] || [ "$CAUSAL" = "ts-magicdns-off" ] || [ "$CAUSAL" = "cert-capability-unavailable" ]; then
+              VERDICT="BLOCKED"
+            else
+              VERDICT="FAILED"
+            fi
+          elif [ "$LIVE_RES" = "skipped" ] && [ "$PROFILE" = "live-integration" ]; then
             VERDICT="BLOCKED"
             CAUSAL="ts-authkey-missing"
+          elif [ "$STATIC_RES" = "cancelled" ] || [ "$WIN_RES" = "cancelled" ] || [ "$LIVE_RES" = "cancelled" ]; then
+            VERDICT="CANCELLED"
+            CAUSAL="job-cancelled"
           fi
 
           echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
@@ -213,15 +561,15 @@ jobs:
 
           echo "::notice title=Lab Verdict::$VERDICT (first causal failure: $CAUSAL)"
 
-      - name: Generate Machine-Readable Evidence
+      - name: Generate Consolidated Evidence
         run: |
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
         env:
           LAB_PHASE: ${{ inputs.profile || 'static' }}
           CAUSAL_FAILURE: ${{ steps.eval-verdict.outputs.first_causal_failure }}
 
-      - name: Upload Evidence Artifact
+      - name: Upload Consolidated Evidence Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rdp-lab-evidence-${{ inputs.profile || 'static' }}
+          name: rdp-lab-evidence-final
           path: rdp-lab-evidence.json
