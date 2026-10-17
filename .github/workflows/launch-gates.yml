@@ -4525,3 +4525,10 @@ jobs:
           Publish-F60Status -state $labState -description $labDesc
           if ($labState -ne 'success') { exit 1 }
           Write-Host ('F60 windows-native lab GREEN on ' + $PSVersionTable.PSVersion.ToString() + ' (context ' + $context + ')')
+
+  rdp-lab-check:
+    name: RDP Verification Lab Check
+    uses: ./.github/workflows/rdp-lab.yml
+    with:
+      profile: static
+      source_sha: ${{ github.sha }}
