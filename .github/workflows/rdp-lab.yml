@@ -189,17 +189,89 @@ jobs:
           # Run PowerShell balance audit
           node scripts/ps-balance-audit.mjs
 
-      - name: Evaluate Injected Control Failure
-        if: inputs.injected_failure != 'NONE' && inputs.injected_failure != ''
+      - name: Evaluate Injected Control Failure - Negative Controls
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
+          if ("${{ inputs.injected_failure }}" -eq "NONE" -or "${{ inputs.injected_failure }}" -eq "") {
+             Write-Host "No specific injected failure requested for this stage. Skipping."
+             $host.SetShouldExit(0)
+             return
+          }
+
+          node scripts/lab-observer.mjs update INJECTED_CONTROL RUNNING
+
+          if ("${{ inputs.injected_failure }}" -eq "SILENT_HANG") {
+              Write-Host "::error title=Injected Control Failure::silent hang simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SILENT_HANG" "Simulated silent hang"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "silent hang"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "STDIN_WAIT") {
+              Write-Host "::error title=Injected Control Failure::stdin wait simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "STDIN_WAIT" "Simulated stdin wait"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "stdin wait"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "INFINITE_OUTPUT") {
+              Write-Host "::error title=Injected Control Failure::infinite output simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "INFINITE_OUTPUT" "Simulated infinite output"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "infinite output"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "SERVE_STATUS_HANG") {
+              Write-Host "::error title=Injected Control Failure::serve status hang simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SERVE_STATUS_HANG" "Simulated serve status hang"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "serve status hang"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "SIMULTANEOUS_LARGE_OUTPUT") {
+              Write-Host "::error title=Injected Control Failure::simultaneous large stdout/stderr simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SIMULTANEOUS_LARGE_OUTPUT" "Simulated simultaneous large output"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "simultaneous large output"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "CHILD_RETAINS_HANDLES") {
+              Write-Host "::error title=Injected Control Failure::child retains handles simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "CHILD_RETAINS_HANDLES" "Simulated child retains handles"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "child retains handles"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "FUNNEL_HANG") {
+              Write-Host "::error title=Injected Control Failure::funnel hang simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "FUNNEL_HANG" "Simulated funnel hang"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "funnel hang"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "OPTIONAL_FUNNEL_FAILURE") {
+              Write-Host "::error title=Injected Control Failure::optional funnel failure simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "OPTIONAL_FUNNEL_FAILURE" "Simulated optional funnel failure"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "optional funnel failure"
+          }
+
+          if ("${{ inputs.injected_failure }}" -eq "CLI_EXIT_0_BACKEND_FAILS") {
+              Write-Host "::error title=Injected Control Failure::cli exit 0 but backend fails simulated"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "CLI_EXIT_0_BACKEND_FAILS" "Simulated cli exit 0 but backend fails"
+              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+              throw "cli exit 0 but backend fails"
+          }
+
           Write-Host "::error title=Injected Control Failure::${{ inputs.injected_failure }} simulated"
           node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "${{ inputs.injected_failure }}" "Simulated failure: ${{ inputs.injected_failure }}"
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-          exit 1
-        env:
-          LAB_PHASE: windows-integration
-          CAUSAL_FAILURE: ${{ inputs.injected_failure }}
+          throw "simulated failure"
+
+
+
+
 
       - name: Start Mission Control Local Dashboard
         shell: pwsh

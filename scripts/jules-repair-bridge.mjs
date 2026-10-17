@@ -35,11 +35,19 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
 
   try {
     const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
+    // The previous implementation assumed plain text, but run logs are often zip archives.
     const res = execSync(cmd, {
-      encoding: "utf8",
+      encoding: "buffer",
       env: { ...process.env, GH_TOKEN: token },
     });
-    return redactSecrets(res.slice(0, 4000));
+
+    // Check if it's a zip by magic number (PK\x03\x04)
+    if (res.length >= 4 && res[0] === 0x50 && res[1] === 0x4B && res[2] === 0x03 && res[3] === 0x04) {
+      return "Logs are in ZIP format. Log content extraction not fully implemented here yet, please check manually.";
+    }
+
+    const textRes = res.toString("utf8");
+    return redactSecrets(textRes.slice(0, 4000));
   } catch (err) {
     return `Could not fetch logs for run ${runId}: ${err.message}`;
   }
@@ -48,6 +56,9 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
 export function evaluateBridgeDispatch(input = {}) {
   const {
     apiKey = process.env.JULES_API_KEY,
+    runStatus = process.env.RUN_STATUS || 'completed',
+    runConclusion = process.env.RUN_CONCLUSION || 'failure',
+    updatedAt = process.env.UPDATED_AT || new Date().toISOString(),
     bridgeEnabled = process.env.BRIDGE_ENABLED !== "false",
     repo = process.env.GITHUB_REPOSITORY || "dictationb1/supreme-lamp",
     branch = process.env.TRIGGER_BRANCH || "main",
@@ -58,6 +69,17 @@ export function evaluateBridgeDispatch(input = {}) {
     causalFailure = process.env.CAUSAL_FAILURE || "unknown-failure",
     logsSummary = process.env.LOGS_SUMMARY || "",
   } = input;
+
+
+  const stallThresholdExceeded = (new Date() - new Date(input.updatedAt || new Date())) > 15 * 60 * 1000;
+  const isStalled = input.runStatus === 'in_progress' && stallThresholdExceeded;
+  if (input.runStatus === 'in_progress' && !isStalled) {
+      return {
+          status: "IN_PROGRESS_NOT_STALLED",
+          reason: "Run is in progress but has not exceeded stall threshold.",
+          dispatched: false
+      };
+  }
 
   if (!bridgeEnabled) {
     return {

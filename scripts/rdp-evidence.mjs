@@ -2,6 +2,7 @@
 // scripts/rdp-evidence.mjs
 // Structured, machine-readable evidence collector with measured secret redaction and runner measurement preservation.
 
+import { pathToFileURL } from 'node:url';
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const SECRET_PATTERNS = [
@@ -88,7 +89,7 @@ export function createEvidenceRecord(input = {}) {
   return finalRecord;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const outputPath = process.argv[2] || "rdp-lab-evidence.json";
   let input = {
     phase: process.env.LAB_PHASE || "live-check",
