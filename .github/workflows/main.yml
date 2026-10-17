@@ -197,14 +197,17 @@ jobs:
               Write-Host ("- UI Bundle: " + $(if ($needUiBuild) { "PENDING_AUTOMATIC_PREPARATION (Will be created automatically on mode=rdp)" } else { "VERIFIED/REUSED" }))
 
               if ($S) {
-                  "### ✅ Configuration Validated (Mode: readiness)" | Add-Content -Path $S
-                  "සියලුම Configuration Secrets සහ Local Dependency Contracts සාර්ථකව පරීක්ෂා කරන ලදී." | Add-Content -Path $S
-                  "" | Add-Content -Path $S
-                  "**Dependency Readiness Status:**" | Add-Content -Path $S
-                  "- Prebuilt Binaries (`prebuilt-binaries`): " + $(if ($needF59Build) { "🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)" } else { "🟢 **VERIFIED / REUSED**" }) | Add-Content -Path $S
-                  "- Web UI Bundle (`ui-dist`): " + $(if ($needUiBuild) { "🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)" } else { "🟢 **VERIFIED / REUSED**" }) | Add-Content -Path $S
-                  "" | Add-Content -Path $S
-                  "RDP Session එක ආරම්භ කිරීම සඳහා `mode=rdp` තෝරාගෙන Workflow එක Run කරන්න. අවශ්‍ය Dependencies ස්වයංක්‍රීයව සූදානම් කෙරේ." | Add-Content -Path $S
+                  $f59Text = if ($needF59Build) { '🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' } else { '🟢 **VERIFIED / REUSED**' }
+                  $uiText  = if ($needUiBuild)  { '🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' } else { '🟢 **VERIFIED / REUSED**' }
+
+                  '### ✅ Configuration Validated (Mode: readiness)' | Add-Content -LiteralPath $S -Encoding utf8
+                  'සියලුම Configuration Secrets සහ Local Dependency Contracts සාර්ථකව පරීක්ෂා කරන ලදී.' | Add-Content -LiteralPath $S -Encoding utf8
+                  '' | Add-Content -LiteralPath $S -Encoding utf8
+                  '**Dependency Readiness Status:**' | Add-Content -LiteralPath $S -Encoding utf8
+                  ('- Prebuilt Binaries (`prebuilt-binaries`): {0}' -f $f59Text) | Add-Content -LiteralPath $S -Encoding utf8
+                  ('- Web UI Bundle (`ui-dist`): {0}' -f $uiText) | Add-Content -LiteralPath $S -Encoding utf8
+                  '' | Add-Content -LiteralPath $S -Encoding utf8
+                  'RDP Session එක ආරම්භ කිරීම සඳහා `mode=rdp` තෝරාගෙන Workflow එක Run කරන්න. අවශ්‍ය Dependencies ස්වයංක්‍රීයව සූදානම් කෙරේ.' | Add-Content -LiteralPath $S -Encoding utf8
               }
           } else {
               Write-Host "CONFIGURATION_PRESENT: All required secrets and local manifest files found."
@@ -395,14 +398,14 @@ jobs:
           Write-Host "- Web UI Bundle: $env:UI_STATUS"
 
           if ($S) {
-              "### 🚀 RDP Launch Dependencies Orchestrated and Verified" | Add-Content -Path $S
-              "" | Add-Content -Path $S
-              "| Dependency | Status | Outcome |" | Add-Content -Path $S
-              "| --- | --- | --- |" | Add-Content -Path $S
-              "| Prebuilt Binaries (`prebuilt-binaries`) | VERIFIED | **$env:F59_STATUS** |" | Add-Content -Path $S
-              "| Web UI Bundle (`ui-dist`) | VERIFIED | **$env:UI_STATUS** |" | Add-Content -Path $S
-              "" | Add-Content -Path $S
-              "RDP පරිසරය සූදානම් කිරීම සහ සේවාවන් ආරම්භ කිරීම සඳහා අනුමැතිය ලබා දෙන ලදී." | Add-Content -Path $S
+              '### 🚀 RDP Launch Dependencies Orchestrated and Verified' | Add-Content -LiteralPath $S -Encoding utf8
+              '' | Add-Content -LiteralPath $S -Encoding utf8
+              '| Dependency | Status | Outcome |' | Add-Content -LiteralPath $S -Encoding utf8
+              '| --- | --- | --- |' | Add-Content -LiteralPath $S -Encoding utf8
+              ('| Prebuilt Binaries (`prebuilt-binaries`) | VERIFIED | **{0}** |' -f $env:F59_STATUS) | Add-Content -LiteralPath $S -Encoding utf8
+              ('| Web UI Bundle (`ui-dist`) | VERIFIED | **{0}** |' -f $env:UI_STATUS) | Add-Content -LiteralPath $S -Encoding utf8
+              '' | Add-Content -LiteralPath $S -Encoding utf8
+              'RDP පරිසරය සූදානම් කිරීම සහ සේවාවන් ආරම්භ කිරීම සඳහා අනුමැතිය ලබා දෙන ලදී.' | Add-Content -LiteralPath $S -Encoding utf8
           }
 
   rdp:

@@ -2090,6 +2090,8 @@ jobs:
           # catch - the failure class that otherwise costs a whole lab run.
           test -f tests/ps-balance-audit.py || { echo 'F37: the PowerShell structural audit is missing' >&2; exit 1; }
           python3 tests/ps-balance-audit.py
+          test -f tests/workflow-pwsh-parser.test.js || { echo 'WF-PWSH: the workflow PowerShell parser test is missing' >&2; exit 1; }
+          node --test tests/workflow-pwsh-parser.test.js
           echo 'F37 gates PASS'
       # [F45 S4] Explorer file-API server routes. The mjs auditor tokenizes the
       # new module (and the server that dot-sources it) exactly like the py
