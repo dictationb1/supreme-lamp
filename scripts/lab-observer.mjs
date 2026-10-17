@@ -3,6 +3,7 @@
 // Supervisor/collector observer for Windows lab execution.
 // Captures phase transitions, process exit codes, heartbeats, service status, and sanitized logs.
 
+import { pathToFileURL } from 'node:url';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { redactSecrets } from "./rdp-evidence.mjs";
 
@@ -139,7 +140,7 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(`[lab-observer] Error: ${err.message}`);
     process.exit(1);

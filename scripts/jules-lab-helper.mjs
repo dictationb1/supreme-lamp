@@ -2,6 +2,7 @@
 // scripts/jules-lab-helper.mjs
 // Permanent, reusable CLI helper for Jules sessions to manage lab runs and inspect evidence.
 
+import { pathToFileURL } from 'node:url';
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -191,7 +192,7 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(`[jules-lab-helper] Error: ${err.message}`);
     process.exit(1);

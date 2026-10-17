@@ -3,6 +3,7 @@
 // Permanent, reusable dependency manager and verifier for supreme-lamp RDP workflows.
 // Validates UI bundle and F59 prebuilt binaries (aria2c, qbittorrent) against pinned hashes.
 
+import { pathToFileURL } from 'node:url';
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -207,7 +208,7 @@ export function checkDependencies(options = {}) {
   return result;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const options = parseArgs();
   const depResult = checkDependencies(options);
 

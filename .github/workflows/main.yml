@@ -197,8 +197,8 @@ jobs:
               Write-Host ("- UI Bundle: " + $(if ($needUiBuild) { "PENDING_AUTOMATIC_PREPARATION (Will be created automatically on mode=rdp)" } else { "VERIFIED/REUSED" }))
 
               if ($S) {
-                  $f59Text = if ($needF59Build) { '🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' } else { '🟢 **VERIFIED / REUSED**' }
-                  $uiText  = if ($needUiBuild)  { '🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' } else { '🟢 **VERIFIED / REUSED**' }
+                  $f59Text = if ($needF59Build) { ('🟡 **PENDING AUTOMATIC PREPARATION** ({0} හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' -f '`mode=rdp`') } else { '🟢 **VERIFIED / REUSED**' }
+                  $uiText  = if ($needUiBuild)  { ('🟡 **PENDING AUTOMATIC PREPARATION** ({0} හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)' -f '`mode=rdp`') } else { '🟢 **VERIFIED / REUSED**' }
 
                   '### ✅ Configuration Validated (Mode: readiness)' | Add-Content -LiteralPath $S -Encoding utf8
                   'සියලුම Configuration Secrets සහ Local Dependency Contracts සාර්ථකව පරීක්ෂා කරන ලදී.' | Add-Content -LiteralPath $S -Encoding utf8
@@ -373,10 +373,10 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
           test -f ui/dist/index.html
-          node scripts/check-regression-ids.mjs
-          node scripts/check-fx-ids.mjs
-          node scripts/check-no-neon-green.mjs ui/dist/index.html
-          node scripts/check-bottom-bar-time.mjs
+          node "$GITHUB_WORKSPACE/scripts/check-regression-ids.mjs"
+          node "$GITHUB_WORKSPACE/scripts/check-fx-ids.mjs"
+          node "$GITHUB_WORKSPACE/scripts/check-no-neon-green.mjs" ui/dist/index.html
+          node "$GITHUB_WORKSPACE/scripts/check-bottom-bar-time.mjs"
           LEN=$(wc -c < ui/dist/index.html)
           echo "[F43] build-ui artifact bytes=$LEN (F59 fallback path)"
           if [ "$LEN" -le 51200 ]; then echo "ui-v2.html staging failed - build artifact missing"; exit 1; fi
@@ -4634,78 +4634,30 @@ jobs:
           $rentryNew = [string]$cfg.rentryNewUrl
           $telegraph = [string]$cfg.mirrorIndexUrl
           $egress = [string]$cfg.runnerEgressIp
-          $serveOk = $false
-          $serveUrl = ''
-          foreach ($argSet in @(
-              @('--bg', 'http://127.0.0.1:7331'),
-              @('--bg', '7331')
-          )) {
-              try {
-                  $outTxt = (& $ts serve @argSet 2>$null) -join ' '
-                  $code = $LASTEXITCODE
-                  $LASTEXITCODE = 0
-                  Write-Host ('[serve] tailscale serve {0} -> exit {1} {2}' -f ($argSet -join ' '), $code, $outTxt)
-                  if ($code -eq 0) { $serveOk = $true; break }
-              } catch {
-                  Write-Host ('[serve] attempt error: ' + $_.Exception.Message)
-              }
+
+          $exposeRes = & (Join-Path $root 'ghrdp-expose-dashboard.ps1') -Root $root -TsExe $ts -ServeTimeoutSec 60 -StatusTimeoutSec 15 -FunnelTimeoutSec 60 -ApiToken $env:TS_API_KEY
+          $exposeObj = $exposeRes | ConvertFrom-Json
+          $serveOk = $exposeObj.serveOk
+          $serveUrl = $exposeObj.serveUrl
+          $funnelOk = $exposeObj.funnelOk
+          $funnelUrl = $exposeObj.funnelUrl
+
+          # Bounded supervisor check
+          if ($null -eq $exposeObj) {
+              Write-Host "::error::ghrdp-expose-dashboard.ps1 returned empty response. Supervisor failure."
+              $serveOk = $false
+              $funnelOk = $false
           }
-          if ($serveOk) {
-              try {
-                  $st = (& $ts serve status 2>$null) -join ' '
-                  $LASTEXITCODE = 0
-                  $m = [regex]::Match($st, 'https://[A-Za-z0-9.\-]+\.ts\.net')
-                  if ($m.Success) { $serveUrl = $m.Value }
-              } catch { }
-              if (-not $serveUrl -and $cfg.dnsName) { $serveUrl = 'https://' + [string]$cfg.dnsName }
-          } else {
-              Write-Host '[serve] tailscale serve did not succeed (dashboard still reachable at http://<ts-ip>:7331 over the tailnet)'
-          }
-          $funnelOk = $false
-          $funnelUrl = ''
-          if ($serveOk) {
-              foreach ($argSet in @(
-                  @('--bg', '7331'),
-                  @('--bg', 'http://127.0.0.1:7331')
-              )) {
-                  try {
-                      $outTxt = (& $ts funnel @argSet 2>$null) -join ' '
-                      $code = $LASTEXITCODE
-                      $LASTEXITCODE = 0
-                      Write-Host ('[funnel] tailscale funnel {0} -> exit {1} {2}' -f ($argSet -join ' '), $code, $outTxt)
-                      if ($code -eq 0) { $funnelOk = $true; break }
-                  } catch {
-                      Write-Host ('[funnel] attempt error: ' + $_.Exception.Message)
-                  }
-              }
-          }
-          if ($funnelOk) {
-              if ($serveUrl) { $funnelUrl = $serveUrl } elseif ($cfg.dnsName) { $funnelUrl = 'https://' + [string]$cfg.dnsName }
-              Write-Host ('[funnel] public funnel active: ' + $funnelUrl)
-          } else {
-              Write-Host '[funnel] Funnel not enabled (optional). Tailnet Serve already works with ZERO secrets.'
-          }
+
           if ($cfg) {
               $cfg | Add-Member -NotePropertyName serveUrl -NotePropertyValue $serveUrl -Force
               $cfg | Add-Member -NotePropertyName funnelUrl -NotePropertyValue $funnelUrl -Force
               Save-MirrorCfg -Cfg $cfg -Path (Join-Path $root 'config.json')
           }
-          $runUrl = 'https://github.com/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:GITHUB_RUN_ID
-          $cancelCli = 'gh run cancel ' + $env:GITHUB_RUN_ID + ' -R ' + $env:GITHUB_REPOSITORY
-          Write-Host '============================================================'
-          Write-Host '  MISSION CONTROL READY  (PS 7331 verified; Rust 7332 gated)'
-          Write-Host '------------------------------------------------------------'
-          Write-Host ('  Tailscale IP ........: ' + $ip)
-          Write-Host ('  RDP ................: mstsc /v:' + $ip + '   (user: ' + $user + ')')
-          # [remediation 8D] RDP password print removed (Mission Control still serves creds host-only over tailnet).
-          Write-Host ('  Dashboard (PS) .....: http://' + $ip + ':7331/' + $keyPart)
-          if ($rustOn -and $rustUrl) {
-              Write-Host ('  Dashboard (real-time) : ' + $rustUrl + '   (Rust, WebSocket; tailnet-only, NOT funneled)')
-          } else {
-              Write-Host '  Dashboard (real-time): unavailable this run (PowerShell dashboard on 7331 is serving)'
-          }
+
           if ($serveUrl) { Write-Host ('  Dashboard (serve) ..: ' + $serveUrl + $keyPart + '   (tailnet only)') }
           if ($funnelUrl) { Write-Host ('  Dashboard (funnel) .: ' + $funnelUrl + $keyPart + '   (public)') }
+
           # [remediation 8D] INDEXES & KEYS banner (Legacy/New Rentry, Telegraph, decrypt keys) removed - dead mirror.
           Write-Host '  ---- EMERGENCY STOP --------------------------------------'
           Write-Host ('  web : open ' + $runUrl + '  and press "Cancel workflow"')
