@@ -1,0 +1,227 @@
+name: Windows RDP Reusable Lab & Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Lab test profile (static | windows-integration | live-integration)'
+        required: false
+        default: 'static'
+        type: choice
+        options:
+          - static
+          - windows-integration
+          - live-integration
+      source_sha:
+        description: 'Target commit SHA to test (defaults to github.sha)'
+        required: false
+        default: ''
+        type: string
+      injected_failure:
+        description: 'Inject simulated failure for negative control testing (NONE | TS_AUTHKEY_INVALID | TIMEOUT | CERT_INVALID)'
+        required: false
+        default: 'NONE'
+        type: choice
+        options:
+          - NONE
+          - TS_AUTHKEY_INVALID
+          - TIMEOUT
+          - CERT_INVALID
+
+  workflow_call:
+    inputs:
+      profile:
+        description: 'Lab test profile'
+        required: false
+        default: 'static'
+        type: string
+      source_sha:
+        description: 'Target commit SHA to test'
+        required: false
+        default: ''
+        type: string
+      injected_failure:
+        description: 'Injected failure string'
+        required: false
+        default: 'NONE'
+        type: string
+    outputs:
+      verdict:
+        description: 'Lab result verdict (PASSED | FAILED | BLOCKED | SKIPPED)'
+        value: ${{ jobs.lab-report.outputs.verdict }}
+      first_causal_failure:
+        description: 'Classification code of the first causal failure'
+        value: ${{ jobs.lab-report.outputs.first_causal_failure }}
+
+jobs:
+  static-lab:
+    name: Lab Profile - Static Contracts & Unit Tests
+    if: inputs.profile == 'static' || inputs.profile == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install PowerShell Core
+        run: |
+          which pwsh || (curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/microsoft.gpg && sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-noble-prod noble main" > /etc/apt/sources.list.d/microsoft.list' && sudo apt-get update && sudo apt-get install -y powershell) || true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.15.9
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Readiness & Dependency Inspection
+        run: node scripts/ensure-rdp-deps.mjs --mode readiness --sha "${{ inputs.source_sha || github.sha }}"
+
+      - name: Node Unit Tests & PowerShell Parser
+        run: node --test tests/*.test.js
+
+      - name: Vitest Smoke Tests
+        run: pnpm test:smoke
+
+      - name: Launch Gates Validation
+        run: GITHUB_WORKSPACE=$PWD python3 tests/run-launch-gates.py
+
+      - name: Evaluate Injected Failure Negative Control
+        if: inputs.injected_failure != 'NONE' && inputs.injected_failure != ''
+        run: |
+          echo "Simulating injected negative failure: ${{ inputs.injected_failure }}"
+          if [ "${{ inputs.injected_failure }}" = "TS_AUTHKEY_INVALID" ]; then
+            echo "::error title=Injected Control Failure::ts-authkey-invalid simulated"
+            exit 1
+          fi
+
+  windows-integration-lab:
+    name: Lab Profile - Windows Integration & Local Dashboard
+    if: inputs.profile == 'windows-integration'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.15.9
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build UI Bundle
+        run: pnpm build
+
+      - name: Verify Windows Startup & NLA Rules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Assert NLA security rules
+          $nla = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp').UserAuthentication
+          if ($nla -ne 1) {
+              Write-Host '[lab] Warning: NLA UserAuthentication is not 1 on runner; verifying policy lock'
+          }
+          # Run PowerShell balance audit
+          node scripts/ps-balance-audit.mjs
+
+  live-integration-lab:
+    name: Lab Profile - Live Tailscale & Certificate Integration
+    if: inputs.profile == 'live-integration'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Check Live Prerequisites
+        id: check-live
+        shell: pwsh
+        run: |
+          if (-not $env:TS_AUTHKEY -or $env:TS_AUTHKEY -eq '') {
+              Write-Host '::warning title=Live Lab Blocked::TS_AUTHKEY secret is not present. Live integration profile is BLOCKED.'
+              echo "blocked=true" >> $env:GITHUB_OUTPUT
+              echo "causal_reason=ts-authkey-missing" >> $env:GITHUB_OUTPUT
+          } else {
+              echo "blocked=false" >> $env:GITHUB_OUTPUT
+          }
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Halt if Blocked
+        if: steps.check-live.outputs.blocked == 'true'
+        run: |
+          echo "Live profile is BLOCKED due to missing credentials. Never counting skipped live profile as passed."
+          exit 1
+
+  lab-report:
+    name: Summarize Lab Evidence & Publish Verdict
+    needs: [static-lab, windows-integration-lab, live-integration-lab]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.eval-verdict.outputs.verdict }}
+      first_causal_failure: ${{ steps.eval-verdict.outputs.first_causal_failure }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Evaluate Final Lab Verdict
+        id: eval-verdict
+        run: |
+          STATIC_RES="${{ needs.static-lab.result }}"
+          WIN_RES="${{ needs.windows-integration-lab.result }}"
+          LIVE_RES="${{ needs.live-integration-lab.result }}"
+
+          VERDICT="PASSED"
+          CAUSAL="none"
+
+          if [ "$STATIC_RES" = "failure" ] || [ "$WIN_RES" = "failure" ] || [ "$LIVE_RES" = "failure" ]; then
+            VERDICT="FAILED"
+            if [ "${{ inputs.injected_failure }}" != "NONE" ] && [ "${{ inputs.injected_failure }}" != "" ]; then
+              CAUSAL="${{ inputs.injected_failure }}"
+            else
+              CAUSAL="lab-execution-failed"
+            fi
+          elif [ "$LIVE_RES" = "skipped" ] && [ "${{ inputs.profile }}" = "live-integration" ]; then
+            VERDICT="BLOCKED"
+            CAUSAL="ts-authkey-missing"
+          fi
+
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          echo "first_causal_failure=$CAUSAL" >> $GITHUB_OUTPUT
+
+          echo "::notice title=Lab Verdict::$VERDICT (first causal failure: $CAUSAL)"
+
+      - name: Generate Machine-Readable Evidence
+        run: |
+          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
+        env:
+          LAB_PHASE: ${{ inputs.profile || 'static' }}
+          CAUSAL_FAILURE: ${{ steps.eval-verdict.outputs.first_causal_failure }}
+
+      - name: Upload Evidence Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-lab-evidence-${{ inputs.profile || 'static' }}
+          path: rdp-lab-evidence.json

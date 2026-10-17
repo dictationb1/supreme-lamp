@@ -16,3 +16,5 @@
 
 වැඩි විස්තර සඳහා:
 * [දෝෂ නිරාකරණය සහ Readiness ඊළඟ පියවර](NEXT-RUN-GUIDE-si.md)
+* [Jules Verification Lab සැකසීමේ මාර්ගෝපදේශය](docs/LAB-SETUP-si.md)
+* [Jules Verification Lab මෙහෙයුම් මාර්ගෝපදේශය](docs/LAB-RUNBOOK-si.md)

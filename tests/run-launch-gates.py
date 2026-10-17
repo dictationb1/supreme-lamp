@@ -26,9 +26,9 @@ counted = 0
 extra = 0
 skipped = 0
 for job in workflow['jobs'].values():
-    if job['runs-on'] != 'ubuntu-latest':
+    if job.get('runs-on') != 'ubuntu-latest':
         continue
-    for step in job['steps']:
+    for step in job.get('steps', []):
         shell = step.get('shell')
         if shell != 'bash' and not (shell is None and include_default_shell):
             continue

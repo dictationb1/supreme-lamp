@@ -1,0 +1,35 @@
+name: Event-Driven Jules RDP Repair Bridge
+
+on:
+  workflow_run:
+    workflows: ["Windows RDP - Tailscale Mission Control (6h ephemeral)"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rdp-repair-bridge:
+    name: Jules RDP Repair Incident Handler
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Evaluate Incident & Trigger Repair Session
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          BRIDGE_ENABLED: ${{ vars.BRIDGE_ENABLED }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          TRIGGER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          node scripts/jules-repair-bridge.mjs
