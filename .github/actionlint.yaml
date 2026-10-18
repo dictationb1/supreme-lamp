@@ -3,17 +3,3 @@ self-hosted-runner:
     - sl-warm
 
 config-variables: null
-
-paths:
-  .github/workflows/**/*.yml:
-    ignore:
-      - 'shellcheck reported issue in this script: SC2016'
-      - 'shellcheck reported issue in this script: SC2015'
-      - 'shellcheck reported issue in this script: SC2086'
-      - 'shellcheck reported issue in this script: SC2012'
-      - 'shellcheck reported issue in this script: SC2088'
-      - 'shellcheck reported issue in this script: SC2006'
-      - 'shellcheck reported issue in this script: SC2028'
-      - 'shellcheck reported issue in this script: SC2034'
-      - 'shellcheck reported issue in this script: SC2013'
-      - 'shellcheck reported issue in this script: SC2011'

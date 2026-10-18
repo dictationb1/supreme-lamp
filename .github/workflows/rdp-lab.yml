@@ -603,6 +603,15 @@ jobs:
 
           echo "::notice title=Lab Verdict::$VERDICT (first causal failure: $CAUSAL)"
 
+          # Enforce matching check conclusion for non-passing verdicts
+          if [ "$VERDICT" = "FAILED" ] || [ "$VERDICT" = "BLOCKED" ]; then
+            echo "::error title=Lab Execution Failed or Blocked::Verdict: $VERDICT, First Causal Failure: $CAUSAL"
+            exit 1
+          elif [ "$VERDICT" = "CANCELLED" ]; then
+            echo "::error title=Lab Execution Cancelled::Verdict: CANCELLED"
+            exit 1
+          fi
+
       - name: Generate Consolidated Evidence
         run: |
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
