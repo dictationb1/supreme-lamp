@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-
-const require = createRequire(import.meta.url);
-const yaml = require('js-yaml');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,48 +21,52 @@ try {
   }
 }
 
-export function validateYamlContent(content, filename = 'workflow.yml') {
+/** Pure JS YAML Duplicate Key and Structural Validator */
+export function checkYamlDuplicateKeys(content, filename = 'workflow.yml') {
   const errors = [];
-  let doc;
-  try {
-    doc = yaml.load(content, { filename, json: true });
-  } catch (err) {
-    errors.push(`YAML syntax error in ${filename}: ${err.message}`);
-    return { valid: false, errors, doc: null };
-  }
+  const lines = content.split('\n');
+  const scopeStack = [{ indent: -1, keys: new Set() }];
 
-  if (!doc || typeof doc !== 'object') {
-    errors.push(`Invalid YAML document structure in ${filename}`);
-    return { valid: false, errors, doc: null };
-  }
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const lineNum = i + 1;
+    if (!raw.trim() || raw.trim().startsWith('#')) continue;
 
-  if (doc.jobs && typeof doc.jobs === 'object') {
-    const jobIds = new Set(Object.keys(doc.jobs));
+    const indentMatch = raw.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
 
-    for (const [jobId, jobDef] of Object.entries(doc.jobs)) {
-      if (!jobDef || typeof jobDef !== 'object') continue;
+    const keyMatch = raw.match(/^(\s*)(?:-\s+)?([a-zA-Z0-9_-]+)\s*:/);
+    if (keyMatch) {
+      const key = keyMatch[2];
 
-      if (jobDef.needs) {
-        const needsList = Array.isArray(jobDef.needs) ? jobDef.needs : [jobDef.needs];
-        for (const need of needsList) {
-          if (typeof need === 'string' && !jobIds.has(need)) {
-            errors.push(`Job '${jobId}' in ${filename} references non-existent need '${need}'`);
-          }
-        }
+      while (scopeStack.length > 1 && scopeStack[scopeStack.length - 1].indent >= indent) {
+        scopeStack.pop();
       }
 
-      if (jobDef.uses && typeof jobDef.uses === 'string') {
-        if (jobDef.uses.startsWith('./.github/workflows/')) {
-          const relPath = jobDef.uses.slice(2);
-          const fullPath = path.join(ROOT_DIR, relPath);
-          if (!fs.existsSync(fullPath)) {
-            errors.push(`Job '${jobId}' in ${filename} references missing local reusable workflow '${jobDef.uses}'`);
-          }
+      const currentScope = scopeStack[scopeStack.length - 1];
+      if (currentScope.indent === indent) {
+        if (currentScope.keys.has(key)) {
+          errors.push(`Duplicated mapping key '${key}' at ${filename}:${lineNum}`);
+        } else {
+          currentScope.keys.add(key);
         }
+      } else {
+        const newScope = { indent, keys: new Set([key]) };
+        scopeStack.push(newScope);
       }
     }
   }
+  return errors;
+}
 
+export function validateYamlContent(content, filename = 'workflow.yml') {
+  const errors = [];
+
+  // Check duplicate keys
+  const dupErrors = checkYamlDuplicateKeys(content, filename);
+  errors.push(...dupErrors);
+
+  // Check unclosed ${{ expressions across the entire document
   let openIndex = 0;
   while ((openIndex = content.indexOf('${{', openIndex)) !== -1) {
     const closeIndex = content.indexOf('}}', openIndex);
@@ -78,19 +78,69 @@ export function validateYamlContent(content, filename = 'workflow.yml') {
     openIndex = closeIndex + 2;
   }
 
+  // Parse basic job IDs and needs dependencies
+  const jobIds = new Set();
+  const jobNeeds = [];
   const lines = content.split('\n');
+  let inJobs = false;
+  let currentJob = null;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
     if (line.trim().startsWith('#')) continue;
 
+    if (/^jobs\s*:/.test(line)) {
+      inJobs = true;
+      continue;
+    }
+
+    if (inJobs) {
+      if (/^[a-zA-Z0-9_-]+\s*:/.test(line) && !line.startsWith(' ') && !line.startsWith('\t')) {
+        inJobs = false; // Left jobs section
+        currentJob = null;
+        continue;
+      }
+
+      const jobMatch = line.match(/^  ([a-zA-Z0-9_-]+)\s*:/);
+      if (jobMatch) {
+        currentJob = jobMatch[1];
+        jobIds.add(currentJob);
+      }
+
+      if (currentJob) {
+        const needsMatch = line.match(/^\s+needs\s*:\s*\[?([^\]]+)\]?/);
+        if (needsMatch) {
+          const rawNeeds = needsMatch[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+          for (const need of rawNeeds) {
+            if (need) jobNeeds.push({ jobId: currentJob, need, lineNum });
+          }
+        }
+
+        const usesMatch = line.match(/^\s+uses\s*:\s*\.\/\.github\/workflows\/([a-zA-Z0-9_.-]+)/);
+        if (usesMatch) {
+          const relPath = `.github/workflows/${usesMatch[1]}`;
+          if (!fs.existsSync(path.join(ROOT_DIR, relPath))) {
+            errors.push(`Job '${currentJob}' in ${filename}:${lineNum} references missing local reusable workflow '${relPath}'`);
+          }
+        }
+      }
+    }
+
+    // Expression defect check (missing operator after function call)
     const fnDefectMatch = line.match(/(?:^|[^a-zA-Z0-9_.-])(!?(?:cancelled|success|failure|always))\(\s*\)\s+([a-zA-Z0-9_.]+|'[^']*'|"[^"]*")/);
     if (fnDefectMatch) {
       errors.push(`Invalid expression syntax (missing operator between '${fnDefectMatch[1]}()' and '${fnDefectMatch[2]}') in ${filename}:${lineNum}`);
     }
   }
 
-  return { valid: errors.length === 0, errors, doc };
+  for (const { jobId, need, lineNum } of jobNeeds) {
+    if (!jobIds.has(need)) {
+      errors.push(`Job '${jobId}' in ${filename}:${lineNum} references non-existent need '${need}'`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors, doc: null };
 }
 
 export function extractRunBlocks(workflowPath) {
