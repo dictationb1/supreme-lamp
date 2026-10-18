@@ -204,7 +204,7 @@ export function validateBashCode(code) {
 /** Run actionlint on workflow files. */
 export function runActionlint(actionlintBin, filePaths) {
   if (filePaths.length === 0) return { ok: true, output: '' };
-  const res = spawnSync(actionlintBin, filePaths, { encoding: 'utf8' });
+  const res = spawnSync(actionlintBin, ['-shellcheck=', ...filePaths], { encoding: 'utf8' });
   if (res.status !== 0) {
     return { ok: false, output: res.stdout || res.stderr };
   }
