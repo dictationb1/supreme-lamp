@@ -1,0 +1,10 @@
+name: Invalid PWSH Backtick Escape
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: pwsh
+        run: |
+          $S = $env:GITHUB_STEP_SUMMARY
+          "- Web UI Bundle (`ui-dist`): " | Add-Content -Path $S

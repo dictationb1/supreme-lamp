@@ -457,7 +457,7 @@ jobs:
       SEARCH_INPUT: ${{ github.event.inputs.search_enable == true && 'true' || 'false' }}
       RENTRY_MAIN_URL: 'https://rentry.co/myurl0'
       RENTRY_MAIN_EDIT: ''
-      RUN_STARTED_AT: ${{ github.run_started_at || '' }}
+      RUN_STARTED_AT: ''
       # [F9b] opt-in MagicDNS auto-enable: empty unless the user sets both
       # secrets; the gates then POST /dns/preferences before halting.
       TS_API_TOKEN: ${{ secrets.TS_API_TOKEN }}
@@ -5720,22 +5720,41 @@ jobs:
           $dashboardReady = $false
           $deadlineSec = 60
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          $lastErr = ""
+          $firstFailure = ""
+          $lastClassification = "unknown"
           while ($sw.Elapsed.TotalSeconds -lt $deadlineSec) {
               $remSec = [int][Math]::Max(1, [Math]::Min(5, ($deadlineSec - $sw.Elapsed.TotalSeconds)))
               try {
                   $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec $remSec -ErrorAction Stop
-                  if ($res.StatusCode -eq 200 -and $res.Content -match '"ok":\s*true') {
-                      $dashboardReady = $true
-                      Write-Host ("Dashboard API responded with 200 OK in {0:F1}s." -f $sw.Elapsed.TotalSeconds)
-                      break
+                  if ($res.StatusCode -eq 200) {
+                      $json = $null
+                      try { $json = $res.Content | ConvertFrom-Json } catch { $json = $null }
+                      if ($json -and ($json.ok -eq $true -or $json.status -eq "ok") -and ($json.phase -eq "ready" -or $json.phase -eq "running" -or $null -ne $json.progress)) {
+                          $dashboardReady = $true
+                          $lastClassification = "ready"
+                          Write-Host ("Dashboard API responded with valid readiness JSON in {0:F1}s." -f $sw.Elapsed.TotalSeconds)
+                          break
+                      } else {
+                          $lastClassification = "schema_mismatch"
+                          if (-not $firstFailure) { $firstFailure = "HTTP 200 with invalid schema/missing readiness fields" }
+                      }
+                  } else {
+                      $lastClassification = "http_" + $res.StatusCode
+                      if (-not $firstFailure) { $firstFailure = "HTTP " + $res.StatusCode }
                   }
               } catch {
-                  $lastErr = $_.Exception.Message
-                  Write-Host ("Dashboard API probe ({0:F1}s elapsed): {1}" -f $sw.Elapsed.TotalSeconds, $lastErr)
-                  $rem = $deadlineSec - $sw.Elapsed.TotalSeconds
-                  if ($rem -gt 2) { Start-Sleep -Seconds 2 }
+                  $exMsg = $_.Exception.Message
+                  if ($exMsg -match "500") { $lastClassification = "http_500" }
+                  elseif ($exMsg -match "404") { $lastClassification = "http_404" }
+                  elseif ($exMsg -match "401|403") { $lastClassification = "http_401_403" }
+                  elseif ($exMsg -match "refused") { $lastClassification = "connection_refused" }
+                  elseif ($exMsg -match "timeout") { $lastClassification = "timeout" }
+                  else { $lastClassification = "transport_error" }
+                  if (-not $firstFailure) { $firstFailure = $exMsg }
+                  Write-Host ("Dashboard API probe ({0:F1}s elapsed, class={1}): {2}" -f $sw.Elapsed.TotalSeconds, $lastClassification, $exMsg)
               }
+              $rem = $deadlineSec - $sw.Elapsed.TotalSeconds
+              if ($rem -gt 2) { Start-Sleep -Seconds 2 }
           }
 
           # 2. Tailscale & MagicDNS State
@@ -6811,107 +6830,14 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # Check if service startup was actually reached before probing backend
           if [ ! -f "/c/ghrdp/ghrdp-server.ps1" ] && [ ! -f "C:/ghrdp/ghrdp-server.ps1" ] && ! curl -sf --max-time 5 --connect-timeout 3 "http://localhost:7331/progress" >/dev/null 2>&1; then
             echo "[f92 smoke] SKIPPED: backend service startup was not reached due to earlier provisioning failure"
             exit 0
           fi
-           node -e '
-           const fs = require("fs");
-           const http = require("http");
-           const path = require("path");
-
-           const sha = process.env.GITHUB_SHA || "unknown-sha";
-           const tempDir = process.env.RUNNER_TEMP || "/tmp";
-           const srPath = path.join(tempDir, "sr.json");
-           const legacySrPath = "/tmp/sr.json";
-
-           const deadlineMs = Date.now() + 120000;
-           let attempt = 0;
-           let lastClassification = "unknown";
-           let lastStatus = 0;
-           let lastBody = "";
-           let lastCorrId = "";
-
-           async function probe() {
-             while (Date.now() < deadlineMs) {
-               attempt++;
-               const remainingMs = deadlineMs - Date.now();
-               const reqTimeoutMs = Math.min(5000, Math.max(1000, remainingMs));
-
-               try {
-                 const res = await new Promise((resolve, reject) => {
-                   const req = http.get(`http://localhost:7331/api/f92-selftest?frontendSha=${sha}`, { timeout: reqTimeoutMs }, (r) => {
-                     let data = "";
-                     r.on("data", chunk => { if (data.length < 2000) data += chunk; });
-                     r.on("end", () => resolve({ statusCode: r.statusCode, headers: r.headers, body: data }));
-                   });
-                   req.on("error", reject);
-                   req.on("timeout", () => { req.destroy(); reject(new Error("ETIMEDOUT")); });
-                 });
-
-                 lastStatus = res.statusCode;
-                 lastBody = res.body;
-                 lastCorrId = res.headers["x-correlation-id"] || "";
-
-                 if (res.statusCode === 200) {
-                   try {
-                     const parsed = JSON.parse(res.body);
-                     if (parsed.status === "pass" || parsed.status === "warn") {
-                       fs.writeFileSync(srPath, res.body);
-                       if (srPath !== legacySrPath) {
-                         try { fs.writeFileSync(legacySrPath, res.body); } catch {}
-                       }
-                       console.log(`[f92 smoke] PASS attempt ${attempt}: HTTP 200 (${parsed.status})`);
-                       return true;
-                     } else {
-                       lastClassification = "failed-selftest";
-                     }
-                   } catch {
-                     lastClassification = "invalid-json-response";
-                   }
-                 } else if (res.statusCode >= 500) {
-                   lastClassification = "http-server-error-500";
-                 } else if (res.statusCode >= 400) {
-                   lastClassification = "http-client-error-" + res.statusCode;
-                 }
-               } catch (err) {
-                 if (err.message === "ETIMEDOUT") {
-                   lastClassification = "request-timeout";
-                 } else if (err.code === "ECONNREFUSED") {
-                   lastClassification = "connection-refused";
-                 } else {
-                   lastClassification = "transport-error: " + err.message;
-                 }
-               }
-
-               const sleepMs = Math.min(2000, Math.max(200, deadlineMs - Date.now()));
-               if (sleepMs > 0) await new Promise(r => setTimeout(r, sleepMs));
-             }
-
-             const diagPayload = JSON.stringify({
-               status: "fail",
-               attemptedEndpoint: "http://localhost:7331/api/f92-selftest",
-               classification: lastClassification,
-               lastHttpStatus: lastStatus,
-               elapsedMs: 120000,
-               attempts: attempt,
-               correlationId: lastCorrId,
-               responseExcerpt: lastBody.slice(0, 500)
-             }, null, 2);
-
-             fs.writeFileSync(srPath, diagPayload);
-             if (srPath !== legacySrPath) {
-               try { fs.writeFileSync(legacySrPath, diagPayload); } catch {}
-             }
-             console.error(`[f92 smoke] FAIL after ${attempt} attempts in 120s. Classification: ${lastClassification}, status: ${lastStatus}`);
-             return false;
-           }
-
-           probe().then(ok => process.exit(ok ? 0 : 1));
-           '
-           node ./scripts/assert-selftest.js "${RUNNER_TEMP:-/tmp}/sr.json"
+          node ./scripts/f92-smoke-probe.mjs
+          node ./scripts/assert-selftest.js "${RUNNER_TEMP:-/tmp}/sr.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
