@@ -1,0 +1,8 @@
+name: Missing Needs Dependency
+on: workflow_dispatch
+jobs:
+  build:
+    needs: [nonexistent_job]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello

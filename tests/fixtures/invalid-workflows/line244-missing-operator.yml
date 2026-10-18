@@ -1,0 +1,11 @@
+name: Bad Line 244 Syntax
+on: workflow_dispatch
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo preflight
+  ensure-f59-binaries-call:
+    needs: [preflight]
+    if: !cancelled()  github.event.inputs.mode == 'rdp'
+    uses: ./.github/workflows/f59-prebuilt-binaries.yml

@@ -5,6 +5,17 @@ param(
     [int]$LimitMinutes = 350
 )
 $ErrorActionPreference = 'Continue'
+$script:InitPhase = 'initializing'
+function Get-F49OptInVal {
+    param($Cfg)
+    if (-not $Cfg) { return $null }
+    try {
+        if (Get-Command Get-F49RuntimeOptIn -ErrorAction SilentlyContinue) {
+            return (Get-F49RuntimeOptIn -Cfg $Cfg)
+        }
+    } catch { }
+    return $null
+}
 # =============================================================================
 # [F92 §1.1] TLS + progress + encoding defaults applied once per server
 # process. Tls13 is best-effort: .NET Framework 4.x on older hosts has no
@@ -8834,25 +8845,49 @@ boot();
             }
             $ip = ''; $us = ''; $pw = ''; $mk = ''; $tg = ''; $sv = ''; $fu = ''; $sa = ''; $rsa = ''; $ssa = ''; $em = 'none'; $lu = ''; $lk = ''; $rn = ''; $eg = ''
             $mirrorFlag = $false
+            $mirrorPlain = $false
+            $ghrdpVal = ''; $kaDeadline = ''; $kaPhase = ''; $pBase = ''
             if ($cfg) {
-                $tg = [string]$cfg.mirrorIndexUrl
-                $sv = [string]$cfg.serveUrl; $fu = [string]$cfg.funnelUrl; $sa = [string]$cfg.startedAt
-                $rsa = [string]$cfg.runStartedAt; $ssa = [string]$cfg.sessionStartedAt
-                $em = if ([string]$cfg.encryptMode) { [string]$cfg.encryptMode } else { 'none' }
-                $lu = [string]$cfg.legacyIndexUrl; $rn = [string]$cfg.rentryNewUrl; $eg = [string]$cfg.runnerEgressIp
-                $mirrorFlag = [bool]$cfg.mirror
+                if ($cfg.PSObject.Properties['mirrorIndexUrl'] -and $null -ne $cfg.mirrorIndexUrl) { $tg = [string]$cfg.mirrorIndexUrl }
+                if ($cfg.PSObject.Properties['serveUrl'] -and $null -ne $cfg.serveUrl) { $sv = [string]$cfg.serveUrl }
+                if ($cfg.PSObject.Properties['funnelUrl'] -and $null -ne $cfg.funnelUrl) { $fu = [string]$cfg.funnelUrl }
+                if ($cfg.PSObject.Properties['startedAt'] -and $null -ne $cfg.startedAt) { $sa = [string]$cfg.startedAt }
+                if ($cfg.PSObject.Properties['runStartedAt'] -and $null -ne $cfg.runStartedAt) { $rsa = [string]$cfg.runStartedAt }
+                if ($cfg.PSObject.Properties['sessionStartedAt'] -and $null -ne $cfg.sessionStartedAt) { $ssa = [string]$cfg.sessionStartedAt }
+                if ($cfg.PSObject.Properties['encryptMode'] -and [string]$cfg.encryptMode) { $em = [string]$cfg.encryptMode }
+                if ($cfg.PSObject.Properties['legacyIndexUrl'] -and $null -ne $cfg.legacyIndexUrl) { $lu = [string]$cfg.legacyIndexUrl }
+                if ($cfg.PSObject.Properties['rentryNewUrl'] -and $null -ne $cfg.rentryNewUrl) { $rn = [string]$cfg.rentryNewUrl }
+                if ($cfg.PSObject.Properties['runnerEgressIp'] -and $null -ne $cfg.runnerEgressIp) { $eg = [string]$cfg.runnerEgressIp }
+                if ($cfg.PSObject.Properties['mirror'] -and $null -ne $cfg.mirror) { $mirrorFlag = [bool]$cfg.mirror }
+                $optInMarker = Get-F49OptInVal -Cfg $cfg
+                if ($cfg.PSObject.Properties['mirrorPlaintextElection'] -and $null -ne $cfg.mirrorPlaintextElection) {
+                    $mirrorPlain = ([bool]$cfg.mirrorPlaintextElection -and -not $optInMarker)
+                }
+                if ($cfg.PSObject.Properties['ghrdp'] -and $null -ne $cfg.ghrdp) { $ghrdpVal = [string]$cfg.ghrdp }
+                if ($cfg.PSObject.Properties['keepAliveDeadline'] -and $null -ne $cfg.keepAliveDeadline) { $kaDeadline = [string]$cfg.keepAliveDeadline }
+                if ($cfg.PSObject.Properties['keepAlivePhase'] -and $null -ne $cfg.keepAlivePhase) { $kaPhase = [string]$cfg.keepAlivePhase }
+                if ($cfg.PSObject.Properties['pagesBase'] -and $null -ne $cfg.pagesBase) { $pBase = [string]$cfg.pagesBase }
             }
             $sessionEnd = $null; $cands = @()
-            foreach ($k in @('githubDeadline','keepAliveDeadline','watcherDeadline')) { $v = [string]$cfg.$k; if ($v) { try { $cands += [datetime]$v } catch { } } }
+            if ($cfg) {
+                foreach ($k in @('githubDeadline','keepAliveDeadline','watcherDeadline')) {
+                    if ($cfg.PSObject.Properties[$k] -and $cfg.$k) {
+                        try { $cands += [datetime][string]$cfg.$k } catch { }
+                    }
+                }
+            }
             if ($cands.Count) { $sessionEnd = ($cands | Measure-Object -Minimum).Minimum }
             $obj = [ordered]@{
+                ok = $true
+                status = 'ok'
+                phase = if ($script:InitPhase) { $script:InitPhase } else { 'ready' }
                 serverTs = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                 mirror = $mirrorFlag
                 encryptMode = $(if ($prog.encryptMode) { [string]$prog.encryptMode } else { $em })
-                mirrorPlaintextElection = ([bool]$cfg.mirrorPlaintextElection -and -not (Get-F49RuntimeOptIn -Cfg $cfg))
+                mirrorPlaintextElection = $mirrorPlain
                 mirrorDiag = $prog.mirrorDiag
                 mirrorProbe = $prog.mirrorProbe
-                ghrdp = [string]$cfg.ghrdp
+                ghrdp = $ghrdpVal
                 mirrorIndexUrl = $tg
                 serveUrl = $sv
                 funnelUrl = $fu
@@ -8863,9 +8898,9 @@ boot();
                 legacyIndexUrl = $lu
                 rentryNewUrl = $rn
                 runnerEgressIp = $eg
-                keepAliveDeadline = [string]$cfg.keepAliveDeadline
-                keepAlivePhase = [string]$cfg.keepAlivePhase
-                pagesBase = [string]$cfg.pagesBase
+                keepAliveDeadline = $kaDeadline
+                keepAlivePhase = $kaPhase
+                pagesBase = $pBase
                 ts = $prog.ts
                 alive = [bool]$prog.alive
                 active = $prog.active
@@ -9024,6 +9059,31 @@ boot();
                 try { $cfgOut | Add-Member -MemberType NoteProperty -Name 'envelopePublicKey' -Value ([string]$script:EnvelopePublicKeyB64) -Force } catch { }
             }
             if ($cfgOut) { Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $cfgOut) } else { Send-ClientResponse -Stream $stream -Code 404 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('config missing')) }
+            return
+        }
+        if ($path -eq '/api/readiness' -or $path -eq '/readiness') {
+            $rProg = Read-JsonFile -Path $script:ProgPath
+            $isAlive = if ($rProg -and $rProg.PSObject.Properties['alive']) { [bool]$rProg.alive } else { $true }
+            $isReady = ($script:InitPhase -eq 'ready')
+            $rBody = [ordered]@{
+                ok = $isReady
+                status = if ($isReady) { 'ok' } else { 'initializing' }
+                phase = if ($script:InitPhase) { $script:InitPhase } else { 'ready' }
+                liveness = $isAlive
+                apiReadiness = $isReady
+                dependencyHealth = [ordered]@{
+                    explorerFx = [bool]$script:FxReady
+                    mirrorHost = [bool]$script:F46MirrorReady
+                }
+                desktopConnectivity = [ordered]@{
+                    rdpListener = [bool]($null -ne (Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue))
+                }
+                ws = [bool]$script:F96WsUpgradeSupported
+                port = $Port
+                pid = $PID
+                serverTs = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            }
+            Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $rBody)
             return
         }
         if ($path -eq '/api/progress' -or $path -eq '/api/stats') {
