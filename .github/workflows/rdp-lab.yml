@@ -101,15 +101,25 @@ jobs:
         run: |
           node scripts/lab-observer.mjs update DEPENDENCIES_VERIFIED RUNNING
           node scripts/ensure-rdp-deps.mjs --mode readiness --sha "${{ inputs.source_sha || github.sha }}"
+          node scripts/lab-observer.mjs update DEPENDENCIES_VERIFIED PASSED
 
       - name: Node Unit Tests & PowerShell Parser
-        run: node --test tests/*.test.js
+        run: |
+          node scripts/lab-observer.mjs update UNIT_TESTS RUNNING
+          node --test tests/*.test.js
+          node scripts/lab-observer.mjs update UNIT_TESTS PASSED
 
       - name: Vitest Smoke Tests
-        run: pnpm test:smoke
+        run: |
+          node scripts/lab-observer.mjs update SMOKE_TESTS RUNNING
+          pnpm test:smoke
+          node scripts/lab-observer.mjs update SMOKE_TESTS PASSED
 
       - name: Launch Gates Validation
-        run: GITHUB_WORKSPACE=$PWD python3 tests/run-launch-gates.py
+        run: |
+          node scripts/lab-observer.mjs update LAUNCH_GATES RUNNING
+          GITHUB_WORKSPACE=$PWD python3 tests/run-launch-gates.py
+          node scripts/lab-observer.mjs update LAUNCH_GATES PASSED
 
       - name: Evaluate Injected Failure Negative Control
         if: inputs.injected_failure != 'NONE' && inputs.injected_failure != ''
@@ -125,11 +135,10 @@ jobs:
       - name: Generate Static Phase Evidence
         if: always()
         run: |
-          node scripts/lab-observer.mjs finish PASSED
+          node scripts/lab-observer.mjs finish
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
         env:
           LAB_PHASE: static
-          CAUSAL_FAILURE: none
 
       - name: Upload Static Evidence Artifact
         if: always()
@@ -180,7 +189,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          node scripts/lab-observer.mjs update SERVICES_READY RUNNING
+          node scripts/lab-observer.mjs update WINDOWS_STARTUP RUNNING
           # Assert NLA security rules
           $nla = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp').UserAuthentication
           if ($nla -ne 1) {
@@ -188,6 +197,7 @@ jobs:
           }
           # Run PowerShell balance audit
           node scripts/ps-balance-audit.mjs
+          node scripts/lab-observer.mjs update WINDOWS_STARTUP PASSED
 
       - name: Evaluate Injected Control Failure - Negative Controls
         shell: pwsh
@@ -277,6 +287,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
+          node scripts/lab-observer.mjs update SERVICES_READY RUNNING
           Write-Host "[lab] Starting Mission Control Dashboard on localhost:7331..."
           $serverScript = Join-Path $env:GITHUB_WORKSPACE 'payloads\ghrdp-server.ps1'
           if (Test-Path -LiteralPath $serverScript) {
@@ -303,6 +314,7 @@ jobs:
           }
           if ($ready) {
               Write-Host "[lab] Dashboard is responding on http://localhost:7331"
+              node scripts/lab-observer.mjs update SERVICES_READY PASSED
           } else {
               Write-Host "::error::[lab] Dashboard failed to answer on port 7331"
               node scripts/lab-observer.mjs update SERVICES_READY FAILED dashboard-start-failed "Dashboard server failed to start"
@@ -326,11 +338,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          node scripts/lab-observer.mjs finish PASSED
+          node scripts/lab-observer.mjs finish
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
         env:
           LAB_PHASE: windows-integration
-          CAUSAL_FAILURE: none
 
       - name: Upload Windows Integration Evidence
         if: always()
@@ -541,11 +552,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          node scripts/lab-observer.mjs finish PASSED
+          node scripts/lab-observer.mjs finish
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
         env:
           LAB_PHASE: live-integration
-          CAUSAL_FAILURE: none
 
       - name: Upload Live Integration Evidence
         if: always()
