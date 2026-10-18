@@ -299,15 +299,37 @@ describe("Files provenance — live index through the routed page", () => {
     installFetch(() => ({ status: 200, body }));
     render(<FileExplorer />);
     await waitFor(() => expect(screen.getByTestId("count-invalid").textContent).toContain("1"));
+    // Await the valid row to render in DOM to avoid intermediate state timing gap
+    await waitFor(() => expect(rowText().join(" | ")).toContain(`${prefix}-ok.txt`));
     // The valid record is listed; the refused one produced NO row at all -
     // specifically not a substitute named "File 1".
     const texts = rowText().join(" | ");
     expect(texts).toContain(`${prefix}-ok.txt`);
     expect(texts).not.toMatch(/File\s+\d/);
+    // Assert row identity is present and comes from the index
+    expect(names()).toContain(`id-ok-${prefix}`);
     // The count names whose number this is: the index total still counts what
     // the payload carried (2 records), while only one row was produced.
     expect(screen.getByTestId("count-indexed-total").textContent).toContain("2");
     expect(screen.getByTestId("count-children").textContent).toContain("1");
+  });
+
+  it("negative control: omitting valid row or supplying synthetic row causes provenance check to fail", () => {
+    const prefix = sentinel();
+    // Control A: Only invalid entry provided -> projection produces 0 rows
+    const invalidOnly = indexOf([
+      { ...entry("RDP-Storage", `/${prefix}-noid.txt`, "", 2), id: "" },
+    ] as FileEntry[]);
+    const projA = projectListing(invalidOnly, "D:\\RDP-Storage");
+    expect(projA?.rows).toHaveLength(0);
+    expect(projA?.rows.some((r) => r.name === `${prefix}-ok.txt`)).toBe(false);
+
+    // Control B: Synthetic substitute "File 1" -> does NOT match expected sentinel valid filename
+    const syntheticOnly = indexOf([
+      entry("RDP-Storage", `/File 1`, "id-synthetic", 1),
+    ] as FileEntry[]);
+    const projB = projectListing(syntheticOnly, "D:\\RDP-Storage");
+    expect(projB?.rows.map((r) => r.name)).not.toContain(`${prefix}-ok.txt`);
   });
 
   it("a body the index contract refuses becomes a failed state, not invented rows", async () => {

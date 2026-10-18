@@ -32,7 +32,13 @@ export function Sparkline({
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
-    const ctx = cv.getContext("2d");
+    let ctx: CanvasRenderingContext2D | null = null;
+    try {
+      ctx = cv.getContext("2d");
+    } catch {
+      // In environments like jsdom without native canvas bindings, getContext throws or is not implemented
+      return;
+    }
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const cssW = width;
