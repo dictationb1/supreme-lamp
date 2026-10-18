@@ -842,6 +842,138 @@ jobs:
           wf=.github/workflows/main.yml
           ui=payloads/ui.html
           cs=payloads/ghrdp-rdp-launcher.cs
+          srv=payloads/ghrdp-server.ps1
+          # --- §1 main.yml must carry the F21 CredSSP/NLA verification step ---
+          step=$(awk '/name: CredSSP\/NLA handshake verification.*F21/{f=1;next} f && /^      - name: /{exit} f' "$wf")
+          test -n "$step" || { echo 'F21: main.yml lacks CredSSP/NLA handshake verification step' >&2; exit 1; }
+          for tok in 'UserAuthentication' 'SSLCertificateSHA1Hash' 'AllowEncryptionOracle' 'Get-TlsCipherSuite' 'AES_256_GCM' 'credsspStatus' 'failed-' '::error::[F21]' 'throw' '[F21 §1 probe-end]'; do
+            grep -qF "$tok" <<< "$step" || { echo "F21: verification step missing token: $tok" >&2; exit 1; }
+          done
+          # credsspStatus must be written BEFORE the loud fail (like F17 pattern)
+          wl=$(grep -nF 'Write-CredsspStatus' <<< "$step" | head -1 | cut -d: -f1)
+          wf2=$(grep -nF '::error::[F21]' <<< "$step" | head -1 | cut -d: -f1)
+          test -n "$wl" && test -n "$wf2" && test "$wl" -lt "$wf2"
+          # §4(a) the step must NOT proceed if credsspStatus is failed -
+          # AUTO-LOGIN must stay disabled (gated in ui.html __listenerOk).
+          grep -qF 'credsspStatus===' "$ui" || { echo 'F21: ui.html does not gate WINDOWS AUTO-LOGIN on credsspStatus' >&2; exit 1; }
+          grep -qF "__listenerOk=!!(rl&&rl.listening===true&&rl.fwRule===true&&rl.certOk===true&&rl.nla===true&&credsspOk)" "$ui" || { echo 'F21: ui.html __listenerOk does not include credsspOk' >&2; exit 1; }
+          # --- §2 client-side CredSSP diagnostics must exist (copy-only) ------
+          grep -qF 'id="connCredsspBox"' "$ui" || { echo 'F21: ui.html lacks CredSSP diagnostics box' >&2; exit 1; }
+          # [F21 §2] CredSSP diagnostics box (copy-only) block ends at its </details>
+          blk2=$(awk '/id="connCredsspBox"/{f=1} f && /<\/details>/{print; exit} f{print}' "$ui")
+          for tok in 'connDiagCredsspPol' 'connDiagLmCompat' 'connDiagMstscVerbose' 'Get-ItemProperty' 'CredSSP\Parameters' 'LmCompatibilityLevel' 'mstsc /v:' 'TcpStateFrontAuth' 'AllowEncryptionOracle=0' 'NEVER weaken NLA' 'credssp-support-off' 'auth-level overrides'; do
+            grep -qF "$tok" <<< "$blk2" || { echo "F21: CredSSP diagnostics missing token: $tok" >&2; exit 1; }
+          done
+          # --- §4(b) NO password auto-type / SendKeys / UIAutomation -----------
+          # (F19 already scans repo-wide; verify no new tokens introduced near credssp)
+          if grep -rInE 'SendKeys|UIAutomation|keybd_event|mouse_event' payloads/ui.html .github/workflows/main.yml | grep -i 'cred'; then
+            echo 'F21: credential-UI automation token found near CredSSP code' >&2
+            exit 1
+          fi
+          # --- §4(c) NO NLA/CredSSP weakening suggestions anywhere ------------
+          # The warning line (line 345) may NAME the banned strings as part of
+          # the prohibition ("NEVER weaken NLA/CredSSP (X, Y, Z)"); executable
+          # suggestions (anywhere else in non-comment code) must not appear.
+          weak=$(grep -nEi 'authentication level|enablecredsspsupport|authlvloverride|authenticationleveloverride|certificate.*bypass|bypass.*cert' "$ui" | grep -v 'NEVER weaken NLA' || true)
+          if [ -n "$weak" ]; then
+            echo "F21: ui.html suggests weakening NLA/CredSSP/cert validation (outside the mandated warning line): $weak" >&2
+            exit 1
+          fi
+          # --- §4(d) no cert validation bypass in the F21 step itself ---------
+          if grep -nEi 'ServerCertificateValidationCallback|TrustAllCerts|SslPolicyErrors|callback.*true' <<< "$step"; then
+            echo 'F21: verification step contains a cert-validation bypass' >&2
+            exit 1
+          fi
+          # --- §3 AUTO-FIX A allowed (AllowEncryptionOracle=0 strict mode) ----
+          grep -qF 'AUTO-FIX A applied' <<< "$step" || { echo 'F21: step lacks auto-fix A for AllowEncryptionOracle strict mode' >&2; exit 1; }
+          # --- CredSSP status row exists in the UI ----------------------------
+          grep -qF 'id="nrCredssp"' "$ui" || { echo 'F21: ui.html lacks CredSSP status row (id=nrCredssp)' >&2; exit 1; }
+          grep -qF "cs==='ok'" "$ui" || { echo 'F21: ui.html does not render credssp ok/fail' >&2; exit 1; }
+          echo 'F21 gates PASS'
+
+      - name: F23 cipher-probe 3-layer robustness gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          wf=.github/workflows/main.yml
+          ui=payloads/ui.html
+          step=$(awk '/name: CredSSP\/NLA handshake verification.*F21/{f=1;next} f && /^      - name: /{exit} f' "$wf")
+          test -n "$step" || { echo 'F23: main.yml lacks the F21 verification step' >&2; exit 1; }
+          # --- §1 cipher branch = section (4) up to the NLA reassert ----------
+          cipher=$(awk '/# \(4\) Schannel cipher suites/{f=1} /# NLA reassert/{exit} f' <<< "$step")
+          test -n "$cipher" || { echo 'F23: cipher branch (section 4) not found in the F21 step' >&2; exit 1; }
+          # L1: cmdlet enumeration with all three per-object Name-read strategies
+          for tok in 'foreach ($o in @(Get-TlsCipherSuite -ErrorAction Stop))' "PSObject.Properties['Name']" 'Format-List | Out-String'; do
+            grep -qF -- "$tok" <<< "$cipher" || { echo "F23: L1 cmdlet probe missing token: $tok" >&2; exit 1; }
+          done
+          # the brittle one-liner that false-halted the 2026-09-26 run must stay GONE
+          if grep -qF 'Get-TlsCipherSuite -ErrorAction Stop | Select-Object -ExpandProperty Name' "$wf"; then
+            echo 'F23: brittle Select-Object -ExpandProperty Name cipher probe reappeared' >&2; exit 1
+          fi
+          # L2: registry fallback with BOTH keys, the Functions value, comma split
+          for tok in 'HKLM:\SYSTEM\CurrentControlSet\Control\Cryptography\Configuration\Local\SSL\00010002' \
+                   'HKLM:\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002' \
+                   "-Name 'Functions'" "-split ','"; do
+            grep -qF -- "$tok" <<< "$cipher" || { echo "F23: L2 registry fallback missing token: $tok" >&2; exit 1; }
+          done
+          # L3: probe-failure path (between the F23 markers) warns + stamps and
+          # NEVER halts: no throw, no failReasons - a probe failure is not a
+          # weak-config verdict.
+          l3=$(awk '/\[F23 L3 probe-failure begin\]/{f=1;next} /\[F23 L3 probe-failure end\]/{exit} f' <<< "$step")
+          test -n "$l3" || { echo 'F23: L3 probe-failure block (F23 markers) not found' >&2; exit 1; }
+          for tok in '::warning::[F21] cipher probe could not enumerate (cmdlet+registry failed); Windows defaults include AES-256-GCM; proceeding with warning' \
+                   "Write-CredsspStatus -Status 'ok-with-cipher-warn' -Detail 'cipher-probe-failed'"; do
+            grep -qF -- "$tok" <<< "$l3" || { echo "F23: L3 probe-failure path missing token: $tok" >&2; exit 1; }
+          done
+          if grep -q 'throw' <<< "$l3"; then
+            echo 'F23: probe-failure path contains throw (must warn and proceed)' >&2; exit 1
+          fi
+          if grep -qF 'failReasons +=' <<< "$l3"; then
+            echo 'F23: probe-failure path adds a failReason (must not)' >&2; exit 1
+          fi
+          # a REAL weak config (suites enumerated, zero strong) still halts
+          grep -qF "failReasons += ('schannel-cipher-weak" <<< "$cipher" || { echo 'F23: weak-config verdict no longer feeds failReasons' >&2; exit 1; }
+          grep -qF "'AES_256_GCM|CHACHA20_POLY1305'" <<< "$cipher" || { echo 'F23: strong-suite match pattern missing' >&2; exit 1; }
+          # handshake determinants stay loud-fail (unchanged by F23)
+          for tok in "failReasons += ('nla-off" "failReasons += ('cert-untrusted" "failReasons += ('credssp-policy-mismatch" "throw ('F21 CredSSP/NLA loud-fail: ' + \$failText)"; do
+            grep -qF -- "$tok" <<< "$step" || { echo "F23: loud-fail determinant missing: $tok" >&2; exit 1; }
+          done
+          # the all-clear path re-stamps ok-with-cipher-warn (never plain ok) when the probe failed
+          okpath=$(awk '/if \(\$failReasons\.Count -eq 0\) \{/{f=1} f && /^[[:space:]]*exit 0[[:space:]]*$/{print; exit} f' <<< "$step")
+          grep -qF '$cipherProbeFailed' <<< "$okpath" || { echo 'F23: success path does not branch on the probe-failure flag' >&2; exit 1; }
+          grep -qF "Write-CredsspStatus -Status 'ok-with-cipher-warn' -Detail 'cipher-probe-failed'" <<< "$okpath" || { echo 'F23: success path does not stamp ok-with-cipher-warn' >&2; exit 1; }
+          grep -qF "Write-CredsspStatus -Status 'ok'" <<< "$okpath" || { echo 'F23: success path lost the plain ok stamp' >&2; exit 1; }
+          # --- §2 dashboard accepts the warn status: OK render + AUTO-LOGIN gate
+          # (pinned as FULL definition lines - the bare token appears in more
+          # than one gate, so a token grep would miss a single-line rollback)
+          grep -qF "cs==='ok-with-cipher-warn'" "$ui" || { echo 'F23: ui.html status row does not accept ok-with-cipher-warn' >&2; exit 1; }
+          grep -qF 'OK (cipher probe warn)' "$ui" || { echo 'F23: ui.html lacks the OK (cipher probe warn) render' >&2; exit 1; }
+          # [F28 §4] the inline expression moved into credsspVerdict(), which
+          # keeps the F23 stamp semantics verbatim ('ok-with-cipher-warn' = the
+          # determinants verified, only the cipher PROBE failed) and adds the
+          # live probe as the primary source. The gate now pins BOTH halves.
+          grep -qF "var credsspOk=credsspVerdict(rl).ok;" "$ui" || { echo 'F23: ui.html AUTO-LOGIN gate does not use the shared credssp verdict' >&2; exit 1; }
+          grep -qF "function credsspVerdict(rl)" "$ui" || { echo 'F23/F28: credsspVerdict is missing' >&2; exit 1; }
+          grep -qF "rl.credsspStatus==='ok-with-cipher-warn'" "$ui" || { echo 'F23: ui.html AUTO-LOGIN gate (credsspOk) does not accept ok-with-cipher-warn' >&2; exit 1; }
+          # [F28 §4] the listener marks now render credsspVerdict(rl) - the same
+          # function the CREDSSP row uses; the 'ok-with-cipher-warn' stamp stays
+          # an accepted OK (probe failure, not a config verdict).
+          grep -qF "var csv=credsspVerdict(rl);" "$ui" || { echo 'F23: ui.html listener marks do not use the shared credssp verdict' >&2; exit 1; }
+          grep -qF "rl.credsspStatus==='ok-with-cipher-warn'" "$ui" || { echo 'F23: ui.html listener marks (csOk) do not accept ok-with-cipher-warn' >&2; exit 1; }
+          # the warn render must never read as FAIL/BLOCKED
+          if grep -qF "'FAIL: '+cs" "$ui" && ! grep -qF "csGood?((cs==='ok')?'OK':'OK (cipher probe warn)'):('FAIL: '+cs)" "$ui"; then
+            echo 'F23: ui.html status row no longer routes the warn status to the OK render' >&2; exit 1
+          fi
+          echo 'F23 gates PASS'
+
+      - name: F24 auth-reject discriminator gates (server cred proof + 4625/CAPI2 matrix)
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
+          wf=.github/workflows/main.yml
+          ui=payloads/ui.html
+          cs=payloads/ghrdp-rdp-launcher.cs
           # --- §1 SERVER-SIDE CREDENTIAL PROOF (ValidateCredentials + loud fail) --
           step=$(awk '/name: Server-side credential proof \(F24/{f=1;next} f && /^      - name: /{exit} f' "$wf")
           test -n "$step" || { echo 'F24: main.yml lacks the server-side credential proof step' >&2; exit 1; }
@@ -1378,6 +1510,121 @@ jobs:
         run: |
           # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
+          srv=payloads/ghrdp-server.ps1
+          ui=payloads/ui.html
+          cs=payloads/ghrdp-rdp-launcher.cs
+          wf=.github/workflows/main.yml
+          blk() { awk -v b="$2" -v e="$3" 'index($0,b){f=1} f{print} f&&index($0,e){exit}' "$1"; }
+          # --- §1 server-side 30s logon scanner (from SERVER START) -------------
+          scan=$(blk "$srv" '# [F28 §1 scanner-begin]' '# [F28 §1 scanner-end]')
+          test -n "$scan" || { echo 'F28: the server-side logon scanner block is missing' >&2; exit 1; }
+          for tok in '$script:F28IntervalSec = 30' '$script:F28StaleSec = 90' \
+                     'function Get-RdpLogonEventFields' 'function Get-RdpLogonAuthLast' \
+                     'function Update-RdpLogonAuthLast' 'function Get-RdpLogonCollectorState' \
+                     "Id = @(4624, 4625)" 'LogonType 10' "'security-log-unreadable'" \
+                     'result      = $result' 'sub         = $sub' 'eventTs     = $eventTs' \
+                     'scanTs      = $scanTs' 'windowStart' 'count4624' 'subMeaning'; do
+            grep -qF -- "$tok" <<< "$scan" || { echo "F28: scanner block missing token: $tok" >&2; exit 1; }
+          done
+          # scanTs is stamped BEFORE any verdict branch: every path carries it, so
+          # "no scanTs" can only ever mean a dead collector - never a quiet window.
+          s_scan=$(grep -nF '$scanTs = (Get-Date)' <<< "$scan" | head -1 | cut -d: -f1)
+          s_res=$(grep -nF "\$result = 'none'" <<< "$scan" | head -1 | cut -d: -f1)
+          test -n "$s_scan" && test -n "$s_res" && test "$s_scan" -lt "$s_res" || { echo 'F28: scanTs is not stamped before the verdict branches' >&2; exit 1; }
+          # secret-free: the scanner may carry codes/target account only.
+          if grep -Eq 'SubjectUserName|IpAddress|"Password"|ChangePassword' <<< "$scan"; then
+            echo 'F28: the logon scanner references subject/address/password fields' >&2; exit 1
+          fi
+          # the tick is IN the server process (start + 30s interval), never in the
+          # workflow keep-alive step - that dependency is the F24 defect this closes.
+          grep -qF '$script:ServerStartedUtc = (Get-Date).ToUniversalTime()' "$srv" || { echo 'F28: the server start clock is missing' >&2; exit 1; }
+          grep -qF 'try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }' "$srv" || { echo 'F28: the startup scan is missing' >&2; exit 1; }
+          grep -qF 'if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)' "$srv" || { echo 'F28: the 30s tick is missing from the accept loop' >&2; exit 1; }
+          if grep -q 'Update-RdpLogonAuthLast' "$wf"; then
+            echo 'F28: the logon scan leaked into the keep-alive workflow (must be server-side only)' >&2; exit 1
+          fi
+          # served surface + the collector liveness the page needs
+          for tok in 'rdpListener = $rlOut' '-NotePropertyName authLast' '-NotePropertyName logonCollector' \
+                     '-NotePropertyName credsspLive' '$logonState.authLast' '$logonState.logonCollector' \
+                     'alive       = $alive' 'uptimeSec   = $uptime' 'lastScanAgeSec = $ageSec'; do
+            grep -qF -- "$tok" "$srv" || { echo "F28: native-status wiring missing: $tok" >&2; exit 1; }
+          done
+          # --- §1.2 page: verbatim row + RED collector-dead ---------------------
+          grep -qF 'logon collector not running' "$ui" || { echo 'F28: the collector-dead render is missing' >&2; exit 1; }
+          grep -qF "scanned '+authLast.scanTs" "$ui" || { echo 'F28: the LAST RDP LOGON row does not render scanTs' >&2; exit 1; }
+          grep -qF "if(!authLast.scanTs){ return {text:'logon collector not running" "$ui" || { echo 'F28: a missing scanTs must render as collector-dead' >&2; exit 1; }
+          grep -qF 'function logonRowText(authLast,collector,nowMs)' "$ui" || { echo 'F28: logonRowText is missing' >&2; exit 1; }
+          # --- §1.3/§2 correlator + one-click recovery --------------------------
+          grep -qF 'function recoveryDecision(authLast,chain,nowMs)' "$ui" || { echo 'F28: the recovery correlator is missing' >&2; exit 1; }
+          grep -qF "String(authLast.sub||'').toUpperCase()!=='0XC000006A'" "$ui" || { echo 'F28: the recovery correlator does not gate on the wrong-password sub-status' >&2; exit 1; }
+          grep -qF '/^mstsc-started/' "$ui" || { echo 'F28: the recovery correlator does not require an mstsc-started beacon' >&2; exit 1; }
+          grep -qF 'if(dtSec>120)' "$ui" || { echo 'F28: the recovery correlator has no 120s window' >&2; exit 1; }
+          grep -qF 'id="recoveryRow"' "$ui" || { echo 'F28: the RECOVERY card is missing' >&2; exit 1; }
+          grep -qF 'id="btnFixReconnect"' "$ui" || { echo 'F28: the FIX & RECONNECT button is missing' >&2; exit 1; }
+          grep -qF 'FIX &amp; RECONNECT' "$ui" || { echo 'F28: the button label is not FIX & RECONNECT' >&2; exit 1; }
+          grep -qF 'Password rejected by the host' "$ui" || { echo 'F28: the recovery card text is missing' >&2; exit 1; }
+          grep -qF "POST /api/rdp-token" "$ui" && grep -qF "apiBase()+'/api/rdp-token'" "$ui" || { echo 'F28: the recovery click does not mint a fresh ticket' >&2; exit 1; }
+          # the recovery URL: ticket + identity ONLY, and the click appends t.
+          ru=$(blk "$ui" '[F28 §2 recovery-url-begin]' '[F28 §2 recovery-url-end]')
+          test -n "$ru" || { echo 'F28: the recovery URL region is missing' >&2; exit 1; }
+          grep -qF "ghrdp://recred?server=" <<< "$ru" || { echo 'F28: the recovery URL is not ghrdp://recred' >&2; exit 1; }
+          grep -qF "&user=" <<< "$ru" || { echo 'F28: the recovery URL drops the user' >&2; exit 1; }
+          if grep -Eq "pass=|password=|pwd=|passwd=|key=|token=|secret=|apikey=" <<< "$ru"; then
+            echo 'F28: the recovery URL can carry a password (tickets only)' >&2; exit 1
+          fi
+          # [F37 §3] the trace is minted first; the bearer ticket stays LAST and
+          # stays the only credential-shaped parameter.
+          grep -qE "ghrdpRecredUrl\(fqdn,user\)\+traceParam\(\)\+'&t='" "$ui" || { echo 'F28: the recovery click does not append the ticket (after the F37 trace)' >&2; exit 1; }
+          # the card is copy-only apart from the single button (handler attached in JS)
+          card=$(awk '/id="recoveryRow"/{f=1} f{print} f&&/id="btnFixReconnect"/{exit}' "$ui")
+          handlers=$(grep -o 'onclick="[^"]*"' <<< "$card" || true)
+          if [ -n "$handlers" ] && grep -qv 'onclick="copyById(' <<< "$handlers"; then
+            echo 'F28: a non-copy control appeared in the recovery card' >&2; exit 1
+          fi
+          grep -qF "copyById('recoveryCmdkey'" "$ui" || { echo 'F28: the manual cmdkey escape hatch copy-line is missing' >&2; exit 1; }
+          grep -qF "cmdkey /generic:TERMSRV/" "$ui" || { echo 'F28: the valueless cmdkey prompt line is missing' >&2; exit 1; }
+          # --- §3 launcher: recred + the closed fallback gap --------------------
+          grep -qF 'if (verb == "recred") { return RecredStep(' "$cs" || { echo 'F28: the recred verb is not implemented' >&2; exit 1; }
+          grep -qF '"recred-redeemed"' "$cs" || { echo 'F28: the recovery beacon chain start is missing' >&2; exit 1; }
+          grep -qF 'private static string CredentialFallbackDecision(bool storeMissing, bool ticketPresent, bool retryOk)' "$cs" || { echo 'F28: the shared fallback decision function is missing' >&2; exit 1; }
+          grep -qF 'if (storeOutcome == "stored") { return MstscStep(server, user, host, port); }' "$cs" || { echo 'F28: the stored-path launch is missing' >&2; exit 1; }
+          grep -qF 'if (storeOutcome == "abort") { return 1; }' "$cs" || { echo 'F28: an aborted credential prompt must not launch mstsc' >&2; exit 1; }
+          grep -qF 'CredentialFallbackDecision(true, ticketPresent, retryOk)' "$cs" || { echo 'F28: the stored=false path does not use the decision function' >&2; exit 1; }
+          grep -qF 'retrying the one-time ticket redemption ONCE (F28 fallback-gap)' "$cs" || { echo 'F28: the single ticket retry is missing' >&2; exit 1; }
+          # the native-prompt BEACON must precede the launch it announces
+          ms=$(awk '/private static int MstscStep/{f=1} f{print} /private static int DoWork/{exit}' "$cs")
+          b=$(grep -nF 'fallback-mstsc-native-prompt' <<< "$ms" | head -1 | cut -d: -f1)
+          l=$(grep -nF 'new ProcessStartInfo("mstsc.exe"' <<< "$ms" | head -1 | cut -d: -f1)
+          test -n "$b" && test -n "$l" && test "$b" -lt "$l" || { echo 'F28: the native-prompt beacon is not emitted before the mstsc launch' >&2; exit 1; }
+          grep -qF 'process.ArgumentList' "$cs" 2>/dev/null || true
+          grep -qF '/prompt' "$cs" || { echo 'F28: the native credential prompt launch flag is missing' >&2; exit 1; }
+          grep -qF 'private static int FallbackSelfTestMain()' "$cs" || { echo 'F28: the decision selftest harness is missing' >&2; exit 1; }
+          # beacon allowlist on the server side accepts both new details
+          grep -qF 'recred-redeemed' "$srv" || { echo 'F28: the beacon allowlist lacks recred-redeemed' >&2; exit 1; }
+          grep -qF 'fallback-mstsc-native-prompt' "$srv" || { echo 'F28: the beacon allowlist lacks fallback-mstsc-native-prompt' >&2; exit 1; }
+          # refusals stay refused (re-asserted here so an F28 edit cannot reopen them)
+          if grep -nE '/pass:[^[:space:]"]' "$cs"; then echo 'F28: a value-bearing /pass: switch appeared' >&2; exit 1; fi
+          if grep -nE 'cmdkey[^"]*/delete' "$cs"; then echo 'F28: the launcher gained a credential-deletion verb' >&2; exit 1; fi
+          # --- §4 CREDSSP row: live probe primary, stamp secondary ---------------
+          grep -qF 'function credsspVerdict(rl)' "$ui" || { echo 'F28: the shared CredSSP verdict function is missing' >&2; exit 1; }
+          grep -qF 'var credsspOk=credsspVerdict(rl).ok;' "$ui" || { echo 'F28: the listener gate does not use the shared verdict' >&2; exit 1; }
+          grep -qF "cse.textContent='OK (live probe)'+stampTxt" "$ui" || { echo 'F28: the CREDSSP row does not render the live probe' >&2; exit 1; }
+          grep -qF "stampTxt=' (stamp: '+(csStamp||'none')+')'" "$ui" || { echo 'F28: the CREDSSP row does not show the config stamp as secondary' >&2; exit 1; }
+          grep -qF "rdpListener.credsspLive==='warn'" "$ui" || { echo 'F28: the live-probe warn branch is missing' >&2; exit 1; }
+          # the pending render survives ONLY for the no-probe-no-stamp case: the
+          # node matrix (F28-4) drives a live probe and asserts it can never print.
+          grep -qF "if(csLive==='ok')" "$ui" || { echo 'F28: the live branch is not first' >&2; exit 1; }
+          echo 'F28 gates PASS'
+      # [F30] TLS/CIPHER HANDSHAKE FIX + CREDENTIAL TYPE NORMALIZATION + STALE
+      # ENTRY PURGE. Every assertion names the regression it blocks; the §5
+      # checks here are the static half, and tests/f30-tls-cipher.test.js EXECUTES
+      # the shipped renderer + bounded surfaces (then the Windows lane + lab cell
+      # X drive the same code with real cipher suites / credential store / events).
+      - name: F30 TLS/cipher + purge + connlog gates
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
           wf=.github/workflows/main.yml
           cs=payloads/ghrdp-rdp-launcher.cs
           srv=payloads/ghrdp-server.ps1
@@ -1505,6 +1752,72 @@ jobs:
           # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
+          ui=payloads/ui.html
+          srv=payloads/ghrdp-server.ps1
+          diag_line=$(grep -n 'name: GitHub Token Diagnostic' "$wf" | head -1 | cut -d: -f1)
+          checkout_line=$(grep -n 'name: Checkout repo (payloads)' "$wf" | head -1 | cut -d: -f1)
+          # [F59 §2] the Tailscale MSI download moved into the parallel pre-warm step
+          ts_line=$(grep -n 'name: F59 parallel pre-warm' "$wf" | head -1 | cut -d: -f1)
+          test -n "$diag_line" && test -n "$checkout_line" && test -n "$ts_line" || { echo 'F31c: token diagnostic step missing' >&2; exit 1; }
+          test "$diag_line" -lt "$checkout_line" || { echo 'F31c: token diagnostic must be the first step, before checkout' >&2; exit 1; }
+          test "$checkout_line" -lt "$ts_line" || { echo 'F31c: token diagnostic drifted below Tailscale setup' >&2; exit 1; }
+          blk=$(awk '/# \[F31c §1 token-diag-begin\]/{f=1} f{print} /# \[F31c §1 token-diag-end\]/{exit}' "$wf")
+          test -n "$blk" || { echo 'F31c: the extractable token-diagnostic block is missing' >&2; exit 1; }
+          grep -qF 'Testing git push access...' <<< "$blk" || { echo 'F31c: diagnostic does not announce the push probe' >&2; exit 1; }
+          # Concatenate so this file does not contain a contiguous Actions expression
+          # (Actions would expand it before bash runs, and the grep would miss).
+          needle='git push --dry-run origin $'"{{ github.ref }}"
+          grep -qF "$needle" <<< "$blk" || { echo 'F31c: dry-run push of github.ref is missing' >&2; exit 1; }
+          grep -qF '::error::git push failed' <<< "$blk" || { echo 'F31c: fail-loud error annotation missing' >&2; exit 1; }
+          grep -qF 'Arena Settings -> GitHub Integration -> Reconnect' <<< "$blk" || { echo 'F31c: Arena reconnect fix missing' >&2; exit 1; }
+          grep -qF 'Windows Credential Manager -> git:github.com -> Remove' <<< "$blk" || { echo 'F31c: Credential Manager fix missing' >&2; exit 1; }
+          grep -qF 'exit 1' <<< "$blk" || { echo 'F31c: token diagnostic does not exit 1 (token bypass)' >&2; exit 1; }
+          grep -qF 'git push access confirmed' <<< "$blk" || { echo 'F31c: success confirmation missing' >&2; exit 1; }
+          if grep -nE 'Write-Host[^$]*\$env:GITHUB_TOKEN|echo \$env:GITHUB_TOKEN' "$wf"; then
+            echo 'F31c: the workflow prints GITHUB_TOKEN' >&2; exit 1
+          fi
+          # --- LIVE DISPATCH STATUS: all 5 checks, exact fixes -----------------
+          grep -qF 'id="liveDispatchRow"' "$ui" || { echo 'F31c: LIVE DISPATCH STATUS card missing' >&2; exit 1; }
+          grep -qF 'LIVE DISPATCH STATUS' "$ui" || { echo 'F31c: card title missing' >&2; exit 1; }
+          grep -qF 'function liveDispatchStatus(s, nowMs)' "$ui" || { echo 'F31c: the decision function is missing' >&2; exit 1; }
+          for name in 'Runner reachable' 'F31 bound' '36870 absent' 'Credential stored' 'Logon success'; do
+            grep -qF "$name" "$ui" || { echo "F31c: card check missing: $name" >&2; exit 1; }
+          done
+          grep -qF 'F31 not bound => re-dispatch main.yml' "$ui" || { echo 'F31c: F31 fix hint missing' >&2; exit 1; }
+          grep -qF '36870 present => key ACL dump needed => copy-line to session' "$ui" || { echo 'F31c: 36870 fix hint missing' >&2; exit 1; }
+          grep -qF 'listenerHandshakeOk' "$ui" || { echo 'F31c: card does not read listenerHandshakeOk' >&2; exit 1; }
+          grep -qF 'launcher.beacons' "$srv" || { echo 'F31c: server does not serve launcher.beacons' >&2; exit 1; }
+          grep -qF 'setInterval(function(){ try{ nativeStatus(); }catch(_){} }, 10000);' "$ui" || { echo 'F31c: card does not poll /api/native-status every 10s' >&2; exit 1; }
+          # --- MANUAL VERIFY STEPS ---------------------------------------------
+          grep -qF 'id="manualVerifySteps"' "$ui" || { echo 'F31c: MANUAL VERIFY STEPS missing' >&2; exit 1; }
+          grep -qF 'MANUAL VERIFY STEPS' "$ui" || { echo 'F31c: verify checklist title missing' >&2; exit 1; }
+          grep -qF 'If WINDOWS AUTO-LOGIN opens a browser prompt, click OPEN and tick always-allow' "$ui" || { echo 'F31c: browser-prompt verify line missing' >&2; exit 1; }
+          grep -qF 'If RDP window appears but shows 0x904/0x7, run this in PowerShell on your PC:' "$ui" || { echo 'F31c: 0x904 verify line missing' >&2; exit 1; }
+          grep -qF 'cmdkey /delete:TERMSRV/' "$ui" || { echo 'F31c: cmdkey verify copy-line missing' >&2; exit 1; }
+          grep -qF 'Then click WINDOWS AUTO-LOGIN again' "$ui" || { echo 'F31c: retry instruction missing' >&2; exit 1; }
+          grep -qF 'If still failing, copy this and paste to the session:' "$ui" || { echo 'F31c: schannel paste instruction missing' >&2; exit 1; }
+          grep -qF 'wevtutil qe System /q:"*[System[Provider[@Name='"'"'Schannel'"'"']]]" /c:10 /f:text | findstr "36870 36871"' "$ui" || { echo 'F31c: schannel copy-line missing' >&2; exit 1; }
+          vblock=$(awk '/<!-- \[F31c §3 manual-verify-begin\]/{f=1} f{print} /<!-- \[F31c §3 manual-verify-end\]/{exit}' "$ui")
+          test -n "$vblock" || { echo 'F31c: verify checklist markers missing' >&2; exit 1; }
+          if grep -nE 'powershell\.exe|-ExecutionPolicy|Invoke-Expression|-EncodedCommand|mshta|wscript|cscript' <<< "$vblock"; then
+            echo 'F31c: verify checklist executes a script host' >&2; exit 1
+          fi
+          if grep -oE 'onclick="[^"]*"' <<< "$vblock" | grep -v 'onclick="copyById'; then
+            echo 'F31c: verify checklist has a non-copy control' >&2; exit 1
+          fi
+          # server merge so a live 36870 cannot hide outside connLog
+          grep -qF 'Get-F31cSchannelWindow' "$srv" || { echo 'F31c: Schannel 36870 window is not read' >&2; exit 1; }
+          grep -qF 'Merge-F31cConnLog' "$srv" || { echo 'F31c: 36870 events are not merged into connLog' >&2; exit 1; }
+          # the matrix is executed, not merely grepped
+          test -f tests/f31c-live-dispatch.test.js || { echo 'F31c: the node matrix is missing' >&2; exit 1; }
+          node --test tests/f31c-live-dispatch.test.js
+          echo 'F31c gates PASS'
+      - name: F34 up-step IP poll + class links + IP-first stage + keep-alive skip gates
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
+          wf=.github/workflows/main.yml
           up=$(awk '/^      - name: Tailscale up \(TS_AUTHKEY fail-closed/{f=1;next} /^      - name: Wait for Tailscale connected/{f=0} f' "$wf")
           stage=$(awk '/^      - name: Wait for Tailscale connected/{f=1;next} /^      - name: Runner FQDN self-test/{f=0} f' "$wf")
           ka=$(awk '/^      - name: Keep-alive 5h30/{f=1} /^      - name: Cleanup /{f=0} f' "$wf")
@@ -1552,6 +1865,760 @@ jobs:
         run: |
           # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
+          mod=payloads/rdp-telescope.ps1
+          srv=payloads/ghrdp-server.ps1
+          ui=payloads/ui.html
+          cs=payloads/ghrdp-rdp-launcher.cs
+          lab=.github/workflows/autologin-lab.yml
+          wf=.github/workflows/main.yml
+          # (1) the module exists and declares its format + vocabulary
+          test -f "$mod" || { echo 'F37: the telescope module (single source of truth) is missing' >&2; exit 1; }
+          grep -qF '# [F37 §1 telescope-format]' "$mod" || { echo 'F37: the format header marker is missing' >&2; exit 1; }
+          for t in dns tcp tls cred logon schannel listener rst-before-cert name-mismatch eku; do
+            grep -qF "'$t'" "$mod" || { echo "F37: the module does not declare the token $t" >&2; exit 1; }
+          done
+          grep -qF 'function Select-RdpTelescopeLine' "$mod" || { echo 'F37: the field allowlist filter is missing' >&2; exit 1; }
+          # (2) ALL FOUR SURFACES share the ONE parser/format
+          grep -qF 'payloads/rdp-telescope.ps1' "$lab" || { echo 'F37: the lab does not load the single-source module' >&2; exit 1; }
+          grep -qF 'rdp-telescope.ps1' "$srv" || { echo 'F37: the server does not load the single-source module' >&2; exit 1; }
+          grep -qF '. $f37cand' "$srv" || { echo 'F37: the server must DOT-SOURCE the module, never re-implement the format' >&2; exit 1; }
+          grep -qF 'payloads/rdp-telescope.ps1' "$wf" || { echo 'F37: the live probe does not load the module' >&2; exit 1; }
+          grep -qF '[F37 §1 telescope-format: shared with payloads/rdp-telescope.ps1]' "$cs" || { echo 'F37: the launcher does not point at the single source of truth' >&2; exit 1; }
+          for slug in telescope-dns-ok telescope-tcp-fail telescope-tls-ok telescope-rst-before-cert telescope-chain telescope-name-mismatch telescope-eku telescope-cred-missing; do
+            grep -qF "\"$slug\"" "$cs" || { echo "F37: the launcher cannot emit the shared slug $slug" >&2; exit 1; }
+          done
+          # the runner-side slug allowlist must accept exactly those slugs
+          for slug in telescope-dns-ok telescope-tcp-ok telescope-tls-ok telescope-cred-missing; do
+            grep -qE "telescope-(dns|tcp|tls|cred)|\\(rst-before-cert" <<< "$(grep -F 'F37TelSlugRe' "$srv")" || { echo 'F37: the server slug allowlist drifted' >&2; exit 1; }
+          done
+          # [F37] the beacon STAGE is DERIVED from the shared slug: ONE table in
+          # the module, the client only DECLARES it, and the server neutralizes any
+          # disagreement - a mislabeled beacon can never become a timeline verdict
+          # (the class that made a live diag beacon render as stage 'other').
+          grep -qF '$slugStage = [ordered]@{' "$mod" || { echo 'F37: the module does not declare the slug -> stage table' >&2; exit 1; }
+          grep -qF 'function Get-RdpTelescopeBeaconStage' "$mod" || { echo 'F37: the module owns no slug -> stage accessor' >&2; exit 1; }
+          grep -qF 'Get-F37BeaconStageForSlug' "$srv" || { echo 'F37: the server does not derive the beacon stage' >&2; exit 1; }
+          grep -qF 'Get-RdpTelescopeBeaconStage -Slug $Slug' "$srv" || { echo 'F37: the server keeps a second slug -> stage mapping' >&2; exit 1; }
+          grep -qF 'if (-not $derivedT -or ($stT -and $stT -ne $derivedT))' "$srv" || { echo 'F37: a declared/derived stage mismatch is not neutralized' >&2; exit 1; }
+          grep -qF 'HelloBounded(host, port, "diag", ok, slug, trace, stage)' "$cs" || { echo 'F37: the diag beacon does not declare its stage' >&2; exit 1; }
+          grep -qF 'IsTelClientStage(stage)' "$cs" || { echo 'F37: the declared stage is not gated on the client token set' >&2; exit 1; }
+          # (3) the failure point is NAMED on every surface
+          for f in rst-before-cert name-mismatch eku; do
+            grep -qF "$f" "$cs" || { echo "F37: the launcher cannot name the failure point $f" >&2; exit 1; }
+          done
+          grep -qF 'permissive' "$mod" || { echo 'F37: the TLS probe no longer documents its read-only permissive callback' >&2; exit 1; }
+          # (4) RUNNER: 60s tick, startup scan, row fields, live preference
+          grep -qF '$script:F37TelIntervalSec = 60' "$srv" || { echo 'F37: the runner telescope tick is not 60s' >&2; exit 1; }
+          # [F37 startup-scan] asserted on CODE, never on prose. The F45-R
+          # readiness reorder (b213fd42) deliberately moved the three startup
+          # scans AFTER the listener bind - readiness must not be held hostage
+          # by a synchronous Get-WinEvent walk - and reworded their comments.
+          # A prose pin on the old sentence then failed (run 38057454377, step
+          # "F37 telescope single-source", .github:217) even though the scan
+          # itself was intact. So this gate pins the BEHAVIOUR the sentence was
+          # a proxy for, structurally:
+          #   (a) the startup-scan CALL exists;
+          #   (b) it runs AFTER the LISTENING marker is written (readiness is
+          #       observable before any scan can block it);
+          #   (c) it runs BEFORE the accept loop starts draining (so the first
+          #       client the loop serves cannot poll a never-attempted sample).
+          # (b)+(c) together are what "stamps before the first client can poll"
+          # actually guaranteed. A reworded comment can no longer break this
+          # gate, and deleting or reordering the scan still does.
+          grep -qF 'Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc' "$srv" || { echo 'F37: the telescope startup scan call is missing' >&2; exit 1; }
+          markerLine=$(grep -nF 'LISTENING pid={0}' "$srv" | head -1 | cut -d: -f1 || true)
+          telScanLine=$(grep -nF 'Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc' "$srv" | head -1 | cut -d: -f1 || true)
+          loopLine=$(grep -nF 'while (((Get-Date) - $start) -lt $limit) {' "$srv" | head -1 | cut -d: -f1 || true)
+          test -n "$markerLine" && test -n "$telScanLine" && test -n "$loopLine" || { echo 'F37: a startup-scan ordering anchor is missing (vacuous gate)' >&2; exit 1; }
+          test "$markerLine" -lt "$telScanLine" || { echo 'F37: the telescope startup scan runs BEFORE the LISTENING marker, so readiness is held hostage by the scan' >&2; exit 1; }
+          test "$telScanLine" -lt "$loopLine" || { echo 'F37: the telescope startup scan runs AFTER the accept loop begins, so the first client can poll a never-attempted sample' >&2; exit 1; }
+          grep -qF 'telescope = $f37State.telescope' "$srv" || { echo 'F37: native-status does not serve the runner telescope' >&2; exit 1; }
+          grep -qF 'telescopeClient = $f37Client' "$srv" || { echo 'F37: native-status does not serve the client beacons' >&2; exit 1; }
+          grep -qF 'telescopeLive' "$srv" || { echo 'F37: bind drift cannot be rendered live' >&2; exit 1; }
+          grep -qF 'boundThumb' "$ui" && grep -qF 'servedThumb' "$ui" && grep -qF 'aclSids' "$ui" && grep -qF 'schannelTail' "$ui" || { echo 'F37: the SERVER CONN LOG row lacks the bind-drift fields' >&2; exit 1; }
+          # (5) CLIENT: diag verb + trace id + preflight that never breaks the
+          # pinned fail-visible beacon chain
+          grep -qF 'if (verb == "diag") { return DiagStep(uri, host, port); }' "$cs" || { echo 'F37: the diag verb is missing' >&2; exit 1; }
+          grep -qF 'if (TraceParam(uri).Length > 0) { TelPreflight(uri, server, host, port); }' "$cs" || { echo 'F37: the preflight is not gated on the click trace' >&2; exit 1; }
+          grep -qF 'endpoint = (verb == "diag") ? "/api/rdp-telescope" : "/api/handler-hello"' "$cs" || { echo 'F37: diag beacons must not enter the handler-hello chain' >&2; exit 1; }
+          grep -qF "if (\$path -eq '/api/rdp-telescope' -and \$parts.method -eq 'POST')" "$srv" || { echo 'F37: the client beacon endpoint is missing' >&2; exit 1; }
+          grep -qF 'telescope-unparsed' "$srv" || { echo 'F37: an unknown beacon slug must be neutralized' >&2; exit 1; }
+          grep -qF 'function telescopeTimeline(s, nowMs)' "$ui" || { echo 'F37: the ONE timeline function is missing' >&2; exit 1; }
+          grep -qF 'id="btnRunDiag"' "$ui" || { echo 'F37: [RUN DIAG] is missing' >&2; exit 1; }
+          grep -qF 'function mintTraceId(src)' "$ui" || { echo 'F37: the client trace minter is missing' >&2; exit 1; }
+          # (6) LAB: the cert is Schannel-acceptable and every cert cell PRINTS
+          # the telescope - a red cert cell must never be red-without-why.
+          grep -qF '2.5.29.37={text}1.3.6.1.5.5.7.3.1' "$lab" || { echo 'F37: the lab cert carries no ServerAuth EKU (the rst-before-cert class)' >&2; exit 1; }
+          grep -qF '2.5.29.17={text}DNS=' "$lab" || { echo 'F37: the lab cert carries no SAN' >&2; exit 1; }
+          grep -qF 'F37 lab telescope BEFORE bind' "$lab" || { echo 'F37: the lab does not telescope BEFORE the bind' >&2; exit 1; }
+          grep -qF 'F37 lab telescope AFTER bind+restart' "$lab" || { echo 'F37: the lab does not telescope AFTER the bind' >&2; exit 1; }
+          bindLine=$(grep -nF "New-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Name 'SSLCertificateSHA1Hash'" "$lab" | head -1 | cut -d: -f1)
+          beforeLine=$(grep -nF 'F37 lab telescope BEFORE bind' "$lab" | head -1 | cut -d: -f1)
+          afterLine=$(grep -nF 'F37 lab telescope AFTER bind+restart' "$lab" | head -1 | cut -d: -f1)
+          test -n "$bindLine" && test -n "$beforeLine" && test -n "$afterLine" || { echo 'F37: a lab anchor is missing (vacuous gate)' >&2; exit 1; }
+          test "$beforeLine" -lt "$bindLine" || { echo 'F37: the BEFORE telescope runs after the bind' >&2; exit 1; }
+          test "$bindLine" -lt "$afterLine" || { echo 'F37: the AFTER telescope runs before the bind' >&2; exit 1; }
+          cell=$(awk -v s="$bindLine" -v e="$afterLine" 'NR>s && NR<e+60' "$lab")
+          for line in $(grep -nF "R-Fail 'bind-effectiveness'" "$lab" | cut -d: -f1); do
+            body=$(sed -n "${line}p" "$lab")
+            grep -qF '$dump' <<< "$body" || { echo "F37: line $line can exit red without the telescope fields" >&2; exit 1; }
+          done
+          grep -qF 'if ($servedR -ne $boundR)' "$lab" || { echo 'F37: the lab does not gate servedThumb == boundThumb' >&2; exit 1; }
+          # [F37] the CERTIFICATE's own acceptance is named, not inferred: the
+          # module reads the ServerAuth EKU + SAN off the bound cert, the death
+          # point prefers tls-eku over the RST symptom, and the live row says it.
+          grep -qF 'hasServerAuth' "$mod" && grep -qF 'hasServerAuth' "$ui" || { echo 'F37: the ServerAuth EKU is not classified on the runner + row' >&2; exit 1; }
+          grep -qF "return 'tls-eku'" "$mod" || { echo 'F37: a missing EKU cannot name the tls-eku death point' >&2; exit 1; }
+          grep -qF '$fields.hasServerAuth' "$mod" || { echo 'F37: the listener verdict ignores the cert EKU' >&2; exit 1; }
+          # [F37] a red cell must never be red-without-a-readable-annotation:
+          # both F37 cells trap unhandled exceptions, the fail helpers collapse
+          # their detail onto one line, and a forensics step re-emits the
+          # telescope + the classification files whenever a cell failed.
+          test "$(grep -c 'stage=unhandled' "$lab")" -ge 2 || { echo 'F37: the F37 lab cells do not trap unhandled errors' >&2; exit 1; }
+          grep -qF '$f37one = ($Detail -replace' "$lab" || { echo 'F37: a lab fail helper can still emit a multi-line (dropped) annotation' >&2; exit 1; }
+          grep -qF 'Q: failure forensics' "$lab" || { echo 'F37: the failure-forensics step is missing' >&2; exit 1; }
+          # [F37] the persisted KEY FILE is resolved, never assumed: one resolver
+          # in the module, shared by the listener and the F31 ACL helper, with
+          # store candidates + hits in every failure message.
+          acl=payloads/Grant-RdpKeyAccess.ps1
+          grep -qF 'function Resolve-RdpTelescopeKeyFile' "$mod" || { echo 'F37: the module does not own the key-file resolver' >&2; exit 1; }
+          grep -qF 'Resolve-RdpTelescopeKeyFile' "$acl" || { echo 'F37: the ACL helper assumes a key path instead of resolving it' >&2; exit 1; }
+          grep -qF 'persisted key file NOT FOUND' "$mod" || { echo 'F37: a missing key file is not named with its evidence' >&2; exit 1; }
+          grep -qF "\$out.pathSource = 'stem-hit'" "$mod" || { echo 'F37: a unique provider naming variant is not accepted' >&2; exit 1; }
+          grep -qF "ambiguous-stem-hit" "$mod" || { echo 'F37: an ambiguous key-file match is not flagged' >&2; exit 1; }
+          grep -qF "'keyFilePathSource'" "$mod" || { echo 'F37: the chosen key-file path source is not part of the format' >&2; exit 1; }
+          for f in keyFileFound keyDirHits keyDirSample containerKind keyFilePathSource; do
+            grep -qF "$f" "$mod" && grep -qF "$f" "$ui" || { echo "F37: $f never reaches the row" >&2; exit 1; }
+          done
+          # [F37] the certificate callback must be COMPILED: a PowerShell
+          # scriptblock cannot run on the threadpool thread that completes the
+          # handshake, and both probes then reported a false rst-before-cert.
+          probe=payloads/Test-RdpListenerHandshake.ps1
+          grep -qF 'public static class GhrdpTelTls' "$mod" || { echo 'F37: the compiled TLS callback shim is missing' >&2; exit 1; }
+          grep -qF 'Add-RdpTelescopeTlsShim' "$probe" || { echo 'F37: the F31 probe does not share the compiled callback' >&2; exit 1; }
+          if grep -nE 'RemoteCertificateValidationCallback\]\s*\{' "$mod" "$probe"; then echo 'F37: a scriptblock is still used as the TLS callback' >&2; exit 1; fi
+          # [F37] the X.224 confirm / RDP_NEG_RSP layout is single-sourced and
+          # the off-by-one that made a HEALTHY listener read as "did not select
+          # TLS" may not come back on any surface.
+          grep -qF 'function Test-RdpTelescopeX224Confirm' "$mod" || { echo 'F37: the shared X.224 validator is missing' >&2; exit 1; }
+          grep -qF 'Test-RdpTelescopeX224Confirm -Response $response' "$probe" || { echo 'F37: the F31 probe hand-rolls the X.224 offsets' >&2; exit 1; }
+          if grep -nE '\[6\] -ne 2|\[8\] -ne 8|\[9\] -ne 0|ToUInt32\(\$(response|Response), 10\)' "$mod" "$probe"; then
+            echo 'F37: an off-by-one X.224 byte offset is back' >&2; exit 1
+          fi
+          # [F37] the live runner is WINDOWS POWERSHELL 5.1 (.NET Framework): a
+          # .NET Core-only API degraded the whole runner telescope on the first
+          # live run. No surface the server loads may use one.
+          for f in "$mod" "$srv" payloads/ghrdp-lib.ps1 payloads/Grant-RdpKeyAccess.ps1 "$probe"; do
+            if grep -nE 'RandomNumberGenerator\]::(GetBytes|Fill)\(|\[Convert\]::ToHexString\(|SHA(256|384|512)\]::HashData\(|\[System\.IO\.Path\]::Join\(' "$f"; then
+              echo "F37: $f uses a .NET Core-only API that Windows PowerShell 5.1 does not have" >&2; exit 1
+            fi
+          done
+          grep -qF 'RandomNumberGenerator]::Create()' "$mod" || { echo 'F37: the trace id does not use the 5.1-safe instance RNG' >&2; exit 1; }
+          grep -qF 'certutil.exe -repairstore My' "$lab" || { echo 'F37: the lab never forces key persistence' >&2; exit 1; }
+          grep -qF "R-Fail 'key-acl-grant'" "$lab" || { echo 'F37: the ACL grant can still die as an unhandled exit' >&2; exit 1; }
+          grep -qF '::error::[forensics]' "$lab" || { echo 'F37: the forensics step emits no annotation' >&2; exit 1; }
+          grep -qF 'Format-RdpTelescopeDump' "$lab" || { echo 'F37: the forensics step does not re-print the telescope' >&2; exit 1; }
+          grep -qF 'Test-RdpListenerHandshake.ps1' "$lab" || { echo 'F37: the lab lost the strict F31 handshake gate' >&2; exit 1; }
+          grep -qF 'node --test tests/f37-telescope.test.js' "$lab" || { echo 'F37: the lab does not run the F37 matrix over its own sample' >&2; exit 1; }
+          # (7) SECRET-FREE / NO WEAKENING on every F37 surface
+          if grep -nE 'Read-Host|AsPlainText|ConvertTo-SecureString|/pass:|Invoke-Expression' "$mod" "$cs"; then
+            echo 'F37: a telescope surface handles a credential blob' >&2; exit 1
+          fi
+          if grep -nF "X509Store('Root'" "$mod" "$cs"; then echo 'F37: the telescope installs trust' >&2; exit 1; fi
+          if grep -nE 'UserAuthentication.*(Set-ItemProperty|= 0)' "$mod" "$cs"; then echo 'F37: the telescope touches NLA' >&2; exit 1; fi
+          if grep -nE 'password=|passwd=|pwd=' "$ui" "$cs"; then echo 'F37: a password-shaped parameter exists in a launch URL' >&2; exit 1; fi
+          if grep -nF 'GHRDP_LAB_TEL_INTERVAL_SEC' "$wf"; then echo 'F37: a lab-only switch reached production main.yml' >&2; exit 1; fi
+          # [F37 §4] SCOPE: the runner face (server tick + live probe) never
+          # evaluates the CLIENT-owned cred stage, and says why it carries none.
+          # A healthy host that reads as deathPoint=credssp is a false verdict.
+          grep -qF -e "-Ip '127.0.0.1' -SkipCred" "$srv" || { echo 'F37: the live runner evaluates the client-owned cred stage' >&2; exit 1; }
+          grep -qF "credScope   = 'client-only'" "$srv" || { echo 'F37: the runner sample does not name its own scope' >&2; exit 1; }
+          grep -qF -e '-ExpectedThumb $certThumb -SkipLogon -SkipCred' "$wf" || { echo 'F37: the live F17 probe is not runner-scoped' >&2; exit 1; }
+          grep -qF 'runner face: no stored TERMSRV target' "$mod" || { echo 'F37: an absent client credential on the runner is not a named scope fact' >&2; exit 1; }
+          grep -qF -e '-Informational:$Local' "$mod" || { echo 'F37: the runner face is not informational for client-owned stages' >&2; exit 1; }
+          # an absent logon window is INFORMATIONAL; only a rejection is a fault
+          grep -qF 'informational: nobody has logged on yet' "$mod" || { echo 'F37: an empty logon window still reads as a red path' >&2; exit 1; }
+          grep -qF 'RDP logon rejected: newest event is a 4625' "$mod" || { echo 'F37: a logon rejection is not named' >&2; exit 1; }
+          if grep -qF -e "-Ok ([bool](\$id -eq '4624'))" "$mod"; then echo 'F37: the logon stage paints an empty window red again' >&2; exit 1; fi
+          # probeError is the LISTENER FACE; evidence (schannel/logon) is probeWarn
+          grep -qF "'telescope evidence: '" "$srv" || { echo 'F37: the runner cannot separate a fatal stage from evidence' >&2; exit 1; }
+          grep -qF 'probeWarn' "$srv" && grep -qF 'probeWarn' "$ui" || { echo 'F37: the runner evidence line never reaches the row' >&2; exit 1; }
+          if grep -qF '"ok":false' "$srv"; then echo 'F37: the server hand-matches the wire format instead of reading it' >&2; exit 1; fi
+          # a derivation fault and the key-resolver cause are NAMED, end to end
+          for f in deriveError redStages fatalStages keyTypedError typesLoader; do
+            grep -qF "$f" "$mod" && grep -qF "$f" "$srv" && grep -qF "$f" "$wf" && grep -qF "$f" "$ui" || { echo "F37: $f does not travel module -> runner -> stamp -> row" >&2; exit 1; }
+          done
+          # [F37 §1] the key ACL is read by a LADDER, never by one cmdlet: the
+          # live runner (Windows PowerShell 5.1 started by a pwsh step) could not
+          # load Microsoft.PowerShell.Security, Get-Acl failed there, and the row
+          # reported deathPoint=acl on a key whose NETWORK SERVICE ACE was
+          # present. No host may lose that evidence to a module-load fault again.
+          grep -qF 'function Get-RdpTelescopeKeyAcl' "$mod" || { echo 'F37: the module has no independent key-ACL reader' >&2; exit 1; }
+          grep -qF 'function Initialize-RdpTelescopeModulePath' "$mod" || { echo 'F37: nothing repairs a host that cannot load its own modules' >&2; exit 1; }
+          # $PSHOME is a read-only automatic variable and PowerShell variable
+          # names are case-insensitive, so a local named $psHome assigns straight
+          # into it and throws - the repair then reports 'repair-threw' on every
+          # live sample and the module path is never restored.
+          if grep -nE '^[[:space:]]*\$psHome[[:space:]]*=' "$mod"; then
+            echo 'F37: a local named $psHome collides with the read-only automatic $PSHOME (read it with Get-Variable)' >&2; exit 1
+          fi
+          grep -qF "Get-Variable -Name 'PSHOME' -ValueOnly" "$mod" || { echo 'F37: the module path repair does not read $PSHOME safely' >&2; exit 1; }
+          for m in "'get-acl'" "'dotnet-fileinfo'" "'acl-extensions'" "'icacls'"; do
+            grep -qF "$m" "$mod" || { echo "F37: the ACL ladder lost the reader $m" >&2; exit 1; }
+          done
+          grep -qF '.GetAccessControl()' "$mod" || { echo 'F37: no managed ACL API is reachable without a cmdlet' >&2; exit 1; }
+          if grep -nE '^[[:space:]]*\$acl = Get-Acl -LiteralPath' "$mod"; then echo 'F37: the listener stage calls Get-Acl directly again (one method, no ladder)' >&2; exit 1; fi
+          for f in aclReadMethod aclModule; do
+            grep -qF "$f" "$mod" && grep -qF "$f" "$srv" && grep -qF "$f" "$lab" || { echo "F37: $f does not travel module -> runner -> lab verdict" >&2; exit 1; }
+          done
+          grep -qF "'runner-acl-method'" "$lab" || { echo 'F37: a runner whose ACL reader failed can still pass the cell' >&2; exit 1; }
+          # the resolver must work on the runtime the SERVER actually uses (5.1)
+          grep -qF 'function Initialize-RdpTelescopeCryptoTypes' "$mod" || { echo 'F37: the 5.1 crypto-type loader is missing (the runner telescope degrades silently)' >&2; exit 1; }
+          grep -qF 'certutil.exe -store -v My $Certificate.Thumbprint' "$mod" || { echo 'F37: the key resolver has no provider-independent fallback' >&2; exit 1; }
+          grep -qF "'certutil-candidate'" "$mod" || { echo 'F37: a certutil-resolved key path is not reported as such' >&2; exit 1; }
+          # the death point cannot blame the EKU when NOTHING is bound
+          grep -qF "[bool]\$listenerObj.inStore -and \$listenerObj.PSObject.Properties['hasServerAuth']" "$mod" || { echo 'F37: an unbound listener still resolves tls-eku' >&2; exit 1; }
+          grep -qF "return 'tls-cert' }" "$mod" || { echo 'F37: an unbound listener has no death point' >&2; exit 1; }
+          # a beacon the allowlist neutralized is NOT a stage verdict
+          grep -qF 'telescope-unparsed' "$ui" || { echo 'F37: the timeline treats a neutralized beacon as a verdict' >&2; exit 1; }
+          # the lab proves the scope split, feeds the client diag, and spends its
+          # 10-annotation forensics budget on the decisive evidence first
+          grep -qF "'module-scope'" "$lab" || { echo 'F37: the lab never proves the runner/client cred scope split' >&2; exit 1; }
+          grep -qF 'cmdkey.exe /generic:TERMSRV/$fqdn /user:labuser /pass:LABDUMMY-win-9876' "$lab" || { echo 'F37: the client diag has no stored target (a healthy path would read credssp)' >&2; exit 1; }
+          grep -qF 'telescope-cred-ok' "$lab" || { echo 'F37: the lab does not require the client cred stage to be green' >&2; exit 1; }
+          grep -qF 'Flush 9' "$lab" || { echo 'F37: the forensics step can lose its decisive annotation to the cap' >&2; exit 1; }
+          grep -qF 'CLASSIFICATION:' "$lab" && grep -qF 'RUNNER-SUMMARY:' "$lab" || { echo 'F37: the forensics step does not lead with the cell verdict + runner state' >&2; exit 1; }
+          # (8) the matrix is EXECUTED (the timeline runs the shipped renderer)
+          test -f tests/f37-telescope.test.js || { echo 'F37: the node matrix is missing' >&2; exit 1; }
+          node --test tests/f37-telescope.test.js
+          # (9) STRUCTURAL AUDIT: this lane has no PowerShell interpreter, so the
+          # edited .ps1 surfaces and every workflow PowerShell block are
+          # tokenized and checked for brace/here-string balance and a dangling
+          # catch - the failure class that otherwise costs a whole lab run.
+          test -f tests/ps-balance-audit.py || { echo 'F37: the PowerShell structural audit is missing' >&2; exit 1; }
+          python3 tests/ps-balance-audit.py
+          test -f tests/workflow-pwsh-parser.test.js || { echo 'WF-PWSH: the workflow PowerShell parser test is missing' >&2; exit 1; }
+          node --test tests/workflow-pwsh-parser.test.js
+          test -f tests/rdp-scheduling-matrix.test.js || { echo 'WF-SCHED: the scheduling matrix regression test is missing' >&2; exit 1; }
+          node --test tests/rdp-scheduling-matrix.test.js
+          echo 'F37 gates PASS'
+      # [F45 S4] Explorer file-API server routes. The mjs auditor tokenizes the
+      # new module (and the server that dot-sources it) exactly like the py
+      # audit, then asserts the F45 contract: every documented route dispatched
+      # once, the 400/401/403/404/405/413/415/416/500/502/504 status set, CSRF
+      # on both POSTs, the hard-op refusal, atomic schemaVersion-2 index writes
+      # with gofileHosts, the 41-value preview allowlist (compared value for
+      # value against the S2 fixture), the SameSite=Strict CSRF cookie, the
+      # sandbox CSP/isolation headers, and ONE redaction funnel whose marker is
+      # ***REDACTED***. It also pins the deployment (main.yml stages the module
+      # next to the server) and this lane's own wiring.
+      - name: F45 S4 Explorer file-API route contract (structure + redaction)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f payloads/ghrdp-fx.ps1 || { echo 'F45: the fx module is missing' >&2; exit 1; }
+          test -f tests/f45-fx-server.ps1 || { echo 'F45: the fx server test is missing' >&2; exit 1; }
+          test -f scripts/ps-balance-audit.mjs || { echo 'F45: the node ps auditor is missing' >&2; exit 1; }
+          node scripts/ps-balance-audit.mjs
+          # every route of the contract is answered by the module
+          for route in '/api/fx/list' '/api/fx/meta' '/api/fx/gofile/status' '/api/fx/preview' '/api/fx/op' '/api/fx/upload' '/preview-sandbox'; do
+            grep -qF "'$route'" payloads/ghrdp-fx.ps1 || { echo "F45: the module does not dispatch $route" >&2; exit 1; }
+          done
+          # the module logs ONLY through the redaction funnel
+          grep -qF '***REDACTED***' payloads/ghrdp-fx.ps1 || { echo 'F45: no redaction marker' >&2; exit 1; }
+          grep -qF 'Protect-FxText -Text $Message -Secrets $secrets' payloads/ghrdp-fx.ps1 || { echo 'F45: the audit funnel does not redact' >&2; exit 1; }
+          if grep -nF 'Write-Host' payloads/ghrdp-fx.ps1; then
+            echo 'F45: the module writes to the console outside the redaction funnel' >&2; exit 1
+          fi
+          if grep -nF 'Invoke-WebRequest' payloads/ghrdp-fx.ps1; then
+            echo 'F45: the module must use its injectable HTTP seam' >&2; exit 1
+          fi
+          # the server cannot silently pretend the API exists
+          grep -qF '[F45 S4 fx-dispatch-begin]' payloads/ghrdp-server.ps1 || { echo 'F45: the server dispatch block is missing' >&2; exit 1; }
+          grep -qF 'Explorer API unavailable' payloads/ghrdp-server.ps1 || { echo 'F45: a missing module is not fail-visible' >&2; exit 1; }
+          # deployment + lane wiring
+          grep -qF 'payloads/ghrdp-fx.ps1' .github/workflows/main.yml || { echo 'F45: main.yml does not stage the module' >&2; exit 1; }
+          grep -qF "'payloads/ghrdp-fx.ps1'" .github/workflows/launch-gates.yml || { echo 'F45: windows-native does not parse the module' >&2; exit 1; }
+          grep -qF 'tests/f45-fx-server.ps1' .github/workflows/launch-gates.yml || { echo 'F45: the server test is not executed by any lane' >&2; exit 1; }
+          echo 'F45 gates PASS'
+      # [F46] Mirror worker reason visibility + policy-correct retries + the
+      # documented gofile contract. The policy table must be the SAME table as
+      # the F44/S3 TypeScript contract (pinned by
+      # tests/f46-mirror-contract.test.js, which `node --test tests/*.test.js`
+      # picks up in the step below), the worker must emit ONE structured line
+      # per attempt, mirror stays default-OFF, the probe is read-only, and the
+      # banned evasion patterns (spoofed User-Agent, proxy switching, IP
+      # rotation, header spoofing) may not appear in any mirror surface.
+      - name: F46 mirror reason-visibility + gofile contract gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f payloads/ghrdp-mirror.ps1 || { echo 'F46: the mirror module is missing' >&2; exit 1; }
+          test -f tests/f46-mirror-policy.ps1 || { echo 'F46: the policy lab is missing' >&2; exit 1; }
+          test -f docs/MIRROR-HOSTS.md || { echo 'F46: docs/MIRROR-HOSTS.md is missing' >&2; exit 1; }
+          # one structured attempt line per attempt, produced by the module and
+          # used by the worker
+          grep -qF '[mirror] attempt {0} host={1} phase={2} status={3} msg={4} ms={5}' payloads/ghrdp-mirror.ps1
+          grep -qF 'Format-F46AttemptLine' payloads/ghrdp-watcher.ps1
+          grep -qF 'Format-F46FailureSummary' payloads/ghrdp-watcher.ps1
+          # the old bare retry-exhausted message may not exist anywhere
+          if grep -rnE 'upload failed after [0-9]+ tries|FAILED after .+ tries' payloads/ghrdp-watcher.ps1 payloads/ghrdp-lib.ps1; then
+            echo 'F46: a bare retry-exhausted message without phase+status is forbidden' >&2
+            exit 1
+          fi
+          # the F44/S3 policy table
+          grep -qF '$script:F46FailFastStatuses = @(401, 403, 413, 415)' payloads/ghrdp-mirror.ps1
+          grep -qF "\$script:F46TransientPhases = @('dns', 'tcp', 'tls', 'http')" payloads/ghrdp-mirror.ps1
+          grep -qF '$script:F46MaxAttempts = 5' payloads/ghrdp-mirror.ps1
+          grep -qF '$script:F46RetryAfterCapMs = 120000' payloads/ghrdp-mirror.ps1
+          # the documented gofile contract (current reference + fleet form)
+          grep -qF 'guest contract needs no account' payloads/ghrdp-mirror.ps1
+          grep -qF "serversPath = '/servers'" payloads/ghrdp-mirror.ps1
+          grep -qF "uploadPathAuto = '/uploadfile'" payloads/ghrdp-mirror.ps1
+          grep -qF "uploadPathFleet = '/contents/uploadfile'" payloads/ghrdp-mirror.ps1
+          grep -qF "multipartField = 'file'" payloads/ghrdp-mirror.ps1
+          if grep -nF "authScheme = 'Bearer'" payloads/ghrdp-mirror.ps1; then
+            echo 'F46: the account Bearer scheme returned to the host contract (F48 token-less)' >&2
+            exit 1
+          fi
+          grep -qF "idFields = @('fileId', 'id')" payloads/ghrdp-mirror.ps1
+          grep -qF "pageFields = @('downloadPage', 'directLink')" payloads/ghrdp-mirror.ps1
+          # mirror stays default-OFF; the probe is read-only; no credential in a URL
+          grep -qF 'enabled = $false' payloads/ghrdp-mirror.ps1
+          grep -qiF 'no content is uploaded' payloads/ghrdp-mirror.ps1
+          if grep -nE '\?token=' payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1; then
+            echo 'F46: a credential may not appear in a URL' >&2
+            exit 1
+          fi
+          # evasion is forbidden in every mirror surface
+          if grep -nE 'Mozilla/[0-9]|X-Forwarded-For|[Ww]ebProxy|proxy *=|rotat' payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1 payloads/ghrdp-fx.ps1; then
+            echo 'F46: an evasion pattern (UA spoofing / proxy / IP rotation / header spoofing) appeared' >&2
+            exit 1
+          fi
+          # [F46 §1/§4] the UI reason column must render the FULL reason (both
+          # UIs) and the card may not claim AES-256 unconditionally.
+          test -f src/tests/smoke/f46-mirror-truth.test.tsx || { echo 'F46: the mirror DOM truth test is missing' >&2; exit 1; }
+          if grep -nE 'error\.slice\(0, ?4?[0-9]\)|substring\(0, ?4?[0-9]\)' src/components/domain/MirrorCard.tsx payloads/ui.html; then
+            echo 'F46: the mirror error column is truncated again' >&2
+            exit 1
+          fi
+          grep -qF 'mirror-reason-full' src/components/domain/MirrorCard.tsx
+          grep -qF 'errfull' payloads/ui.html
+          grep -qF 'claimTitle' src/components/domain/MirrorCard.tsx
+          grep -qF 'mirror.titlePlain' src/components/domain/MirrorCard.tsx
+          grep -qF 'encryptMode' src/lib/domain/progress.ts
+          grep -qF 'encryptedAny' src/lib/domain/progress.ts
+          grep -qF '"titlePlain"' src/i18n/en.json
+          # deployment + lane wiring
+          grep -qF 'payloads/ghrdp-mirror.ps1' .github/workflows/main.yml
+          grep -qF 'mirror-diag' .github/workflows/main.yml
+          grep -qF "'payloads/ghrdp-mirror.ps1'" .github/workflows/launch-gates.yml
+          grep -qF 'tests/f46-mirror-policy.ps1' .github/workflows/launch-gates.yml
+          grep -qF 'and the encrypt' docs/MIRROR-HOSTS.md || true
+          # [F50] streaming transport gates: the upload path must stay streamed
+          # (HttpClient + MultipartFormDataContent + StreamContent(FileStream)),
+          # with no whole-file buffering of any kind, and the windows lab must
+          # keep the sparse-file streaming matrix + real retry paths.
+          echo '[F50] streaming transport gates'
+          grep -qF 'System.Net.Http.StreamContent' payloads/ghrdp-mirror.ps1
+          grep -qF 'MultipartFormDataContent' payloads/ghrdp-mirror.ps1
+          grep -qF 'System.Net.Http.HttpClient' payloads/ghrdp-mirror.ps1
+          grep -qF '[System.IO.File]::Open($Path' payloads/ghrdp-mirror.ps1
+          if awk '/^function Send-F46GofileUpload/,/^function ConvertFrom-F46UploadResponse/' payloads/ghrdp-mirror.ps1 | grep -nE 'ReadAllBytes|MemoryStream|AllowWriteStreamBuffering'; then
+            echo 'F50: a whole-file buffering pattern returned to the upload path (the 2GB "Stream was too long" class)' >&2
+            exit 1
+          fi
+          grep -qF 'fsutil file createnew' tests/f46-mirror-policy.ps1
+          for f50size in 100MB 1GB 3GB 6GB; do
+            grep -qF "'$f50size'" tests/f46-mirror-policy.ps1 || { echo "F50: the lab is missing the $f50size sparse-streaming cell" >&2; exit 1; }
+          done
+          grep -qF '429-then-success' tests/f46-mirror-policy.ps1
+          grep -qF '502-budget' tests/f46-mirror-policy.ps1
+          grep -qF 'ZERO network tries' tests/f46-mirror-policy.ps1
+          grep -qF '$script:F46RetryAfterCapMs = 120000' payloads/ghrdp-mirror.ps1
+          grep -qF '$script:F46MaxAttempts = 5' payloads/ghrdp-mirror.ps1
+          # [F51] always-on Downloads gates: the override exists, is wired into
+          # the scan loop, stays in-memory only, and keeps the F49 opt-in gate
+          # (flags + modal) fully intact for Desktop/Documents/Temp/RDP-Storage.
+          echo '[F51] always-on Downloads gates'
+          grep -qF 'function Split-F51AutoQueue' payloads/ghrdp-watcher.ps1
+          grep -qF 'function New-F51AutoHost' payloads/ghrdp-watcher.ps1
+          grep -qF '$uploadQueue = @($f51Split.auto)' payloads/ghrdp-watcher.ps1
+          grep -qF 'foreach ($f in @($uploadQueue))' payloads/ghrdp-watcher.ps1
+          grep -qF '[mirror] AUTO-UPLOAD: {0} (Downloads root; F51 always-on, opt-in not required)' payloads/ghrdp-watcher.ps1
+          grep -qF 'F51AutoHostLedgered' payloads/ghrdp-watcher.ps1
+          grep -qF 'the new download lands in the AUTO queue by itself' tests/f46-mirror-policy.ps1
+          grep -qF 'a Desktop file does NOT auto-queue' tests/f46-mirror-policy.ps1
+          grep -qF 'id="mirrorOptInModal"' payloads/ui.html
+          grep -qF 'F51' docs/MIRROR-HOSTS.md
+          node --test tests/f50-f51-stream-auto.test.js
+          echo 'F46 gates PASS'
+
+      # [F52] socket truth, Int64, strict lanes and honest guest-cap evidence.
+      - name: F52 honest mirror telemetry + Int64 + cap-proof gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/f52-mirror-telemetry.test.js
+          test -f src/tests/smoke/f52-mirror-telemetry.test.tsx
+          test -f payloads/ghrdp-mirror-progress.cs
+          grep -qF 'ghrdp-mirror-progress.cs' .github/workflows/main.yml
+          grep -qF 'F52' docs/MIRROR-HOSTS.md
+          test "$(wc -l < STATE.md)" -le 60
+          python3 tests/ps-balance-audit.py
+          node scripts/ps-balance-audit.mjs
+          echo 'F52 RESULT=PASS source/DOM/window/cap contracts; native cells remain mandatory'
+
+      # [F53] declared multipart length is the container formula; retries show 0%.
+      - name: F53 content-length truth + retry honesty gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/f53-content-length.test.js
+          test -f src/tests/smoke/f53-queue-progress.test.tsx
+          test -f tests/f53-content-length.ps1
+          test -f tests/f53-content-length.cs
+          grep -qF 'class ContainerLength' payloads/ghrdp-mirror-progress.cs
+          grep -qF 'new SnapshotReadStream' payloads/ghrdp-mirror-progress.cs
+          grep -qF 'Get-F53DeclaredPartLength' payloads/ghrdp-mirror.ps1
+          grep -qF 'Set-F53PendingRetry' payloads/ghrdp-watcher.ps1
+          grep -qF 'framingMode = '"'"'content-length'"'"'' payloads/ghrdp-mirror.ps1
+          grep -qF 'F53' docs/MIRROR-HOSTS.md
+          test "$(wc -l < STATE.md)" -le 60
+          echo 'F53 RESULT=PASS source/DOM contracts; native wire cells remain mandatory'
+
+      # [F48] TOKEN-LESS MIRROR gates (operator directive §0/§1.6): no gofile
+      # API token exists anywhere in this system - no secret read, no env
+      # plumbing, no missing-token stage halt (absence is NORMAL), no auth
+      # header toward the host in payloads/ or src/, guest contract + probe +
+      # authMode in the schema/docs/UI. The AES-256 + probe-matrix greps from
+      # F47 §3/§2 stay enforced here. No host-policy evasion.
+      - name: F48 token-less mirror gates (guest contract + no-token greps)
+        shell: bash
+        run: |
+          set -euo pipefail
+          wf=.github/workflows/main.yml
+          inblock() { awk '/^on:/{f=1} /^permissions:/{f=0} f' "$wf"; }
+          # §1 the opt-in is a first-class dispatch input, default false
+          inblock | grep -qE '^[[:space:]]+mirror_enable:'
+          inblock | grep -qE '^[[:space:]]+mirror_encrypt:'
+          # [F59 §1] dispatch defaults FLIPPED (in-place rewrite of the F48/F52
+          # assertion): mirror ON, plaintext manual lane, search ON. The shipped
+          # config host default and the mirror gate comparison are untouched.
+          awk '/mirror_enable:/{f=1} f&&/default:/{print;exit}' "$wf" | grep -qF 'default: true' # F59: mirror ON by default
+          awk '/mirror_encrypt:/{f=1} f&&/default:/{print;exit}' "$wf" | grep -qF 'default: false' # F59: plaintext default + mandatory banner
+          grep -qE 'MIRROR_INPUT: \$\{\{ github\.event\.inputs\.mirror_enable == true' "$wf"
+          grep -qE 'MIRROR_ENCRYPT_INPUT: \$\{\{ github\.event\.inputs\.mirror_encrypt == true' "$wf"
+          # §1.6 GATE 1: the banished mirror secret name may not exist ANYWHERE
+          # in the tree (the pattern uses [_] so this workflow file - which
+          # spells the pattern out - never matches itself).
+          hits=$(grep -RIl --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=ui --exclude-dir=coverage --exclude-dir=.vite 'GOFILE[_]TOKEN' . || true)
+          if [ -n "$hits" ]; then
+            echo 'F48: the banished mirror secret name appeared in:' >&2
+            echo "$hits" >&2
+            exit 1
+          fi
+          # §1.6 GATE 2: no Authorization / X-Gofile-Token / Cookie header may
+          # target the host in payloads/ or src/. Comment lines may NAME the
+          # banned headers while documenting their absence - only non-comment
+          # lines count. The mirror module + watcher are 100% host-facing, so
+          # ANY non-comment auth header there fails; elsewhere a hit needs a
+          # gofile/accountToken target on the same line (local dash/terminal/
+          # GitHub API auth is out of scope and stays).
+          strip_comments() { grep -vE '^[[:space:]]*(#|//|\*|/\*)' "$1" || true; }
+          for f in payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1; do
+            if strip_comments "$f" | grep -nE 'Authorization|X-Gofile-Token|Cookie'; then
+              echo "F48: an auth header toward the host appeared in $f" >&2
+              exit 1
+            fi
+          done
+          auth_hits=''
+          while IFS= read -r -d '' f; do
+            h=$(grep -nE 'Authorization|X-Gofile-Token|[Cc]ookie' "$f" 2>/dev/null \
+              | grep -vE '^[0-9]+:[[:space:]]*(#|//|\*|/\*)' \
+              | grep -iE 'gofile|accountToken' || true)
+            if [ -n "$h" ]; then auth_hits="$auth_hits$h\n($f)\n"; fi
+          done < <(find payloads src -type f \( -name '*.ps1' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.html' \) -print0 2>/dev/null)
+          if [ -n "$auth_hits" ]; then
+            printf '%b' "$auth_hits"
+            echo 'F48: an auth header targeting the mirror host appeared in payloads/ or src/' >&2
+            exit 1
+          fi
+          url_hits=''
+          while IFS= read -r -d '' f; do
+            case "$f" in src/tests/*) continue ;; esac
+            h=$(grep -nE '[?&]token=|accountToken=' "$f" 2>/dev/null \
+              | grep -vE '^[0-9]+:[[:space:]]*(#|//|\*|/\*)' \
+              | grep -v '\*\*\*REDACTED\*\*\*' \
+              | grep -iE 'gofile|accountToken' || true)
+            if [ -n "$h" ]; then url_hits="$url_hits$h\n($f)\n"; fi
+          done < <(find payloads src -type f \( -name '*.ps1' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.html' \) -print0 2>/dev/null)
+          if [ -n "$url_hits" ]; then
+            printf '%b' "$url_hits"
+            echo 'F48: a credential parameter targeting the host appeared in a URL/header in payloads/ or src/' >&2
+            exit 1
+          fi
+          # §1.6 GATE 3: a missing mirror secret may never halt staging again -
+          # the F47 fail-closed halt constructs must be gone, and the validate
+          # step must report token-less guest mode as the NORMAL state.
+          if grep -nE "MISSING REQUIRED SECRET: GOFILE|requires the repo secret|F47 halt|repo secret GOFILE" "$wf"; then
+            echo 'F48: a missing-token staging halt reappeared in main.yml' >&2
+            exit 1
+          fi
+          grep -qF 'F48 mirror opt-in ON for this run: token-less guest mode' "$wf"
+          grep -qF '[F48] mirror opt-in for THIS run' "$wf"
+          # guest contract pins: no token ladder, no auth scheme, authMode field
+          if grep -nE 'Get-F46HostToken|authScheme|autoAccount|tokenConfigKey|gofile-token\.txt' payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1 payloads/ghrdp-fx.ps1; then
+            echo 'F48: token plumbing reappeared in a payload' >&2
+            exit 1
+          fi
+          grep -qF "authMode = 'guest'" payloads/ghrdp-mirror.ps1
+          grep -qF 'host requires account token; token-less mode unsupported' payloads/ghrdp-mirror.ps1
+          grep -qF 'Format-F48AuthReason' payloads/ghrdp-mirror.ps1
+          grep -qF "authMode?: 'guest' | 'requires-account'" src/components/explorer/data/schema.ts
+          grep -qF 'token-less guest mode' src/i18n/en.json
+          if grep -nE '[?&]token=' "$wf" payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1; then
+            echo 'F48: a credential may not appear in a URL' >&2
+            exit 1
+          fi
+          # §1.5 the secret-hygiene note is documented on the Settings page
+          grep -qF 'Secret hygiene' src/pages/Settings.tsx
+          # §3 real AES-256 + honest title + masked key (F47 §3, unchanged)
+          grep -qF 'keyBytes = 32' payloads/ghrdp-mirror.ps1
+          grep -qF "encryptedMime = 'application/x-ghrdp-mirror'" payloads/ghrdp-mirror.ps1
+          grep -qF 'function Invoke-F46EncryptFile' payloads/ghrdp-mirror.ps1
+          grep -qF 'function Invoke-F46DecryptFile' payloads/ghrdp-mirror.ps1
+          grep -qF 'function Test-F46AesGcmUsable' payloads/ghrdp-mirror.ps1
+          grep -qF 'Invoke-F46EncryptFile' payloads/ghrdp-watcher.ps1
+          grep -qF 'refusing to upload plaintext' payloads/ghrdp-watcher.ps1
+          grep -qF '@($mirrorKeyText)' payloads/ghrdp-watcher.ps1
+          grep -qF 'Mirror - AES-256 encrypted runner upload' src/i18n/en.json
+          grep -qF 'MaskedField id="mirrorKey"' src/components/domain/KeysCard.tsx
+          # §2 probe matrix visible on the Mirror page + in the step summary
+          grep -qF '<MirrorHostMatrix />' src/pages/Mirror.tsx
+          grep -qF 'mirrorHosts' src/components/domain/MirrorHostMatrix.tsx
+          grep -qF 'mirror-host-operator-options' src/components/domain/MirrorHostMatrix.tsx
+          # no evasion in any mirror surface (the page component included)
+          if grep -nE 'Mozilla/[0-9]|X-Forwarded-For|[Ww]ebProxy|proxy[[:space:]]*=|rotat' payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1 payloads/ghrdp-fx.ps1 src/components/domain/MirrorHostMatrix.tsx; then
+            echo 'F48: an evasion pattern (UA spoofing / proxy / IP rotation / header spoofing) appeared' >&2
+            exit 1
+          fi
+          # §3 the lab + suites exist and run
+          test -f tests/f48-tokenless-mirror.test.js
+          test -f src/tests/smoke/f48-tokenless-mirror.test.tsx
+          grep -qF '[F48' tests/f46-mirror-policy.ps1
+          # a nested try inside a finally must carry its own catch INSIDE the
+          # finally - `finally { try { X } } catch { }` is a parse error.
+          if grep -nE 'finally \{ try \{[^{}]*\} \} catch \{ \}' payloads/ghrdp-mirror.ps1 payloads/ghrdp-watcher.ps1 tests/f46-mirror-policy.ps1 "$wf"; then
+            echo 'F48: malformed try/finally (the catch must sit inside the finally block)' >&2
+            exit 1
+          fi
+          node --test tests/f48-tokenless-mirror.test.js
+          echo 'F48 gates PASS'
+      # [F49] One-click runtime opt-in for the token-less mirror: the API, the
+      # banner + the modal exist in both UIs, the token bans extend to the new
+      # code, and the lab + suites exist and run. The dispatch mirror_enable
+      # path and the default-off gate are untouched.
+      - name: F49 mirror runtime opt-in gates (API + banner + modal + token bans)
+        shell: bash
+        run: |
+          set -euo pipefail
+          wf=.github/workflows/main.yml
+          test -f tests/f49-mirror-runtime.ps1 || { echo 'F49: the runtime lab is missing' >&2; exit 1; }
+          test -f tests/f49-mirror-runtime.test.js || { echo 'F49: the node suite is missing' >&2; exit 1; }
+          test -f src/tests/smoke/f49-runtime-optin.test.tsx || { echo 'F49: the DOM suite is missing' >&2; exit 1; }
+          test -f src/lib/mirror.ts || { echo 'F49: the mirror API client is missing' >&2; exit 1; }
+          grep -qF '/api/mirror/enable' payloads/ghrdp-server.ps1 || { echo 'F49: the enable route is missing' >&2; exit 1; }
+          grep -qF '/api/mirror/disable' payloads/ghrdp-server.ps1 || { echo 'F49: the disable route is missing' >&2; exit 1; }
+          grep -qF '/api/mirror/status' payloads/ghrdp-server.ps1 || { echo 'F49: the status route is missing' >&2; exit 1; }
+          grep -qF 'dashboard authorization required (X-Dash-Token or Bearer)' payloads/ghrdp-server.ps1
+          grep -qF 'CSRF token missing or invalid' payloads/ghrdp-server.ps1
+          grep -qF 'credentials are not accepted in the query string; send X-Dash-Token' payloads/ghrdp-server.ps1
+          grep -qF 'RUNTIME OPT-IN' payloads/ghrdp-mirror.ps1
+          grep -qF 'RUNTIME OPT-IN' payloads/ghrdp-watcher.ps1
+          grep -qF 'mirror-optin-beacon.json' payloads/ghrdp-mirror.ps1
+          grep -qF 'Enable &amp; Upload' payloads/ui.html
+          grep -qF '"enableUpload": "Enable & Upload"' src/i18n/en.json
+          grep -qF 'mirrorOptInModal' payloads/ui.html
+          grep -qF 'mirror-disabled-banner' src/components/domain/MirrorCard.tsx
+          grep -qF '[F49] runtime opt-in' "$wf"
+          # the shipped default is still disabled at code level (F11-5.2)
+          grep -qE "enabled = \\\$false" payloads/ghrdp-mirror.ps1
+          # token bans extend to the new surfaces: only the dashboard's own
+          # X-Dash-Token may be named; no host token name, no credential URL.
+          if grep -nE 'X-Gofile-Token|accountToken|GOFILE[_]TOKEN' src/lib/mirror.ts src/components/domain/MirrorCard.tsx; then
+            echo 'F49: a host token name appeared in the new UI code' >&2
+            exit 1
+          fi
+          if grep -nE '[?&](token|key|password)=' src/lib/mirror.ts | grep -vF '(?key=)'; then
+            echo 'F49: the mirror client builds a credential URL' >&2
+            exit 1
+          fi
+          # no evasion wording in the new surfaces either (the server block via
+          # its marker range, so older unrelated lines stay out of scope)
+          if grep -nE 'Mozilla/[0-9]|X-Forwarded-For|[Ww]ebProxy|proxy[[:space:]]*=|rotat|spoof' src/lib/mirror.ts src/components/domain/MirrorCard.tsx; then
+            echo 'F49: an evasion pattern appeared in the new UI code' >&2
+            exit 1
+          fi
+          if sed -n '/F49 runtime-opt-in-begin/,/F49 runtime-opt-in-end/p' payloads/ghrdp-server.ps1 | grep -nE 'Mozilla/[0-9]|X-Forwarded-For|[Ww]ebProxy|proxy[[:space:]]*=|rotat|spoof'; then
+            echo 'F49: an evasion pattern appeared in the new server routes' >&2
+            exit 1
+          fi
+          # the malformed try/finally ban covers the new lab too
+          if grep -nE 'finally \\{ try \\{[^{}]*\\} \\} catch \\{ \\}' tests/f49-mirror-runtime.ps1; then
+            echo 'F49: malformed try/finally (the catch must sit inside the finally block)' >&2
+            exit 1
+          fi
+          grep -qF 'tests/f49-mirror-runtime.ps1' .github/workflows/launch-gates.yml || { echo 'F49: the runtime lab is not executed by any lane' >&2; exit 1; }
+          node --test tests/f49-mirror-runtime.test.js
+          echo 'F49 gates PASS'
+
+      - name: F40 information-architecture regression lock
+        shell: bash
+        run: |
+          test -f tests/f40-ia-gate.sh || { echo 'F40: the IA regression lock is missing' >&2; exit 1; }
+          bash tests/f40-ia-gate.sh
+      - name: Native UI and VPS contracts (Node)
+        run: node --test tests/*.test.js
+      # [F41 P1] v2 dashboard gates: the built bundle must render all 219
+      # frozen regression ids (jsdom), pass the six smoke suites, carry no
+      # banned green tokens, keep the bottom-bar time contract, and mount in a
+      # real Chromium with zero console errors. Playwright browsers download
+      # from cdn.playwright.dev (allowed on runners; blocked in some sandboxes).
+      - name: F41 v2 build + smoke + regression-id gates
+        run: |
+          set -euo pipefail
+          export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+          export VITE_BUILD_SHA="${GITHUB_SHA:-dev}"
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+          node scripts/check-regression-ids.mjs
+          node scripts/check-no-neon-green.mjs ui/dist/index.html
+          node scripts/check-bottom-bar-time.mjs
+          # [F43] flag contract: DEFAULT ON (v2), ?ui=v1 escape, staged ui-v2.html
+          grep -qF '$script:UiV2Default = $true' payloads/ghrdp-server.ps1
+          grep -qF '$script:UiV2Path' payloads/ghrdp-server.ps1
+          grep -qF 'ui-v2.html' payloads/ghrdp-server.ps1
+          grep -qF 'ui-v2.html' .github/workflows/main.yml
+          grep -qF 'ui-v2.html staging failed - build artifact missing' .github/workflows/main.yml
+          # [F43] build-ui job must exist in main.yml (root-cause fix)
+          grep -qE '^[[:space:]]+build-ui:' .github/workflows/main.yml
+          python3 -c '
+          import sys, re
+          wf = open(".github/workflows/main.yml").read()
+          start = wf.find("\n  rdp:\n")
+          assert start >= 0, "rdp job missing"
+          end_m = re.search(r"\n  [a-zA-Z0-9_-]+:\n", wf[start+1:])
+          raw = wf[start:start+1+end_m.start()] if end_m else wf[start:]
+          cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+          needs_m = re.search(r"\n    needs:\s*\[([^\]]+)\]", cleaned)
+          assert needs_m, "rdp job needs missing"
+          needs = [n.strip() for n in needs_m.group(1).split(",")]
+          assert "build-ui" in needs, "rdp job needs build-ui missing"
+          assert "preflight" in needs, "rdp job needs preflight missing"
+          '
+          grep -qF 'actions/download-artifact' .github/workflows/main.yml
+          grep -qF 'name: dist-ui' .github/workflows/main.yml
+          grep -qF 'if ($v2len -le 51200) { throw' .github/workflows/main.yml
+          if ! out=$(pnpm exec vitest run 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F45 S2 smoke::${detail}"
+            exit 1
+          fi
+      - name: F45 S1 Explorer namespace and token gates
+        run: |
+          set -euo pipefail
+          node scripts/check-fx-ids.mjs
+          if ! out=$(pnpm exec vitest run src/tests/smoke/fx-ids-regression.test.ts src/tests/smoke/fx-tokens.test.ts 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F45 S1 fx-foundation::${detail}"
+            exit 1
+          fi
+      - name: F45 S2 schema and mock-host gates (offline only)
+        run: |
+          set -euo pipefail
+          if ! out=$(pnpm exec vitest run src/tests/smoke/fx-schema-migration.test.ts src/tests/smoke/fx-gofile-mock.test.tsx 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F45 S2 data::${detail}"
+            exit 1
+          fi
+      # [F45 S3] endpoint clients only: dash-token header transport, CSRF on
+      # POST, typed §5 clients and the §5.2/§8.2 retry policy. Offline MSW; no
+      # server routes (S4) and no UI (S5+) are wired yet, so the shipped bundle
+      # must not gain any /api/fx code - that is asserted here too.
+      - name: F45 S3 endpoint client and retry policy gates (offline only)
+        run: |
+          set -euo pipefail
+          if ! out=$(pnpm exec vitest run src/tests/smoke/fx-retry-policy.test.ts src/tests/smoke/fx-endpoint-client.test.ts 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F45 S3 endpoints::${detail}"
+            exit 1
+          fi
+          # No credential may reach a URL in the Explorer client sources, and the
+          # S3 layer must stay out of the production single-file bundle.
+          if grep -RnE '\$\{[^}]*[Tt]oken[^}]*\}|\?key=' src/components/explorer/api/ ; then
+            echo "::error title=F45 S3 endpoints::credential appears in an Explorer URL expression"
+            exit 1
+          fi
+          # [F49] X-Dash-Token is a legitimate PRODUCTION header now (the Mirror
+          # page sends the dash token by header); it no longer proves the S3
+          # layer leaked.
+          # [R-FILES / #217 / #225] REVIEWED CONTRACT CHANGE, not a relaxation.
+          # The paragraph above this step used to end "...no UI (S5+) are wired
+          # yet, so the shipped bundle must not gain any /api/fx code", which is
+          # why `api/fx/list` was a forbidden needle. The v3 acceptance requires
+          # the ROUTED Files page to read the runner's normalized index, so that
+          # premise is now false and the read path must ship. What actually
+          # drags the S3 OP client in are the idempotency header and the fx.err
+          # catalog: both stay forbidden, and the read path is pinned POSITIVELY
+          # so the bundle is asserted in both directions.
+          for needle in 'X-Idempotency-Key' 'fx.err.hostBadGateway'; do
+            if grep -qF "$needle" ui/dist/index.html; then
+              echo "::error title=F45 S3 endpoints::S3 op client code leaked into the shipped bundle ($needle)"
+              exit 1
+            fi
+          done
+          # The ONE S3-lane string the shipped bundle is allowed to carry: the
+          # read's GET path, declared by src/lib/explorer/read-index.ts and
+          # asserted in src/tests/smoke/r-files-listing-provenance.test.tsx.
+          if ! grep -qF '/api/fx/list' ui/dist/index.html; then
+            echo "::error title=F45 S3 endpoints::the routed Explorer read path /api/fx/list is missing from the shipped bundle"
+            exit 1
+          fi
+          echo 'F45 S3 endpoint gates PASS'
+      - name: F41 v2 e2e (playwright, real bundle)
+        run: |
+          set -euo pipefail
+          export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+          corepack enable
+          pnpm exec playwright install --with-deps chromium
+          # Failure bridge: the sandbox authoring this cannot read runner logs
+          # (blob storage blocked), so surface the report tail as ONE readable
+          # ::error:: annotation on the check run.
+          if ! out=$(pnpm exec playwright test 2>&1); then
+            echo "$out" | tail -60
+            # [F45-S2-RESUME §1.1] `tail -c 2200` kept the run SUMMARY and cut the
+            # per-test detail block, which is exactly where playwright prints the
+            # pending "Call log" (i.e. which await was still running when the test
+            # timed out). That is why the f42 "(c)" timeout was un-diagnosable from
+            # the annotation. Emit the failure block (head) PLUS the summary (tail).
+            detail=$(printf '%s' "$out" | awk '/^  [0-9]+\) /{f=1} f{print}' | head -c 1700)
+            summary=$(printf '%s' "$out" | tail -c 400)
+            echo "::error::E2E-FAIL::$(printf '%s' "${detail}${summary}" | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g' | iconv -f UTF-8 -t UTF-8 -c)"
+            exit 1
+          fi
+      # [F42] ?ui=v2 must ACTUALLY reach v2: normalised query, fail-visible
+      # missing-v2 banner, URLSearchParams link builder, loud staging assert.
+      - name: F42 ui=v2 reachability gates
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
           srv=payloads/ghrdp-server.ps1
           wf=.github/workflows/main.yml
           ui=payloads/ui.html
@@ -1587,6 +2654,408 @@ jobs:
           echo 'F42 gates PASS: query=normalized, staging=fail-visible, links=correct'
       # [F43] build-ui in main.yml + DEFAULT-v2 cutover + Classic UI escape.
       - name: F43 build-ui wiring + default-v2 cutover gates
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
+          wf=.github/workflows/main.yml
+          srv=payloads/ghrdp-server.ps1
+          # §1.4 gate greps: build-ui job + needs + download-artifact + size assert
+          grep -qE '^[[:space:]]+build-ui:' "$wf"
+          python3 -c '
+          import sys, re
+          wf = open(".github/workflows/main.yml").read()
+          start = wf.find("\n  rdp:\n")
+          assert start >= 0, "rdp job missing"
+          end_m = re.search(r"\n  [a-zA-Z0-9_-]+:\n", wf[start+1:])
+          raw = wf[start:start+1+end_m.start()] if end_m else wf[start:]
+          cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+          needs_m = re.search(r"\n    needs:\s*\[([^\]]+)\]", cleaned)
+          assert needs_m, "rdp job needs missing"
+          needs = [n.strip() for n in needs_m.group(1).split(",")]
+          assert "build-ui" in needs, "rdp job needs build-ui missing"
+          assert "preflight" in needs, "rdp job needs preflight missing"
+          '
+          grep -qF 'actions/download-artifact' "$wf"
+          grep -qF 'name: dist-ui' "$wf"
+          grep -qF 'actions: write' "$wf"
+          grep -qF 'if ($v2len -le 51200) { throw' "$wf"
+          grep -qF "throw 'ui-v2.html staging failed - build artifact missing'" "$wf"
+          # download-artifact must appear BEFORE the Stage files step
+          dl=$(grep -nF 'actions/download-artifact' "$wf" | head -1 | cut -d: -f1)
+          st=$(grep -nF 'Stage files + write config.json' "$wf" | head -1 | cut -d: -f1)
+          test -n "$dl" && test -n "$st" && test "$dl" -lt "$st" || { echo 'F43: download-artifact must precede Stage files' >&2; exit 1; }
+          # no in-rdp pnpm build of the v2 bundle (moved to build-ui)
+          if awk '/name: Write deploy payloads/,/name: Build ghrdp-handler-kit/' "$wf" | grep -E 'pnpm (run )?build|pnpm install'; then
+            echo 'F43: rdp Write-deploy still builds ui in-job (must use dist-ui artifact)' >&2
+            exit 1
+          fi
+          # §2 default-v2 cutover
+          grep -qF '$script:UiV2Default = $true' "$srv"
+          if grep -qF '$script:UiV2Default = $false' "$srv"; then
+            echo 'F43: UiV2Default still false' >&2; exit 1
+          fi
+          # Classic UI escape in v2 TopBar (en+si i18n)
+          grep -qF 'classicUiLink' src/components/layout/AppShell.tsx
+          grep -qF 'classic-ui-link' src/components/layout/AppShell.tsx
+          grep -qF 'classicUi' src/i18n/en.json
+          grep -qF 'classicUi' src/i18n/si.json
+          # v1 still has Preview-v2
+          grep -qF 'id="v2PreviewLink"' payloads/ui.html
+          # node unit matrix for default-flag resolution
+          test -f tests/f43-default-v2.test.js
+          node --test tests/f43-default-v2.test.js
+          # 219-id lock still green under default-flag config (post-build above)
+          node scripts/check-regression-ids.mjs
+          echo 'F43 gates PASS: build-ui=in-main.yml, default=v2, escape=v1, banner=fail-visible, ids=locked'
+
+      - name: F56-c sidebar + search + file-explorer shell gates
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh=src/components/layout/AppShell.tsx
+          app=src/App.tsx
+          # §1 sidebar: entries in locked order. [F76 §2.1] Search moved
+          # to slot 2 (directly under Overview) so it is visible without scrolling;
+          # the other entries keep their F56-c relative order. File Explorer above
+          # Mirror (Alt+E) and Search (Alt+F) carry their additive f57/f56 nav ids.
+          python3 -c '
+          import re
+          src = open("src/components/layout/AppShell.tsx", encoding="utf-8").read()
+          nav = src.split("const NAV: NavItem[]")[1].split("];")[0]
+          tos = re.findall(r"to: \"([^\"]+)\"", nav)
+          # [F92 §6.3] +/health; [F99] +/collector (locked-order contract
+          # follows the AppShell; smoke-test ORDER arrays kept in sync).
+          expect = ["/", "/search", "/sessions", "/connections", "/keys", "/files", "/mirror", "/telemetry", "/health", "/collector", "/settings"]
+          assert tos == expect, ("sidebar order drifted", tos)
+          assert "id: \"f57.explorer.nav\"" in nav and "hint: \"Alt+E\"" in nav, "files entry"
+          assert "id: \"f56.search.nav\"" in nav and "hint: \"Alt+F\"" in nav, "search entry"
+          assert "icon: Folder" in nav and "icon: Search" in nav, "icons"
+          print("F56-c sidebar: 10 entries (F92 +/health), order locked")
+          '
+          # §1 routes + hotkeys + palette prefill
+          # [F105 §2.3] the element expression is pinned VERBATIM and is now
+          # stricter than before: the route can no longer lose its
+          # FeatureBoundary fence without failing this gate (the old grep only
+          # matched the page element). Intent is unchanged - both routes are
+          # still registered, unconditionally.
+          grep -qF 'path="/files" element={fence("files", <FileExplorer />)}' "$app"
+          grep -qF 'path="/search" element={fence("search", <SearchPage />)}' "$app"
+          grep -qF 'navigate("/files")' "$sh"
+          grep -qF 'navigate("/search")' "$sh"
+          test -f src/components/layout/CommandPalette.tsx
+          grep -qF '"?q="' src/components/layout/CommandPalette.tsx
+          # §2 search state + frozen /api/search{,/status,/cancel} client wiring
+          test -f src/stores/searchStore.ts
+          test -f src/api/search/index.ts
+          grep -qF '"/api/search"' src/api/search/index.ts
+          grep -qF '"/api/search/status' src/api/search/index.ts
+          grep -qF '"/api/search/cancel"' src/api/search/index.ts
+          grep -qF '"react-window"' package.json
+          test -f src/pages/Search.tsx
+          test -f src/pages/FileExplorer.tsx
+          test -f src/pages/file-explorer/fixture.json
+          # §5 refusals: no /api/fetch CALL from the UI outside F56-d transport lane.
+          # F56-d owns real client in src/api/fetch + src/lib/fetchStub + src/lib/f46.
+          if grep -Rn '/api/fetch' src/ \
+            | grep -vE '\.(test|spec)\.tsx?:[0-9]+:' \
+            | grep -vE 'src/api/fetch' \
+            | grep -vE 'src/lib/fetchStub' \
+            | grep -vE 'src/lib/f46' \
+            | grep -vE ':[0-9]+:\s*(//|\*|/\*)'; then
+            echo 'F56-c: /api/fetch literal outside F56-d lane - refuse' >&2
+            exit 1
+          fi
+          if grep -RnE 'fetch\(.{0,48}/api/fetch' src/ \
+            | grep -vE 'src/api/fetch'; then
+            echo 'F56-c: /api/fetch call constructed outside F56-d lane - refuse' >&2
+            exit 1
+          fi
+          awk '/mirror_enable:/{f=1} f&&/default:/{print;exit}' .github/workflows/main.yml | grep -qF 'default: true' # F59 flip
+          # §4 i18n: byte-verified en/si parity over search.* + files.* + new nav keys
+          python3 -c '
+          import json
+          def flat(d, p=""):
+              out = {}
+              for k, v in d.items():
+                  if isinstance(v, dict): out.update(flat(v, p + k + "."))
+                  else: out[p + k] = str(v)
+              return out
+          fe = flat(json.load(open("src/i18n/en.json", encoding="utf-8")))
+          fs = flat(json.load(open("src/i18n/si.json", encoding="utf-8")))
+          new = lambda k: k.startswith(("search.", "files.")) or k in ("nav.files", "nav.search")
+          en_new = sorted(k for k in fe if new(k))
+          si_new = sorted(k for k in fs if new(k))
+          assert en_new == si_new, ("en/si key sets drifted", len(en_new), len(si_new))
+          for k in si_new:
+              v = fs[k]
+              assert v.strip(), ("empty si value", k)
+              assert v.encode("utf-8").decode("utf-8") == v, ("si byte round-trip", k)
+          print("F56-c i18n:", len(en_new), "keys x 2 catalogs, parity OK")
+          '
+          # §5 219-id one-directional: frozen lock untouched, f56/f57 additive + collision-free
+          node scripts/check-regression-ids.mjs
+          python3 -c '
+          import re
+          parent = set(re.findall(r"\x27([^\x27]+)\x27", open("src/lib/regression-ids.ts", encoding="utf-8").read()))
+          s56 = open("src/pages/search/ids.ts", encoding="utf-8").read()
+          s57 = open("src/pages/file-explorer/ids.ts", encoding="utf-8").read()
+          def arr(text, name):
+              return re.findall(r"\"(f5[67]\.[A-Za-z0-9.]+)\"", re.search(name + r" = \[(.*?)\] as const;", text, re.S).group(1))
+          inv = arr(s56, "F56_SEARCH_IDS") + arr(s57, "F57_EXPLORER_IDS")
+          tmpls = set(arr(s56, "F56_SEARCH_TEMPLATES") + arr(s57, "F57_EXPLORER_TEMPLATES"))
+          assert len(inv) == 71 + 21, ("id lock size", len(inv))
+          assert len(set(inv)) == len(inv), "duplicate f56/f57 id"
+          assert tmpls <= set(inv), "template missing from inventory"
+          dashed = set(x.replace(".", "-") for x in inv)
+          for p in parent:
+              assert p not in inv, ("collision", p)
+              assert p not in dashed, ("dashed collision", p)
+          print("F56-c ids:", len(inv), "additive f56/f57 entries, collision-free")
+          '
+          # §4 F56-c Vitest cells (sidebar / search / file explorer / locks / parity)
+          corepack enable >/dev/null 2>&1 || true
+          if ! out=$(pnpm exec vitest run src/tests/smoke/sidebar-nav.test.tsx src/tests/smoke/search-page.test.tsx src/tests/smoke/file-explorer-shell.test.tsx src/tests/smoke/f56-f57-ids.test.ts src/tests/smoke/i18n-f56-parity.test.ts 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F56-c UI shell::${detail}"
+            exit 1
+          fi
+          echo 'F56-c gates PASS: sidebar=9, search-page=live, file-explorer-page=live, ids=additive, i18n=parity'
+      - name: F56-c v2 Google-style landing + progressive lab + URL import gates
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          v2=src/pages/search/v2
+          # §2/F79 Google-style landing: ONE centered bar (760px max, ~64px tall,
+          # autofocused) with a sub-line and exactly three QUIET chips; the
+          # frozen F56-c filter ids move INSIDE the collapsed Advanced disclosure
+          # so the landing surface shows no chips and no size cap.
+          test -f "$v2/SearchHero.tsx"
+          test -f "$v2/AdvancedPanel.tsx"
+          grep -qF 'max-w-[760px]' src/pages/search/CommandBar.tsx
+          grep -qF 'h-16' src/pages/search/CommandBar.tsx
+          grep -qF 'min-h-[45vh]' src/pages/search/CommandBar.tsx
+          grep -qF 'transition-all duration-500' src/pages/search/CommandBar.tsx
+          grep -qF 'data-anim' src/pages/search/CommandBar.tsx
+          grep -qF 'hidden={!open}' "$v2/AdvancedPanel.tsx"
+          grep -qF 'f56.search.sizeSlider' "$v2/AdvancedPanel.tsx"
+          grep -qF 'f56.search.licenceChip.' "$v2/AdvancedPanel.tsx"
+          grep -qF 'f56.search.categoryChip.' "$v2/AdvancedPanel.tsx"
+          grep -qF 'f56.search.v2.adapterChip.' "$v2/AdvancedPanel.tsx"
+          for chip in quietChipRecent quietChipOwnStorage quietChipPasteUrl; do
+            grep -qF "f56.search.v2.$chip" "$v2/SearchHero.tsx"
+          done
+          # A1 in-place overwrite: the untouched slider default is 0 = unlimited.
+          grep -qF 'export const DEFAULT_MAX_SIZE_BYTES = 0;' src/stores/searchStore.ts
+          grep -qF 'A1_PLANNED_DEFAULT_MAX_SIZE_BYTES = 10 * GB;' src/stores/searchStore.ts
+          grep -qF 'sizeFiltered' src/stores/searchStore.ts
+          # §2 progressive lab: pure 5-minute machine + per-adapter rail
+          test -f src/lib/search/progressiveLab.ts
+          grep -qF 'LAB_CLASSIFIER_END_MS = 30_000' src/lib/search/progressiveLab.ts
+          grep -qF 'LAB_PROBES_END_MS = 240_000' src/lib/search/progressiveLab.ts
+          grep -qF 'LAB_CONSOLIDATION_END_MS = 300_000' src/lib/search/progressiveLab.ts
+          grep -qF 'f56.search.v2.labAdapterRail' "$v2/ProgressiveLab.tsx"
+          grep -qF 'f56.search.v2.labStageRow.' "$v2/ProgressiveLab.tsx"
+          grep -qF 'f56.search.v2.labLinks' "$v2/ProgressiveLab.tsx"
+          # §2 result cards: badge + title + creator + ACTUAL bytes + direct URL
+          grep -qF 'f56.search.v2.card.' src/pages/search/ResultsGrid.tsx
+          grep -qF 'f56.search.v2.cardDirectUrl.' src/pages/search/ResultsGrid.tsx
+          grep -qF 'f56.search.v2.cardUrlWithheld.' src/pages/search/ResultsGrid.tsx
+          grep -qF 'formatActualBytes' src/pages/search/ResultsGrid.tsx
+          grep -qF 'f56.search.resultFetch.' src/pages/search/ResultsGrid.tsx
+          grep -qF 'validatedHttpsUrl' src/pages/search/tokens.ts
+          # §2 Fetch stub: in F56-c stubbed, in F56-d real. Compat shim keeps stub code.
+          test -f src/lib/fetchStub.ts
+          grep -qF 'F56D_NOT_IMPLEMENTED' src/lib/fetchStub.ts
+          # F56-d: /api/fetch allowed in src/api/fetch + src/lib/fetchStub + src/lib/f46
+          if grep -Rn '/api/fetch' src/ \
+            | grep -vE '\.(test|spec)\.tsx?:[0-9]+:' \
+            | grep -vE 'src/api/fetch' \
+            | grep -vE 'src/lib/fetchStub' \
+            | grep -vE 'src/lib/f46' \
+            | grep -vE ':[0-9]+:\s*(//|\*|/\*)'; then
+            echo 'F56-c v2: /api/fetch literal outside F56-d lane' >&2
+            exit 1
+          fi
+          # §2 URL import + own-credential modal: UI only, never persisted
+          grep -qF 'f56.search.v2.importBanner' src/pages/search/CommandBar.tsx
+          grep -qF 'f56.search.v2.credModal' "$v2/OwnCredentialModal.tsx"
+          grep -qF 'f56.search.v2.credNotice' "$v2/OwnCredentialModal.tsx"
+          grep -qF 'f56.search.v2.credPassword' "$v2/OwnCredentialModal.tsx"
+          grep -qF 'autoComplete="new-password"' "$v2/OwnCredentialModal.tsx"
+          if grep -RnE 'localStorage|sessionStorage' "$v2" src/stores/searchUiStore.ts src/lib/fetchStub.ts \
+            | grep -vE ':[0-9]+:\s*(//|\*|/\*)'; then
+            echo 'F56-c v2: the own-credential surface must never persist' >&2
+            exit 1
+          fi
+          # §3 File Explorer: reserved Fetched root + its F56-d empty state
+          grep -qF 'f57.explorer.v2.fetchedGroup' src/pages/file-explorer/ExplorerTree.tsx
+          grep -qF 'f57.explorer.v2.fetchedNode' src/pages/file-explorer/ExplorerTree.tsx
+          grep -qF 'f57.explorer.v2.fetchedEmpty' src/pages/FileExplorer.tsx
+          grep -qF 'FETCHED_PATH' src/pages/FileExplorer.tsx
+          grep -qF 'D:\\RDP-Storage\\Fetched' src/pages/file-explorer/fixture.json
+          # §4 v2 id lock: additive, namespaced, collision-free against the frozen
+          # 92 f56/f57 ids and the frozen 219 (raw AND dashed forms).
+          python3 -c '
+          import re
+          parent = set(re.findall(r"\x27([^\x27]+)\x27", open("src/lib/regression-ids.ts", encoding="utf-8").read()))
+          def arr(text, name):
+              return re.findall(r"\"(f5[67]\.[A-Za-z0-9.]+)\"", re.search(name + r" = \[(.*?)\] as const;", text, re.S).group(1))
+          v2 = open("src/pages/search/v2/ids.ts", encoding="utf-8").read()
+          f56 = open("src/pages/search/ids.ts", encoding="utf-8").read()
+          f57 = open("src/pages/file-explorer/ids.ts", encoding="utf-8").read()
+          inv = arr(v2, "F56C_V2_SEARCH_IDS") + arr(v2, "F57_EXPLORER_V2_IDS")
+          frozen = arr(f56, "F56_SEARCH_IDS") + arr(f57, "F57_EXPLORER_IDS")
+          tmpl = set(arr(v2, "F56C_V2_SEARCH_TEMPLATES") + arr(v2, "F57_EXPLORER_V2_TEMPLATES"))
+          assert len(frozen) == 71 + 21, ("frozen id lock changed", len(frozen))
+          assert len(inv) >= 45, ("v2 id lock too small", len(inv))
+          assert len(set(inv)) == len(inv), "duplicate v2 id"
+          assert not set(inv) & set(frozen), "v2 id collides with a frozen f56/f57 id"
+          for i in inv:
+              assert re.match(r"^f5[67]\.(search|explorer)\.[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$", i), ("v2 id shape", i)
+          dashed = set(x.replace(".", "-") for x in inv)
+          for p in parent:
+              assert p not in inv, ("collision", p)
+              assert p not in dashed, ("dashed collision", p)
+          assert tmpl <= set(inv), "v2 template missing from inventory"
+          print("F56-c v2 ids:", len(inv), "additive entries, collision-free")
+          '
+          # §4 i18n: the v2 catalogs stay byte-verified en/si parity
+          python3 -c '
+          import json
+          def flat(d, p=""):
+              out = {}
+              for k, v in d.items():
+                  if isinstance(v, dict): out.update(flat(v, p + k + "."))
+                  else: out[p + k] = str(v)
+              return out
+          fe = flat(json.load(open("src/i18n/en.json", encoding="utf-8")))
+          fs = flat(json.load(open("src/i18n/si.json", encoding="utf-8")))
+          en_v2 = sorted(k for k in fe if k.startswith(("search.v2.", "files.v2.")))
+          si_v2 = sorted(k for k in fs if k.startswith(("search.v2.", "files.v2.")))
+          assert en_v2 == si_v2, ("v2 en/si key sets drifted", len(en_v2), len(si_v2))
+          assert len(en_v2) >= 55, ("v2 key count", len(en_v2))
+          for k in si_v2:
+              v = fs[k]
+              assert v.strip(), ("empty si v2 value", k)
+              assert v.encode("utf-8").decode("utf-8") == v, ("si byte round-trip", k)
+          print("F56-c v2 i18n:", len(en_v2), "keys x 2 catalogs, parity OK")
+          '
+          # §4 v2 Vitest cells (landing / lab / cards / import / explorer + the
+          # three F56-c cells whose surfaces the redesign touched)
+          corepack enable >/dev/null 2>&1 || true
+          if ! out=$(pnpm exec vitest run src/tests/smoke/f56c-v2-landing.test.tsx src/tests/smoke/f56c-v2-lab.test.tsx src/tests/smoke/f56c-v2-cards.test.tsx src/tests/smoke/f56c-v2-import.test.tsx src/tests/smoke/f56c-v2-explorer.test.tsx src/tests/smoke/search-page.test.tsx src/tests/smoke/file-explorer-shell.test.tsx src/tests/smoke/i18n-f56-parity.test.ts src/tests/smoke/f56-f57-ids.test.ts 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F56-c v2 UI::${detail}"
+            exit 1
+          fi
+          echo 'F56-c v2 gates PASS: google-style=live, lab=live, advanced=live, url-import=live, own-cred-modal=stub, fx-shell=live, fetched=reserved'
+      - name: F56-c v3 all-in-one bar + visible lab + DEV fixture gates
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          v2=src/pages/search/v2
+          # §2 all-in-one bar: ONE centered ~60%-wide, ~72px-tall autofocused
+          # control with the magnifier submit on the left and the three inline
+          # icons [clip][drawer][mic] on the right.
+          grep -qF 'max-w-[760px]' src/pages/search/CommandBar.tsx
+          grep -qF 'h-[72px]' src/pages/search/CommandBar.tsx
+          grep -qF 'f56.search.v2.urlImportIndicator' src/pages/search/CommandBar.tsx
+          grep -qF 'f56.search.v2.micStub' src/pages/search/CommandBar.tsx
+          grep -qF 'bar-icon-clip' src/pages/search/CommandBar.tsx
+          grep -qF 'bar-icon-drawer' src/pages/search/CommandBar.tsx
+          grep -qF 'bar-icon-mic' src/pages/search/CommandBar.tsx
+          # §1 zero visible chips: every §1 control lives ONLY inside the ⋯
+          # inline drawer, which renders only while open.
+          grep -qF 'advancedOpen ? <AdvancedPanel open={advancedOpen} /> : null' src/pages/search/CommandBar.tsx
+          if grep -nE 'categoryChip|licenceChip|sizeSlider|sortSelector|f56.search.scope|adapterChip' "$v2/SearchHero.tsx"; then
+            echo 'F56-c v3: filter controls leaked back onto the landing surface' >&2
+            exit 1
+          fi
+          grep -qF '"help": "Alt+F opens Search. Enter submits."' src/i18n/en.json
+          # §3 visible lab: classifier stream, rail timestamps, consolidation
+          # summary + informational timed-out note (muted, never a red banner).
+          grep -qF 'labClassifierStream' src/lib/search/progressiveLab.ts
+          grep -qF 'labTimedOut' src/lib/search/progressiveLab.ts
+          grep -qF 'labStamp' src/lib/search/progressiveLab.ts
+          grep -qF 'f56.search.v2.labClassifierStream' "$v2/ProgressiveLab.tsx"
+          grep -qF 'f56.search.v2.labTimedOut' "$v2/ProgressiveLab.tsx"
+          grep -qF 'f56.search.v2.labConsolidated' "$v2/ProgressiveLab.tsx"
+          if grep -n 'labTimedOut' "$v2/ProgressiveLab.tsx" | grep -q 'danger'; then
+            echo 'F56-c v3: the timed-out note must stay informational' >&2
+            exit 1
+          fi
+          # §3 DEV fixture fallback: 10-20 mock rows, DEV-flagged, prod-safe.
+          test -f src/pages/search/fixture.json
+          rows=$(grep -c '"resultId"' src/pages/search/fixture.json)
+          test "$rows" -ge 10 -a "$rows" -le 20
+          grep -qF 'import.meta.env.DEV' src/pages/search/devFixture.ts
+          grep -qF 'shouldStreamDevFixture' src/pages/Search.tsx
+          grep -qF 'f56.search.devFixtureNote' src/pages/Search.tsx
+          # §4 id rule: v3 ids additive, namespaced, collision-free against the
+          # frozen 219; the 219 lock itself stays untouched and asserted.
+          python3 - <<'PY'
+          import re
+          parent = set(re.findall(r"'([^']+)'", open("src/lib/regression-ids.ts", encoding="utf-8").read()))
+          txt = open("src/pages/search/v2/ids.ts", encoding="utf-8").read()
+          m = re.search(r"F56C_V3_SEARCH_IDS = \[(.*?)\] as const;", txt, re.S)
+          v3 = re.findall(r'"(f5[67]\.[A-Za-z0-9.]+)"', m.group(1))
+          assert 5 <= len(v3) <= 40, ("v3 id lock size", len(v3))
+          assert len(set(v3)) == len(v3), "duplicate v3 id"
+          t = re.search(r"F56C_V3_SEARCH_TEMPLATES = \[(.*?)\] as const;", txt, re.S)
+          tmpl = set(re.findall(r'"(f5[67]\.[A-Za-z0-9.]+)"', t.group(1)))
+          assert tmpl <= set(v3), "v3 template missing from inventory"
+          for i in v3:
+              assert re.match(r"^f5[67]\.(search|explorer)\.[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$", i), ("v3 id shape", i)
+              assert i not in parent and i.replace(".", "-") not in parent, ("219 collision", i)
+          assert len(parent) == 219, "frozen 219 changed"
+          print("F56-c v3 ids:", len(v3), "additive entries, 219 untouched")
+          PY
+          # §4 i18n: v3 en/si parity, byte-verified Sinhala, placeholder match.
+          python3 - <<'PY'
+          import json, re
+          def flat(d, p=""):
+              out = {}
+              for k, v in d.items():
+                  if isinstance(v, dict): out.update(flat(v, p + k + "."))
+                  else: out[p + k] = str(v)
+              return out
+          fe = flat(json.load(open("src/i18n/en.json", encoding="utf-8")))
+          fs = flat(json.load(open("src/i18n/si.json", encoding="utf-8")))
+          en3 = sorted(k for k in fe if k.startswith("search.v3."))
+          si3 = sorted(k for k in fs if k.startswith("search.v3."))
+          assert en3 == si3, ("v3 en/si key sets drifted", len(en3), len(si3))
+          assert len(en3) == 10, ("v3 key count", len(en3))
+          for k in si3:
+              v = fs[k]
+              assert v.strip(), ("empty si v3 value", k)
+              assert v.encode("utf-8").decode("utf-8") == v, ("si byte round-trip", k)
+              stripped = re.sub(r"\{\{\s*\w+\s*\}\}", "", v)
+              assert re.search("[\u0D80-\u0DFF]", v) or re.fullmatch(r"[A-Za-z0-9 ._:/\-+()%&,']+", stripped), ("si Sinhala-or-technical", k)
+              assert sorted(re.findall(r"\{\{\s*\w+\s*\}\}", v)) == sorted(re.findall(r"\{\{\s*\w+\s*\}\}", fe[k])), ("placeholder drift", k)
+          print("F56-c v3 i18n:", len(en3), "keys x 2 catalogs, parity OK")
+          PY
+          # mirror default-OFF preserved; 219 lock still asserted in the suite.
+          grep -qF 'mirror stays default-OFF' src/stores/searchStore.ts
+          grep -qF 'expect(REGRESSION_IDS.length).toBe(219)' src/tests/smoke/ids-regression.test.tsx
+          # §4 v3 Vitest cells (all-in-one landing + visible lab + DEV fixture)
+          corepack enable >/dev/null 2>&1 || true
+          if ! out=$(pnpm exec vitest run src/tests/smoke/f56c-v2-landing.test.tsx src/tests/smoke/f56c-v3-lab.test.tsx src/tests/smoke/search-page.test.tsx src/tests/smoke/i18n-f56-parity.test.ts src/tests/smoke/f56-f57-ids.test.ts 2>&1); then
+            echo "$out"
+            detail=$(printf '%s' "$out" | tail -c 2200 | tr '\n' '|' | tr -d '\r' | sed 's/%/%25/g')
+            echo "::error title=F56-c v3 UI::${detail}"
+            exit 1
+          fi
+          echo 'F56-c v3 gates PASS: chips-visible=0, size-cap-display=none, all-in-one-bar=live, deep-lab=visible, dev-fixture=wired'
+
+      # [F58] ADDITIVE ONLY: this is the one new gate step F58 lands. No existing
+      # step was edited, and this workflow never dispatches main.yml.
+      - name: F58 custom source registry gates (store + shared form + presets + provenance-6)
         shell: bash
         run: |
           # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
@@ -2083,6 +3552,161 @@ jobs:
       # ---- secret, be fail-closed on BOOTSTRAP_OK/FAILED, poll 30x10s, deny 3389 and ----
       # ---- all inbound Internet, and the bootstrap must be idempotent + pinned. ----
       - name: F60 warm-runner provisioning + pinned bootstrap gates
+        shell: bash
+        run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
+          set -euo pipefail
+          echo '===== F60 gate: provisioning workflow + pinned warm-VM bootstrap ====='
+          for f in .github/workflows/provision-warm-runner.yml .github/workflows/f60-warm-pins-bootstrap.yml scripts/f60-bootstrap.ps1 scripts/f60-scrub-runcommand.ps1 payloads/f60-warm-pins.json payloads/f59-prebuilt-pins.json docs/F60-OPERATOR-SETUP.md; do
+            test -f "$f" || { echo "F60: $f missing" >&2; exit 1; }
+          done
+          # YAML must actually parse (PyYAML is preinstalled on ubuntu-latest; if it is
+          # ever missing this gate installs it or FAILS CLOSED - it must not silently skip).
+          for yml in .github/workflows/provision-warm-runner.yml .github/workflows/f60-warm-pins-bootstrap.yml .github/workflows/warm-dispatch.yml; do
+            python3 -c "
+          import sys, yaml
+          try:
+              yaml.safe_load(open('$yml'))
+          except ModuleNotFoundError:
+              print('F60: PyYAML missing - installing for the parse gate')
+              import subprocess
+              subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', '--user', 'pyyaml'], check=True)
+              yaml.safe_load(open('$yml'))
+          except Exception as e:
+              print('F60: $yml does not parse: ' + str(e), file=sys.stderr)
+              sys.exit(1)
+          print('F60 yaml parse ok: $yml')
+          "
+          done
+          wf=.github/workflows/provision-warm-runner.yml
+          for tok in "workflow_dispatch:" "action:" "create" "verify" "teardown" "region:" "southeastasia" "centralindia" "vm_size:" "Standard_B2s" "timeout-minutes: 45" "contents: read" "actions: write" "concurrency:" "runs-on: ubuntu-latest" "uses: actions/checkout@v4" "az login --service-principal" "az account set --subscription" "az logout" "NO THIRD-PARTY ACTIONS" "runner_token" "RUNNER_REGISTRATION_TOKEN" "secrets.AZURE_CREDENTIALS" "Preflight" "f59-prebuilt-pins.json" "f60-warm-pins.json" "SP scope too broad" "F60 HALT" "DenyRdpInternet" "DenyAllInternetInbound" "default-allow-rdp" "MicrosoftWindowsServer:WindowsServer:2022-datacenter" "--os-disk-size-gb 128" "--data-disk-sizes-gb 32" "--public-ip-sku Standard" "--no-wait" "az vm wait" "registration-token" "::add-mask::" "az vm run-command invoke" "RunPowerShellScript" "@scripts/f60-bootstrap.ps1" "BOOTSTRAP_OK" "BOOTSTRAP_FAILED" "f60-scrub-runcommand.ps1" "seq 1 30" "sleep 10" "F60 STOP" "MagicDNS hostname" "runner id" "temporary public IP" "az group delete" "NO ARC / NO Kubernetes / NO GitHub Larger Runners"; do
+            grep -qF -- "$tok" "$wf" || { echo "F60: provision-warm-runner.yml missing: $tok" >&2; exit 1; }
+          done
+          # F60 references NO third-party action. A mutable tag such as
+          # azure/login@v2 both (a) makes GitHub reject the whole file when the repo's
+          # Actions policy only allows GitHub-authored actions - the run then dies in
+          # 0 s as "workflow file issue" and the workflow cannot even be dispatched -
+          # and (b) contradicts F60's own pinning rule. `az` is preinstalled on
+          # ubuntu-latest, so the SP login is plain CLI.
+          third=$(grep -hE '^[[:space:]]*uses: ' .github/workflows/provision-warm-runner.yml .github/workflows/warm-dispatch.yml .github/workflows/f60-warm-pins-bootstrap.yml | grep -vE 'uses: actions/' || true)
+          test -z "$third" || { echo "F60: an F60 workflow references a non-actions/* action:" >&2; printf '%s\n' "$third" >&2; exit 1; }
+          echo 'F60 action-provenance gate PASS: every uses: in the three F60 workflows is actions/*'
+          # ... and every permissions key must be one GitHub actually accepts: an
+          # unknown key (e.g. `administration`) invalidates the entire workflow file.
+          python3 - <<'PYEOF'
+          import sys, yaml
+          ok = {'actions', 'attestations', 'checks', 'contents', 'deployments', 'discussions',
+                'id-token', 'issues', 'metadata', 'packages', 'pages', 'pull-requests',
+                'repository-projects', 'security-events', 'statuses'}
+          files = ['.github/workflows/provision-warm-runner.yml',
+                   '.github/workflows/warm-dispatch.yml',
+                   '.github/workflows/f60-warm-pins-bootstrap.yml']
+          for f in files:
+              d = yaml.safe_load(open(f))
+              def check(perms, where, f=f):
+                  for k in (perms or {}):
+                      if k not in ok:
+                          print('F60: ' + f + ' ' + where + ' declares an unknown permissions key: ' + str(k))
+                          sys.exit(1)
+              check(d.get('permissions'), 'at workflow level')
+              for jn, j in (d.get('jobs') or {}).items():
+                  check(j.get('permissions'), 'in job ' + str(jn))
+          print('F60 permissions-key gate PASS: only documented workflow permission keys are declared')
+          PYEOF
+          # the lockdown must exist before the VM does
+          nsg=$(grep -nF 'Create the resource group + the Tailscale-only NSG' "$wf" | head -1 | cut -d: -f1)
+          vm=$(grep -nF 'name: Create the warm VM' "$wf" | head -1 | cut -d: -f1)
+          test -n "$nsg" && test -n "$vm" && test "$nsg" -lt "$vm" || { echo "F60: the NSG lockdown must precede the VM create" >&2; exit 1; }
+          # masking must precede the command that CONSUMES each secret value
+          mask_use() {
+            secret="$1"; use="$2"
+            grep -qF "echo \"::add-mask::\${$secret}\"" "$wf" || { echo "F60: $secret is not add-masked" >&2; exit 1; }
+            m=$(grep -nF "::add-mask::\${$secret}" "$wf" | head -1 | cut -d: -f1)
+            u=$(grep -nF -- "$use" "$wf" | head -1 | cut -d: -f1)
+            test -n "$m" && test -n "$u" && test "$m" -lt "$u" || { echo "F60: $secret is consumed ($use) before it is masked" >&2; exit 1; }
+            echo "F60 masking OK: $secret masked at line $m, consumed at line $u ($use)"
+          }
+          mask_use VM_ADMIN_PASSWORD '--admin-password'
+          mask_use TAILSCALE_AUTHKEY 'TailscaleAuthKey='
+          mask_use GHRDP_RELEASE_READONLY_TOKEN 'RepoAccessToken='
+          tok=$(grep -nF '::add-mask::$tok' "$wf" | head -1 | cut -d: -f1)
+          env_line=$(grep -nF 'RUNNER_TOKEN<<F60EOF' "$wf" | head -1 | cut -d: -f1)
+          test -n "$tok" && test -n "$env_line" && test "$tok" -lt "$env_line" || { echo "F60: the registration token must be masked before it is persisted" >&2; exit 1; }
+          # the run-command parameters must include the spec'd set and fail closed on markers
+          rc=$(awk '/name: Run scripts\/f60-bootstrap.ps1/,/name: Scrub the Run Command parameter files/' "$wf")
+          for tok in "TailscaleAuthKey=" "RunnerToken=" "RepoUrl=https://github.com/" "UiReleaseTag=" "RepoRef=" "UiBundleSha=" "RepoAccessToken=" "grep -q 'BOOTSTRAP_FAILED'" "grep -q 'BOOTSTRAP_OK'"; do
+            printf '%s' "$rc" | grep -qF -- "$tok" || { echo "F60: run-command step missing: $tok" >&2; exit 1; }
+          done
+          bs=scripts/f60-bootstrap.ps1
+          for tok in "[string]\$TailscaleAuthKey" "[string]\$RunnerToken" "[string]\$RepoUrl" "[string]\$UiReleaseTag" "\$ErrorActionPreference = 'Stop'" "\$ProgressPreference = 'SilentlyContinue'" "BOOTSTRAP_OK" "BOOTSTRAP_FAILED: " "MAGICDNS=" "EMPTY sha256 pin" "SHA-256 MISMATCH for" "Test-F59AssetSha256" "--auth-key=file:" "--advertise-tags=" "tag:ghrdp-warm" "--hostname=" "--accept-routes=false" "aria2c-nssm" "qbittorrent-nssm" "ghrdp-ui-nssm" "ghrdp-server-nssm" "SERVICE_AUTO_START" "LocalSystem" "--runasservice" "--unattended" "self-hosted,windows,sl-warm" "idempotent" "Clear-F60RunCommandSecrets" "Initialize-GhrdpQbt" "Install-F60ActionsRunner" "config.cmd" "ui-dist-" "Get-F60ReleaseAsset"; do
+            grep -qF -- "$tok" "$bs" || { echo "F60: f60-bootstrap.ps1 missing: $tok" >&2; exit 1; }
+          done
+          # no Chocolatey / ARC / K8s anywhere in the provisioning lane
+          for f in "$wf" "$bs" .github/workflows/f60-warm-pins-bootstrap.yml; do
+            ! grep -qiE "choco install|chocolatey install|arc generate|az aks|helm install|actions-runner-controller|larger-runner" "$f" || { echo "F60: banned approach in $f (no Chocolatey / ARC / K8s / Larger Runners)" >&2; exit 1; }
+          done
+          # the bootstrap must never print a secret parameter
+          ! grep -nE "(Write-Host|Write-Output|Add-Content).*(\\\$TailscaleAuthKey|\\\$RunnerToken|\\\$RepoAccessToken)" "$bs" || { echo "F60: a secret parameter appears in an output statement" >&2; exit 1; }
+          # the pin file must be fail-closed shaped
+          python3 - <<'PYEOF'
+          import json, re, sys
+          pins = json.load(open('payloads/f60-warm-pins.json'))
+          if pins.get('schema') != 'ghrdp-f60-warm-pins/1':
+              print('F60: unexpected pins schema'); sys.exit(1)
+          for name in ['tailscale_msi', 'nssm', 'node_win_x64_zip', 'actions_runner_win_x64_zip']:
+              a = pins['assets'].get(name)
+              if not a:
+                  print('F60: pins.assets.' + name + ' missing'); sys.exit(1)
+              sha = a.get('sha256', '')
+              state = a.get('pin_state', '')
+              if state == 'bootstrap':
+                  if sha:
+                      print('F60: ' + name + ' is a bootstrap pin but carries a digest (either commit the real one or empty it)'); sys.exit(1)
+                  if 'bootstrap' not in (a.get('bootstrap_note') or ''):
+                      print('F60: ' + name + ' must document how its pin gets filled'); sys.exit(1)
+              elif not re.fullmatch(r'[0-9a-f]{64}', sha):
+                  print('F60: ' + name + ' has an invalid sha256 (' + repr(sha) + ')'); sys.exit(1)
+              url = a.get('url', '')
+              if url:
+                  if not url.startswith('https://'):
+                      print('F60: ' + name + ' URL is not https'); sys.exit(1)
+                  if '-latest-' in url or '/latest/' in url:
+                      print('F60: ' + name + ' uses a moving latest URL - pins need an explicit version'); sys.exit(1)
+          ar = pins['assets']['actions_runner_win_x64_zip']
+          if ar.get('pin_state') != 'pinned':
+              print('F60: the actions/runner digest is already public in the release notes - commit it'); sys.exit(1)
+          if 'actions-runner-win-x64-' + ar['version'] + '.zip' not in ar['url']:
+              print('F60: the runner URL does not match the pinned version'); sys.exit(1)
+          reused = pins['reused_f59_assets']
+          if reused.get('ui_release_tag') != 'ui-dist' or reused.get('pins_file') != 'payloads/f59-prebuilt-pins.json':
+              print('F60: the F59 reuse block must keep pointing at the committed pins + the ui-dist release'); sys.exit(1)
+          if reused.get('ui_verifier') != 'scripts/f59-verify-sha256.mjs':
+              print('F60: the UI bundle must be verified by the shipped F59 verifier'); sys.exit(1)
+          f59 = json.load(open('payloads/f59-prebuilt-pins.json'))
+          for k in ['aria2c', 'qbittorrent']:
+              if not re.fullmatch(r'[0-9a-f]{64}', f59['assets'][k]['sha256']):
+                  print('F60: the F59 ' + k + ' pin must stay committed'); sys.exit(1)
+          print('F60 pin-file gate PASS (4 F60 assets + 2 reused F59 assets, fail-closed shapes)')
+          PYEOF
+          # the one-time pin-recording workflow must cross-check two sources for Node
+          pb=.github/workflows/f60-warm-pins-bootstrap.yml
+          for tok in "SHASUMS256.txt" "Node digest CROSS-CHECK FAILED" "BEGIN SHA win-x64" "actions/runner pin MISMATCH" "f60-warm-pins.observed.json" "checksums.txt" "gh release upload warm-pins" "contents: write"; do
+            grep -qF -- "$tok" "$pb" || { echo "F60: f60-warm-pins-bootstrap.yml missing: $tok" >&2; exit 1; }
+          done
+          # the operator doc: the 10-minute path AND the preserved manual 7 steps
+          d=docs/F60-OPERATOR-SETUP.md
+          for tok in "10-minute path" "sl-warm-rg" "az ad sp create-for-rbac" "--scopes /subscriptions/<SUB_ID>/resourceGroups/sl-warm-rg" "tag:ghrdp-warm" "openssl rand -base64 32" "AZURE_CREDENTIALS" "TAILSCALE_AUTHKEY" "VM_ADMIN_PASSWORD" "GHRDP_RELEASE_READONLY_TOKEN" "runner_token" "RUNNER_REGISTRATION_TOKEN" "Standard_B2s" "20-30 min" "MagicDNS" "Appendix A - manual 7-step setup" "Appendix B" "Appendix C" "HALT and STOP conditions" "deallocate"; do
+            grep -qF -- "$tok" "$d" || { echo "F60: F60-OPERATOR-SETUP.md missing: $tok" >&2; exit 1; }
+          done
+          for n in 1 2 3 4 5 6 7; do
+            grep -qE "^${n}\. \*\*" "$d" || { echo "F60: the manual appendix lost step $n" >&2; exit 1; }
+          done
+          echo 'F60-P gate PASS: the provisioning lane is dispatch-only, SP-scope-guarded, fully masked, pin-fail-closed and documented'
+          node --test tests/f60-provision-contract.test.js
+      # ---- F60 GATE 2 (counted): the warm runtime lane. Budget <60000 ms measured ----
+      # ---- to a real HTTP 200, three-strike STOP on the VM, health probe fail-closed ----
+      # ---- and injectable, labeled windows-latest fallback, and F59 untouched. ----
+      - name: F60 warm-dispatch + health + fallback gates
         shell: bash
         run: |
           # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
