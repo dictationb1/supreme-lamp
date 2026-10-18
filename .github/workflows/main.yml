@@ -241,7 +241,7 @@ jobs:
 
   ensure-f59-binaries-call:
     needs: [preflight]
-    if: !cancelled() && github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_f59_build == 'true'
+    if: !cancelled()  github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_f59_build == 'true'
     uses: ./.github/workflows/f59-prebuilt-binaries.yml
     secrets: inherit
 
@@ -290,7 +290,7 @@ jobs:
 
   build-ui-via-call:
     needs: [preflight]
-    if: !cancelled() && github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_ui_build == 'true'
+    if: !cancelled()  github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_ui_build == 'true'
     uses: ./.github/workflows/build-ui.yml
     secrets: inherit
     with:
