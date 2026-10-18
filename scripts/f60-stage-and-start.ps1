@@ -69,6 +69,7 @@ $script:F60PayloadList = @(
     'payloads/ghrdp-client-install.ps1',
     'payloads/ghrdp-rdp-launcher.cs',
     'payloads/ghrdp-rdp-launcher.ps1',
+    'payloads/ghrdp-expose-dashboard.ps1',
     'payloads/install.cmd',
     'payloads/DEBUG-GHRDP.ps1',
     'payloads/DEBUG-GHRDP.bat',

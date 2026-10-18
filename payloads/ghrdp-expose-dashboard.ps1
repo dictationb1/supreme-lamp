@@ -27,34 +27,44 @@ function Invoke-BoundedCommand {
 
     $outBuilder = New-Object System.Text.StringBuilder
     $errBuilder = New-Object System.Text.StringBuilder
-    $outAction = { if ($EventArgs.Data) { $outBuilder.AppendLine($EventArgs.Data) | Out-Null } }
-    $errAction = { if ($EventArgs.Data) { $errBuilder.AppendLine($EventArgs.Data) | Out-Null } }
-    Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -Action $outAction | Out-Null
-    Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -Action $errAction | Out-Null
+    $outSubscriber = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -Action { if ($EventArgs.Data) { $outBuilder.AppendLine($EventArgs.Data) | Out-Null } }
+    $errSubscriber = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -Action { if ($EventArgs.Data) { $errBuilder.AppendLine($EventArgs.Data) | Out-Null } }
     $p.BeginOutputReadLine()
     $p.BeginErrorReadLine()
 
     $killed = $false
-    while (-not $p.HasExited) {
-        if ($sw.Elapsed.TotalSeconds -gt $TimeoutSec) {
-            Write-Host ("::warning::[" + $Name + "] TIMEOUT after " + $TimeoutSec + "s. Killing process tree.")
-            try {
-                $descendants = Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $p.Id }
-                foreach ($child in $descendants) {
-                    try { Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
-                }
-                $p.Kill()
-            } catch { }
-            $killed = $true
-            break
+    try {
+        while (-not $p.HasExited) {
+            if ($sw.Elapsed.TotalSeconds -gt $TimeoutSec) {
+                Write-Host ("::warning::[" + $Name + "] TIMEOUT after " + $TimeoutSec + "s. Killing process tree.")
+                try {
+                    $descendants = Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $p.Id }
+                    foreach ($child in $descendants) {
+                        try { Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
+                    }
+                    $p.Kill()
+                } catch { }
+                $killed = $true
+                break
+            }
+            Start-Sleep -Milliseconds 100
         }
-        Start-Sleep -Milliseconds 100
-    }
 
-    $exitCode = -1
-    if (-not $killed) {
-        $p.WaitForExit()
-        $exitCode = $p.ExitCode
+        $exitCode = -1
+        if (-not $killed) {
+            # Bounded WaitForExit to prevent infinite hang if redirected streams stay open in a child
+            if (-not $p.WaitForExit([int]($TimeoutSec * 1000))) {
+                Write-Host ("::warning::[" + $Name + "] WaitForExit timed out. Force closing.")
+                try { $p.Kill() } catch { }
+                $killed = $true
+            } else {
+                $exitCode = $p.ExitCode
+            }
+        }
+    } finally {
+        try { Unregister-Event -SourceIdentifier $outSubscriber.Name -ErrorAction SilentlyContinue } catch { }
+        try { Unregister-Event -SourceIdentifier $errSubscriber.Name -ErrorAction SilentlyContinue } catch { }
+        try { $p.Dispose() } catch { }
     }
 
     return @{ ok = ($exitCode -eq 0); exitCode = $exitCode; killed = $killed; stdout = $outBuilder.ToString(); stderr = $errBuilder.ToString() }
