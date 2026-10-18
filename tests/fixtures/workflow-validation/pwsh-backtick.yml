@@ -1,0 +1,12 @@
+name: PowerShell Backtick Fixture
+on: push
+jobs:
+  job1:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - run: |
+          $S = $env:GITHUB_STEP_SUMMARY
+          "- Web UI Bundle (`ui-dist`): " + $(if ($true) { "🟡 **PENDING AUTOMATIC PREPARATION** (`mode=rdp` හිදී ස්වයංක්‍රීයව සකසනු ලැබේ)" } else { "🟢 **VERIFIED**" }) | Add-Content -Path $S

@@ -1,0 +1,8 @@
+name: Missing Needs Fixture
+on: push
+jobs:
+  job1:
+    needs: [non_existent_job]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "test"
