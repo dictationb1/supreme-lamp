@@ -23,6 +23,9 @@ jobs:
           export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
           corepack enable
           pnpm install --frozen-lockfile
+      - name: Artifact privacy preflight (docs scanner)
+        run: |
+          node scripts/check-artifact-privacy.mjs docs/
       - name: Cache prebuilt Chromium binary
         id: chromium-cache
         uses: actions/cache@v4
@@ -186,6 +189,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # shellcheck disable=SC2011,SC2012
           set -eo pipefail
           n=$(ls -1 screenshots/r2-*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "R2 screenshots written: $n"
@@ -223,6 +227,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # shellcheck disable=SC2011,SC2012
           set -eo pipefail
           n=$(ls -1 screenshots/v3-acceptance/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "v3 acceptance screenshots written: $n"

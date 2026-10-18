@@ -197,7 +197,7 @@ jobs:
           if [ -n "$client_secret" ]; then echo "::add-mask::$client_secret"; fi
           for pair in "clientId:${client_id}" "clientSecret:${client_secret}" "tenantId:${tenant_id}" "subscriptionId:${subscription_id}"; do
             name=${pair%%:*}; val=${pair#*:}
-            [ -n "$val" ] || { echo "F60: AZURE_CREDENTIALS is not the `az ad sp create-for-rbac --sdk-auth` JSON (missing ${name})" >&2; exit 1; }
+            [ -n "$val" ] || { echo "F60: AZURE_CREDENTIALS is not the 'az ad sp create-for-rbac --sdk-auth' JSON (missing ${name})" >&2; exit 1; }
           done
           az login --service-principal -u "$client_id" -p "$client_secret" --tenant "$tenant_id" --output none
           az account set --subscription "$subscription_id"
@@ -279,6 +279,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # shellcheck shell=bash disable=SC2016,SC2086
           set -euo pipefail
           rid=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runners" --jq ".runners[]? | select(.labels[]?.name==\"${RUNNER_LABEL}\") | .id" 2>/dev/null | head -1 || true)
           if [ -n "$rid" ]; then
@@ -440,16 +441,17 @@ jobs:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
           GHRDP_RELEASE_READONLY_TOKEN: ${{ secrets.GHRDP_RELEASE_READONLY_TOKEN }}
         run: |
+          # shellcheck shell=bash disable=SC2016,SC2028
           set -euo pipefail
           echo "::add-mask::${TAILSCALE_AUTHKEY}"
           echo "::add-mask::${GHRDP_RELEASE_READONLY_TOKEN}"
           if ! az vm show --resource-group "$RG" --name "$VM" >/dev/null 2>&1; then
-            echo "F60: the VM ${RG}/${VM} does not exist. action=verify re-runs the idempotent bootstrap on an EXISTING warm VM - run action=create first (or action=teardown, then create, to start over)." >&2
+            printf 'F60: the VM %s/%s does not exist. action=verify re-runs the idempotent bootstrap on an EXISTING warm VM - run action=create first (or action=teardown, then create, to start over).\n' "$RG" "$VM" >&2
             exit 1
           fi
           ui_tag=$(python3 -c "import json;print(json.load(open('payloads/f60-warm-pins.json'))['reused_f59_assets']['ui_release_tag'])")
-          echo "[F60 bootstrap] ui release tag=${ui_tag} (read from payloads/f60-warm-pins.json - the brief's f59-ui-release-tag.txt does not exist in this repo)"
-          echo "[F60 bootstrap] repo ref=${GITHUB_SHA}; pins are staged from the repo onto the VM (single source of truth)"
+          printf '[F60 bootstrap] ui release tag=%s (read from payloads/f60-warm-pins.json - the brief'\''s f59-ui-release-tag.txt does not exist in this repo)\n' "${ui_tag}"
+          printf '[F60 bootstrap] repo ref=%s; pins are staged from the repo onto the VM (single source of truth)\n' "${GITHUB_SHA}"
           set +e
           raw=$(az vm run-command invoke \
             --resource-group "$RG" --name "$VM" \
@@ -472,20 +474,20 @@ jobs:
           echo '----- end of VM bootstrap output -----'
           if printf '%s' "$msg" | grep -q 'BOOTSTRAP_FAILED'; then
             reason=$(printf '%s' "$msg" | grep 'BOOTSTRAP_FAILED' | head -1)
-            echo "F60 HALT: the VM bootstrap reported failure - ${reason}" >&2
-            echo 'The full VM-side log is C:\ghrdp\logs\f60-bootstrap-*.log on sl-warm; fix the cause and re-run with action=verify (the bootstrap is idempotent).' >&2
+            printf 'F60 HALT: the VM bootstrap reported failure - %s\n' "${reason}" >&2
+            printf 'The full VM-side log is C:\\ghrdp\\logs\\f60-bootstrap-*.log on sl-warm; fix the cause and re-run with action=verify (the bootstrap is idempotent).\n' >&2
             exit 1
           fi
           if ! printf '%s' "$msg" | grep -q 'BOOTSTRAP_OK'; then
-            echo 'F60 HALT: no BOOTSTRAP_OK marker in the Run Command output.' >&2
-            echo 'Azure returns only the tail of the script output; if it was truncated, re-run with action=verify (idempotent) and read C:\ghrdp\state\f60-bootstrap-result.json on the VM.' >&2
+            printf 'F60 HALT: no BOOTSTRAP_OK marker in the Run Command output.\n' >&2
+            printf 'Azure returns only the tail of the script output; if it was truncated, re-run with action=verify (idempotent) and read C:\\ghrdp\\state\\f60-bootstrap-result.json on the VM.\n' >&2
             exit 1
           fi
           magic=$(printf '%s' "$msg" | sed -n 's/^MAGICDNS=//p' | head -1)
           [ -n "$magic" ] || magic='unknown'
-          echo "magicdns=${magic}" >> "$GITHUB_OUTPUT"
+          printf 'magicdns=%s\n' "${magic}" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$msg" | grep -E '^(SERVICES=|RUNNER=|TAILNET_IP=|QBT=)' | sed 's/^/[F60 vm] /' || true
-          echo "[F60 bootstrap] BOOTSTRAP_OK magicdns=${magic}"
+          printf '[F60 bootstrap] BOOTSTRAP_OK magicdns=%s\n' "${magic}"
 
       - name: Scrub the Run Command parameter files off the VM (secret hygiene)
         if: always() && github.event.inputs.action != 'teardown'
@@ -517,12 +519,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # shellcheck shell=bash disable=SC2016,SC2028,SC2086
           set -euo pipefail
           rid=''
           status=''
           for i in $(seq 1 30); do
             line=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runners" \
-              --jq ".runners[]? | select(.labels[]?.name==\"${RUNNER_LABEL}\") | \"\(.id) \(.status) \(.name)\"" 2>/dev/null | head -1 || true)
+              --jq '.runners[]? | select(.labels[]?.name=="'"${RUNNER_LABEL}"'") | "\(.id) \(.status) \(.name)"' 2>/dev/null | head -1 || true)
             if [ -n "$line" ]; then
               rid=$(printf '%s' "$line" | awk '{print $1}')
               status=$(printf '%s' "$line" | awk '{print $2}')
@@ -538,8 +541,8 @@ jobs:
             echo 'Diagnose over Tailscale: services.msc -> actions.runner.* ; C:\actions-runner\_diag ; then re-run with action=verify.' >&2
             exit 1
           fi
-          echo "runner_id=${rid}" >> "$GITHUB_OUTPUT"
-          echo "[F60 runner] ${RUNNER_NAME} is ONLINE (id=${rid})"
+          printf 'runner_id=%s\n' "${rid}" >> "$GITHUB_OUTPUT"
+          printf '[F60 runner] %s is ONLINE (id=%s)\n' "${RUNNER_NAME}" "${rid}"
 
       # ------------------------------------------------------------------ #
       # 8. JOB SUMMARY (MagicDNS + runner id + temporary public IP).       #
@@ -548,6 +551,7 @@ jobs:
         id: summary
         if: always()
         run: |
+          # shellcheck shell=bash disable=SC2016,SC2086
           set -uo pipefail
           action="${{ github.event.inputs.action }}"
           region="${{ github.event.inputs.region }}"
