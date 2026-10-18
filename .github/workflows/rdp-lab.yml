@@ -84,7 +84,12 @@ jobs:
 
       - name: Install PowerShell Core
         run: |
-          which pwsh || (curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/microsoft.gpg && sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-noble-prod noble main" > /etc/apt/sources.list.d/microsoft.list' && sudo apt-get update && sudo apt-get install -y powershell) || true
+          mkdir -p /tmp/bin
+          if ! command -v pwsh >/dev/null 2>&1; then
+            echo "Downloading pwsh v7.4.2..."
+            curl -sSL --max-time 30 "https://github.com/PowerShell/PowerShell/releases/download/v7.4.2/powershell-7.4.2-linux-x64.tar.gz" | tar -xz -C /tmp/bin
+          fi
+          echo "PATH=/tmp/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -527,7 +532,7 @@ jobs:
   lab-report:
     name: Summarize Lab Evidence & Publish Verdict
     needs: [static-lab, windows-integration-lab, live-integration-lab]
-    if: !cancelled()
+    if: always()
     runs-on: ubuntu-latest
     outputs:
       verdict: ${{ steps.eval-verdict.outputs.verdict }}
@@ -598,8 +603,8 @@ jobs:
             CAUSAL="job-cancelled"
           fi
 
-          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
-          echo "first_causal_failure=$CAUSAL" >> $GITHUB_OUTPUT
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+          echo "first_causal_failure=$CAUSAL" >> "$GITHUB_OUTPUT"
 
           echo "::notice title=Lab Verdict::$VERDICT (first causal failure: $CAUSAL)"
 
@@ -615,3 +620,15 @@ jobs:
         with:
           name: rdp-lab-evidence-final
           path: rdp-lab-evidence.json
+
+      - name: Enforce Nonzero Exit on Non-Passing Verdict
+        run: |
+          VERDICT="${{ steps.eval-verdict.outputs.verdict }}"
+          CAUSAL="${{ steps.eval-verdict.outputs.first_causal_failure }}"
+          if [ "$VERDICT" = "FAILED" ] || [ "$VERDICT" = "BLOCKED" ]; then
+            echo "::error title=Lab Execution Failed or Blocked::Verdict: $VERDICT, First Causal Failure: $CAUSAL"
+            exit 1
+          elif [ "$VERDICT" = "CANCELLED" ]; then
+            echo "::error title=Lab Execution Cancelled::Verdict: CANCELLED"
+            exit 1
+          fi

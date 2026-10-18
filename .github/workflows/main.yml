@@ -241,7 +241,7 @@ jobs:
 
   ensure-f59-binaries-call:
     needs: [preflight]
-    if: !cancelled()  github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_f59_build == 'true'
+    if: ${{ !cancelled() && github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_f59_build == 'true' }}
     uses: ./.github/workflows/f59-prebuilt-binaries.yml
     secrets: inherit
 
@@ -290,7 +290,7 @@ jobs:
 
   build-ui-via-call:
     needs: [preflight]
-    if: !cancelled()  github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_ui_build == 'true'
+    if: ${{ !cancelled() && github.event.inputs.mode == 'rdp' && needs.preflight.outputs.need_ui_build == 'true' }}
     uses: ./.github/workflows/build-ui.yml
     secrets: inherit
     with:
@@ -2461,7 +2461,7 @@ jobs:
           # the existing dashboard server can serve the same bytes.
           mkdir -p "$RUNNER_TEMP/ghrdp-stage/fonts"
           cp "$GITHUB_WORKSPACE/payloads/fonts/"*.woff2 "$RUNNER_TEMP/ghrdp-stage/fonts/"
-          echo "[ui] Noto Sans Sinhala woff2 staged ($(ls "$GITHUB_WORKSPACE/payloads/fonts/" | wc -l) files)"
+          echo "[ui] Noto Sans Sinhala woff2 staged ($(find "$GITHUB_WORKSPACE/payloads/fonts/" -maxdepth 1 -name "*.woff2" | wc -l) files)"
           mkdir -p "$RUNNER_TEMP/ghrdp-stage"
           cp "$GITHUB_WORKSPACE/payloads/explorer.html" "$RUNNER_TEMP/ghrdp-stage/explorer.html"
           echo '[explorer] unified fluent explorer written'

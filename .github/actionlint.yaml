@@ -1,3 +1,29 @@
 self-hosted-runner:
   labels:
     - sl-warm
+
+paths:
+  .github/workflows/*.yml:
+    ignore:
+      # SC2016: Expressions don't expand in single quotes.
+      # Intentionally used in Bash assertion steps matching literal PowerShell variables (e.g. '$listenerHandshakeOk').
+      - 'shellcheck reported issue in this script: SC2016:'
+      # SC2015: Note that A && B || C is not if-then-else.
+      # Intentionally used in bash gate short-circuit assertions.
+      - 'shellcheck reported issue in this script: SC2015:'
+      # SC2011/SC2012: Use find instead of ls.
+      # Intentionally used in bash screenshot / artifact count reporting steps.
+      - 'shellcheck reported issue in this script: SC2011:'
+      - 'shellcheck reported issue in this script: SC2012:'
+      # SC2013: To read lines rather than words.
+      # Intentionally used in line-by-line file iteration in launch-gates assertions.
+      - 'shellcheck reported issue in this script: SC2013:'
+      # SC2028: echo may not expand escape sequences.
+      # Intentionally used for logging formatted output in status messages.
+      - 'shellcheck reported issue in this script: SC2028:'
+      # SC2034: Variable appears unused.
+      # Intentionally assigned in gate steps asserting file presence before multi-file assertions.
+      - 'shellcheck reported issue in this script: SC2034:'
+      # SC2088: Tilde does not expand in quotes.
+      # Intentionally used in code-string search assertions matching literal paths (e.g. '~/.ghrdp/sources').
+      - 'shellcheck reported issue in this script: SC2088:'

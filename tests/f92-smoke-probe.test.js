@@ -65,6 +65,42 @@ test('f92-smoke-probe: Handles chunked streaming responses correctly', async () 
   }
 });
 
+test('f92-smoke-probe: Aborts endless trickle response when deadline expires', async () => {
+  const mock = await createMockServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    const interval = setInterval(() => {
+      try { res.write(' '); } catch { clearInterval(interval); }
+    }, 100);
+    req.on('close', () => clearInterval(interval));
+  });
+
+  try {
+    const startTime = Date.now();
+    const res = await runProbe({ host: '127.0.0.1', port: mock.port, totalTimeoutMs: 1500 });
+    const elapsed = Date.now() - startTime;
+    assert.equal(res.ok, false);
+    assert.ok(elapsed >= 1400 && elapsed <= 3500, `Elapsed time ${elapsed}ms should be close to 1500ms deadline`);
+  } finally {
+    await mock.close();
+  }
+});
+
+test('f92-smoke-probe: Rejects oversized responses exceeding maxBodyBytes', async () => {
+  const mock = await createMockServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.write('a'.repeat(2000));
+    res.end();
+  });
+
+  try {
+    const res = await runProbe({ host: '127.0.0.1', port: mock.port, totalTimeoutMs: 1000, maxBodyBytes: 1000 });
+    assert.equal(res.ok, false);
+    assert.equal(res.classification, 'oversized-response');
+  } finally {
+    await mock.close();
+  }
+});
+
 test('f92-smoke-probe: Handles HTTP 500 error from server', async () => {
   const mock = await createMockServer((req, res) => {
     res.writeHead(500, { 'Content-Type': 'application/json' });

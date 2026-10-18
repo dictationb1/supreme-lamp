@@ -112,7 +112,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.target }}" = "dry-run" ]; then
             IS_DRY_RUN="true"
           fi
-          echo "is_dry_run=${IS_DRY_RUN}" >> $GITHUB_OUTPUT
+          echo "is_dry_run=${IS_DRY_RUN}" >> "$GITHUB_OUTPUT"
 
           # Verify docs artifact privacy - assert no private secrets / keys in docs
           node scripts/check-artifact-privacy.mjs docs/
@@ -127,19 +127,19 @@ jobs:
         if: steps.pages-check.outputs.is_dry_run != 'true' && steps.configure-pages.outcome != 'success'
         shell: bash
         run: |
-          {
-            echo "### ⚠️ GitHub Pages Setup Blocked"
-            echo ""
-            echo "The repository currently has no Pages site configured or lacks permission."
-            echo ""
-            echo "**Operator Action Required:**"
-            echo "1. Open repository settings: [https://github.com/dictationb1/supreme-lamp/settings/pages](https://github.com/dictationb1/supreme-lamp/settings/pages)"
-            echo "2. Set **Settings → Pages → Build and deployment → Source → GitHub Actions**"
-            echo ""
-            echo "**සිංහල උපදෙස්:**"
-            echo "https://github.com/dictationb1/supreme-lamp/settings/pages වෙත ගොස් Settings → Pages → Build and deployment → Source ලෙස GitHub Actions තෝරන්න."
-            echo "මෙහි අඩුව පවතින්නේ repository Pages configuration access වලයි (කේතයේ දෝෂයක් නොවේ)."
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat << 'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ### ⚠️ GitHub Pages Setup Blocked
+
+          The repository currently has no Pages site configured or lacks permission.
+
+          **Operator Action Required:**
+          1. Open repository settings: [https://github.com/dictationb1/supreme-lamp/settings/pages](https://github.com/dictationb1/supreme-lamp/settings/pages)
+          2. Set **Settings → Pages → Build and deployment → Source → GitHub Actions**
+
+          **සිංහල උපදෙස්:**
+          https://github.com/dictationb1/supreme-lamp/settings/pages වෙත ගොස් Settings → Pages → Build and deployment → Source ලෙස GitHub Actions තෝරන්න.
+          මෙහි අඩුව පවතින්නේ repository Pages configuration access වලයි (කේතයේ දෝෂයක් නොවේ).
+          EOF
           echo "::warning title=Pages Setup Required::Repository Pages is not enabled or source is not set to GitHub Actions. Configure at https://github.com/dictationb1/supreme-lamp/settings/pages"
           exit 1
 
