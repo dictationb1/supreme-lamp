@@ -210,74 +210,14 @@ jobs:
           }
 
           node scripts/lab-observer.mjs update INJECTED_CONTROL RUNNING
-
-          if ("${{ inputs.injected_failure }}" -eq "SILENT_HANG") {
-              Write-Host "::error title=Injected Control Failure::silent hang simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SILENT_HANG" "Simulated silent hang"
+          node scripts/run-lab-fault-injection.mjs "${{ inputs.injected_failure }}"
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error title=Injected Control Failure::${{ inputs.injected_failure }} executed fault condition"
+              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "${{ inputs.injected_failure }}" "Controlled fault condition detected"
               node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "silent hang"
+              exit 1
           }
-
-          if ("${{ inputs.injected_failure }}" -eq "STDIN_WAIT") {
-              Write-Host "::error title=Injected Control Failure::stdin wait simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "STDIN_WAIT" "Simulated stdin wait"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "stdin wait"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "INFINITE_OUTPUT") {
-              Write-Host "::error title=Injected Control Failure::infinite output simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "INFINITE_OUTPUT" "Simulated infinite output"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "infinite output"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "SERVE_STATUS_HANG") {
-              Write-Host "::error title=Injected Control Failure::serve status hang simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SERVE_STATUS_HANG" "Simulated serve status hang"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "serve status hang"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "SIMULTANEOUS_LARGE_OUTPUT") {
-              Write-Host "::error title=Injected Control Failure::simultaneous large stdout/stderr simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "SIMULTANEOUS_LARGE_OUTPUT" "Simulated simultaneous large output"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "simultaneous large output"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "CHILD_RETAINS_HANDLES") {
-              Write-Host "::error title=Injected Control Failure::child retains handles simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "CHILD_RETAINS_HANDLES" "Simulated child retains handles"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "child retains handles"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "FUNNEL_HANG") {
-              Write-Host "::error title=Injected Control Failure::funnel hang simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "FUNNEL_HANG" "Simulated funnel hang"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "funnel hang"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "OPTIONAL_FUNNEL_FAILURE") {
-              Write-Host "::error title=Injected Control Failure::optional funnel failure simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "OPTIONAL_FUNNEL_FAILURE" "Simulated optional funnel failure"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "optional funnel failure"
-          }
-
-          if ("${{ inputs.injected_failure }}" -eq "CLI_EXIT_0_BACKEND_FAILS") {
-              Write-Host "::error title=Injected Control Failure::cli exit 0 but backend fails simulated"
-              node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "CLI_EXIT_0_BACKEND_FAILS" "Simulated cli exit 0 but backend fails"
-              node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-              throw "cli exit 0 but backend fails"
-          }
-
-          Write-Host "::error title=Injected Control Failure::${{ inputs.injected_failure }} simulated"
-          node scripts/lab-observer.mjs update INJECTED_CONTROL FAILED "${{ inputs.injected_failure }}" "Simulated failure: ${{ inputs.injected_failure }}"
-          node scripts/rdp-evidence.mjs rdp-lab-evidence.json
-          throw "simulated failure"
+          node scripts/lab-observer.mjs update INJECTED_CONTROL PASSED
 
 
 
@@ -286,29 +226,49 @@ jobs:
       - name: Start Mission Control Local Dashboard
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
+          $ErrorActionPreference = 'Stop'
           node scripts/lab-observer.mjs update SERVICES_READY RUNNING
           Write-Host "[lab] Starting Mission Control Dashboard on localhost:7331..."
           $serverScript = Join-Path $env:GITHUB_WORKSPACE 'payloads\ghrdp-server.ps1'
-          if (Test-Path -LiteralPath $serverScript) {
-              Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$serverScript`"" -WindowStyle Hidden
-              Start-Sleep -Seconds 5
-          } else {
-              Write-Host "::warning::[lab] payloads/ghrdp-server.ps1 not found, running serve-dist.mjs fallback"
-              Start-Process node -ArgumentList "scripts/serve-dist.mjs" -WindowStyle Hidden
-              Start-Sleep -Seconds 3
+          if (-not (Test-Path -LiteralPath $serverScript)) {
+              node scripts/lab-observer.mjs update SERVICES_READY FAILED backend-missing "payloads/ghrdp-server.ps1 not found"
+              throw "[lab] Missing production backend script: payloads/ghrdp-server.ps1"
           }
+          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$serverScript`"" -WindowStyle Hidden
+          Start-Sleep -Seconds 5
 
       - name: Verify Local Dashboard API Endpoint
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           $ready = $false
+          $firstFailure = ""
+          $lastClassification = "unknown"
           for ($i = 1; $i -le 10; $i++) {
               try {
                   $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-                  if ($res.StatusCode -eq 200) { $ready = $true; break }
+                  if ($res.StatusCode -eq 200) {
+                      $json = $null
+                      try { $json = $res.Content | ConvertFrom-Json } catch { $json = $null }
+                      if ($json -and ($json.ok -eq $true -or $json.status -eq "ok")) {
+                          $ready = $true
+                          $lastClassification = "ready"
+                          break
+                      } else {
+                          $lastClassification = "schema_mismatch"
+                          if (-not $firstFailure) { $firstFailure = "HTTP 200 with invalid schema" }
+                      }
+                  } else {
+                      $lastClassification = "http_" + $res.StatusCode
+                      if (-not $firstFailure) { $firstFailure = "HTTP " + $res.StatusCode }
+                  }
               } catch {
+                  $exMsg = $_.Exception.Message
+                  if ($exMsg -match "500") { $lastClassification = "http_500" }
+                  elseif ($exMsg -match "refused") { $lastClassification = "connection_refused" }
+                  elseif ($exMsg -match "timeout") { $lastClassification = "timeout" }
+                  else { $lastClassification = "transport_error" }
+                  if (-not $firstFailure) { $firstFailure = $exMsg }
                   Start-Sleep -Seconds 2
               }
           }

@@ -9026,6 +9026,31 @@ boot();
             if ($cfgOut) { Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $cfgOut) } else { Send-ClientResponse -Stream $stream -Code 404 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('config missing')) }
             return
         }
+        if ($path -eq '/api/readiness' -or $path -eq '/readiness') {
+            $rProg = Read-JsonFile -Path $script:ProgPath
+            $isAlive = if ($rProg -and $rProg.PSObject.Properties['alive']) { [bool]$rProg.alive } else { $true }
+            $isReady = ($script:InitPhase -eq 'ready')
+            $rBody = [ordered]@{
+                ok = $isReady
+                status = if ($isReady) { 'ok' } else { 'initializing' }
+                phase = if ($script:InitPhase) { $script:InitPhase } else { 'ready' }
+                liveness = $isAlive
+                apiReadiness = $isReady
+                dependencyHealth = [ordered]@{
+                    explorerFx = [bool]$script:FxReady
+                    mirrorHost = [bool]$script:F46MirrorReady
+                }
+                desktopConnectivity = [ordered]@{
+                    rdpListener = [bool]($null -ne (Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue))
+                }
+                ws = [bool]$script:F96WsUpgradeSupported
+                port = $Port
+                pid = $PID
+                serverTs = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            }
+            Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $rBody)
+            return
+        }
         if ($path -eq '/api/progress' -or $path -eq '/api/stats') {
             $prog2 = Read-JsonFile -Path $script:ProgPath
             $wireNow = Read-JsonFile -Path (Join-Path $script:Root 'wire-probe.json')
