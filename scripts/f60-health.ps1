@@ -127,6 +127,15 @@ function Get-F60HttpVerdict {
             $detail = ('http ' + $code)
         } catch {
             $detail = $_.Exception.Message
+            if ($_.Exception.Response) {
+                try {
+                    $st = $_.Exception.Response.GetResponseStream()
+                    $rd = New-Object System.IO.StreamReader($st)
+                    $bodyTxt = $rd.ReadToEnd()
+                    if ($bodyTxt.Length -gt 250) { $bodyTxt = $bodyTxt.Substring(0, 250) }
+                    $detail += (' resp=' + $bodyTxt)
+                } catch { }
+            }
         }
         if ($DeadlineUtc -ne [datetime]::MinValue -and [datetime]::UtcNow -ge $DeadlineUtc) {
             if (-not $detail) { $detail = 'deadline reached' }

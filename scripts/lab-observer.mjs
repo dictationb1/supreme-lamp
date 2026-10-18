@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs
 import { redactSecrets } from "./rdp-evidence.mjs";
 
 export function createInitialObserverState(phase = "INITIALIZING") {
+  const startTs = new Date().toISOString();
   return {
     version: "1.0.0",
     repository: process.env.GITHUB_REPOSITORY || "dictationb1/supreme-lamp",
@@ -16,14 +17,25 @@ export function createInitialObserverState(phase = "INITIALIZING") {
     run_attempt: String(process.env.GITHUB_RUN_ATTEMPT || "1"),
     runner_os: process.platform,
     status: "RUNNING", // RUNNING | PASSED | FAILED | BLOCKED | OBSERVABILITY_LOST
-    start_timestamp: new Date().toISOString(),
-    last_heartbeat: new Date().toISOString(),
+    seq: 1,
+    start_timestamp: startTs,
+    last_heartbeat: startTs,
+    last_meaningful_progress: startTs,
     current_phase: phase,
     phases: [
       {
         phase: phase,
         status: "RUNNING",
-        timestamp: new Date().toISOString(),
+        timestamp: startTs,
+      },
+    ],
+    checkpoints: [
+      {
+        seq: 1,
+        phase: phase,
+        status: "RUNNING",
+        timestamp: startTs,
+        elapsed_ms: 0,
       },
     ],
     exit_codes: {},
@@ -56,18 +68,36 @@ export function updateObserverPhase(stateFile, phase, status, detail = {}) {
     }
   }
 
+  state.seq = (state.seq || 0) + 1;
+  const nowIso = new Date().toISOString();
+  const elapsedMs = Math.max(0, new Date(nowIso) - new Date(state.start_timestamp));
+
   state.current_phase = phase;
-  state.last_heartbeat = new Date().toISOString();
+  state.last_heartbeat = nowIso;
+  if (effectiveStatus === "PASSED" || effectiveStatus === "RUNNING") {
+    state.last_meaningful_progress = nowIso;
+  }
 
   // Find existing phase record if present, or add new
   const existingIndex = state.phases.findIndex((p) => p.phase === phase);
   const phaseRecord = {
     phase: phase,
     status: effectiveStatus,
-    timestamp: new Date().toISOString(),
+    timestamp: nowIso,
+    elapsed_ms: elapsedMs,
     ...detail,
     ...(effectiveCausal ? { causal_failure: effectiveCausal } : {}),
   };
+
+  if (!state.checkpoints) state.checkpoints = [];
+  state.checkpoints.push({
+    seq: state.seq,
+    phase: phase,
+    status: effectiveStatus,
+    timestamp: nowIso,
+    elapsed_ms: elapsedMs,
+    ...(effectiveCausal ? { causal_failure: effectiveCausal } : {}),
+  });
 
   if (existingIndex >= 0) {
     state.phases[existingIndex] = { ...state.phases[existingIndex], ...phaseRecord };

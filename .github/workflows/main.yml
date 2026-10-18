@@ -6817,18 +6817,108 @@ jobs:
             echo "[f92 smoke] SKIPPED: backend service startup was not reached due to earlier provisioning failure"
             exit 0
           fi
-          ok=0
-          for i in {1..60}; do
-            if curl -sf --max-time 5 --connect-timeout 3 "http://localhost:7331/api/f92-selftest?frontendSha=${GITHUB_SHA}" -o /tmp/sr.json; then ok=1; break; fi
-            sleep 2
-          done
-          if [ "$ok" -ne 1 ]; then echo "::error::[f92 smoke] backend never answered /api/f92-selftest within 120s"; exit 1; fi
-          node ./scripts/assert-selftest.js /tmp/sr.json
+           node -e '
+           const fs = require("fs");
+           const http = require("http");
+           const path = require("path");
+
+           const sha = process.env.GITHUB_SHA || "unknown-sha";
+           const tempDir = process.env.RUNNER_TEMP || "/tmp";
+           const srPath = path.join(tempDir, "sr.json");
+           const legacySrPath = "/tmp/sr.json";
+
+           const deadlineMs = Date.now() + 120000;
+           let attempt = 0;
+           let lastClassification = "unknown";
+           let lastStatus = 0;
+           let lastBody = "";
+           let lastCorrId = "";
+
+           async function probe() {
+             while (Date.now() < deadlineMs) {
+               attempt++;
+               const remainingMs = deadlineMs - Date.now();
+               const reqTimeoutMs = Math.min(5000, Math.max(1000, remainingMs));
+
+               try {
+                 const res = await new Promise((resolve, reject) => {
+                   const req = http.get(`http://localhost:7331/api/f92-selftest?frontendSha=${sha}`, { timeout: reqTimeoutMs }, (r) => {
+                     let data = "";
+                     r.on("data", chunk => { if (data.length < 2000) data += chunk; });
+                     r.on("end", () => resolve({ statusCode: r.statusCode, headers: r.headers, body: data }));
+                   });
+                   req.on("error", reject);
+                   req.on("timeout", () => { req.destroy(); reject(new Error("ETIMEDOUT")); });
+                 });
+
+                 lastStatus = res.statusCode;
+                 lastBody = res.body;
+                 lastCorrId = res.headers["x-correlation-id"] || "";
+
+                 if (res.statusCode === 200) {
+                   try {
+                     const parsed = JSON.parse(res.body);
+                     if (parsed.status === "pass" || parsed.status === "warn") {
+                       fs.writeFileSync(srPath, res.body);
+                       if (srPath !== legacySrPath) {
+                         try { fs.writeFileSync(legacySrPath, res.body); } catch {}
+                       }
+                       console.log(`[f92 smoke] PASS attempt ${attempt}: HTTP 200 (${parsed.status})`);
+                       return true;
+                     } else {
+                       lastClassification = "failed-selftest";
+                     }
+                   } catch {
+                     lastClassification = "invalid-json-response";
+                   }
+                 } else if (res.statusCode >= 500) {
+                   lastClassification = "http-server-error-500";
+                 } else if (res.statusCode >= 400) {
+                   lastClassification = "http-client-error-" + res.statusCode;
+                 }
+               } catch (err) {
+                 if (err.message === "ETIMEDOUT") {
+                   lastClassification = "request-timeout";
+                 } else if (err.code === "ECONNREFUSED") {
+                   lastClassification = "connection-refused";
+                 } else {
+                   lastClassification = "transport-error: " + err.message;
+                 }
+               }
+
+               const sleepMs = Math.min(2000, Math.max(200, deadlineMs - Date.now()));
+               if (sleepMs > 0) await new Promise(r => setTimeout(r, sleepMs));
+             }
+
+             const diagPayload = JSON.stringify({
+               status: "fail",
+               attemptedEndpoint: "http://localhost:7331/api/f92-selftest",
+               classification: lastClassification,
+               lastHttpStatus: lastStatus,
+               elapsedMs: 120000,
+               attempts: attempt,
+               correlationId: lastCorrId,
+               responseExcerpt: lastBody.slice(0, 500)
+             }, null, 2);
+
+             fs.writeFileSync(srPath, diagPayload);
+             if (srPath !== legacySrPath) {
+               try { fs.writeFileSync(legacySrPath, diagPayload); } catch {}
+             }
+             console.error(`[f92 smoke] FAIL after ${attempt} attempts in 120s. Classification: ${lastClassification}, status: ${lastStatus}`);
+             return false;
+           }
+
+           probe().then(ok => process.exit(ok ? 0 : 1));
+           '
+           node ./scripts/assert-selftest.js "${RUNNER_TEMP:-/tmp}/sr.json"
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: smoke-failure-${{ github.run_id }}
-          path: /tmp/sr.json
+          path: |
+            /tmp/sr.json
+            ${{ runner.temp }}/sr.json
           if-no-files-found: ignore
           retention-days: 7
 
