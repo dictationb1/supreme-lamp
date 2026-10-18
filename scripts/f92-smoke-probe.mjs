@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 const port = process.env.PORT || '7331';
 const host = process.env.HOST || 'localhost';
@@ -22,20 +23,35 @@ function ensureParentDir(filePath) {
 
 function writeEvidence(content) {
   ensureParentDir(srPath);
-  try { fs.writeFileSync(srPath, content); } catch (e) { console.error(`Error writing srPath: ${e.message}`); }
+  let primaryWritten = false;
+  try {
+    fs.writeFileSync(srPath, content);
+    primaryWritten = true;
+  } catch (e) {
+    console.error(`Error writing srPath (${srPath}): ${e.message}`);
+  }
   if (srPath !== legacySrPath) {
     ensureParentDir(legacySrPath);
-    try { fs.writeFileSync(legacySrPath, content); } catch {}
+    try {
+      fs.writeFileSync(legacySrPath, content);
+    } catch {}
   }
+  return primaryWritten;
 }
 
 export async function runProbe(options = {}) {
   const pHost = options.host || host;
   const pPort = options.port || port;
   const pSha = options.sha || sha;
-  const deadlineMs = Date.now() + (options.totalTimeoutMs || totalTimeoutMs);
+  const totalDeadlineMs = options.totalTimeoutMs !== undefined ? options.totalTimeoutMs : totalTimeoutMs;
+
+  if (!Number.isFinite(totalDeadlineMs) || totalDeadlineMs <= 0) {
+    throw new Error(`[INVALID_TIMEOUT] totalTimeoutMs must be a positive finite number, got: ${totalDeadlineMs}`);
+  }
+
   const pMaxBytes = options.maxBodyBytes || maxBodyBytes;
-  const startTime = Date.now();
+  const startTimeMonotonic = performance.now();
+  const elapsedMs = () => Math.round(performance.now() - startTimeMonotonic);
 
   let attempt = 0;
   let lastClassification = 'unknown';
@@ -43,14 +59,26 @@ export async function runProbe(options = {}) {
   let lastBody = '';
   let lastCorrId = '';
 
-  while (Date.now() < deadlineMs) {
+  while (elapsedMs() < totalDeadlineMs) {
     attempt++;
-    const remainingMs = Math.max(500, deadlineMs - Date.now());
+    const currentElapsed = elapsedMs();
+    const remainingMs = totalDeadlineMs - currentElapsed;
+    if (remainingMs <= 10) break;
+
     const reqTimeoutMs = Math.min(5000, remainingMs);
 
     try {
       const res = await new Promise((resolve, reject) => {
-        let timedOut = false;
+        let timerId = null;
+        let settled = false;
+
+        const cleanup = () => {
+          if (timerId) {
+            clearTimeout(timerId);
+            timerId = null;
+          }
+        };
+
         const req = http.get(
           `http://${pHost}:${pPort}/api/f92-selftest?frontendSha=${pSha}`,
           { timeout: reqTimeoutMs },
@@ -60,18 +88,23 @@ export async function runProbe(options = {}) {
             let aborted = false;
 
             r.on('data', (chunk) => {
-              if (aborted) return;
+              if (aborted || settled) return;
               totalBytes += chunk.length;
               if (totalBytes > pMaxBytes) {
                 aborted = true;
-                req.destroy(new Error('OVERSIZED_RESPONSE'));
+                settled = true;
+                cleanup();
+                req.destroy();
+                reject(new Error('OVERSIZED_RESPONSE'));
                 return;
               }
               chunks.push(chunk);
             });
 
             r.on('end', () => {
-              if (aborted) return;
+              if (aborted || settled) return;
+              settled = true;
+              cleanup();
               const fullBuffer = Buffer.concat(chunks);
               resolve({
                 statusCode: r.statusCode,
@@ -81,19 +114,29 @@ export async function runProbe(options = {}) {
             });
 
             r.on('error', (err) => {
-              reject(err);
+              if (!settled) {
+                settled = true;
+                cleanup();
+                reject(err);
+              }
             });
           }
         );
 
-        req.on('error', (err) => {
-          if (!timedOut) reject(err);
-        });
+        timerId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            req.destroy();
+            reject(new Error('ETIMEDOUT'));
+          }
+        }, reqTimeoutMs);
 
-        req.on('timeout', () => {
-          timedOut = true;
-          req.destroy();
-          reject(new Error('ETIMEDOUT'));
+        req.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(err);
+          }
         });
       });
 
@@ -136,12 +179,17 @@ export async function runProbe(options = {}) {
             if (hasNestedFail) {
               lastClassification = 'failed-nested-check';
             } else {
-              // Success!
-              writeEvidence(res.body);
+              // Success! Must write evidence
+              const written = writeEvidence(res.body);
+              if (!written) {
+                lastClassification = 'evidence-write-failure';
+                console.error('[f92 smoke] FAIL: Could not write evidence artifact.');
+                return { ok: false, attempt, classification: 'evidence-write-failure', status: 200, body: res.body };
+              }
               console.log(
-                `[f92 smoke] PASS attempt ${attempt}: HTTP 200 (${parsed.status}) in ${Date.now() - startTime}ms`
+                `[f92 smoke] PASS attempt ${attempt}: HTTP 200 (${parsed.status}) in ${elapsedMs()}ms`
               );
-              return { ok: true, attempt, classification: 'ready', status: 200, body: res.body };
+              return { ok: true, attempt, classification: 'ready', status: 200, body: res.body, elapsedMs: elapsedMs() };
             }
           } else {
             lastClassification = `invalid-status-${parsed.status}`;
@@ -166,22 +214,20 @@ export async function runProbe(options = {}) {
       }
     }
 
-    const elapsed = Date.now() - startTime;
-    const remaining = deadlineMs - Date.now();
-    const sleepMs = Math.min(2000, Math.max(200, remaining));
-    if (sleepMs > 0) {
-      await new Promise((r) => setTimeout(r, sleepMs));
-    }
+    const remaining = totalDeadlineMs - elapsedMs();
+    if (remaining <= 0) break;
+    const sleepMs = Math.min(2000, Math.max(100, remaining));
+    await new Promise((r) => setTimeout(r, sleepMs));
   }
 
-  const elapsedMs = Date.now() - startTime;
+  const totalElapsed = elapsedMs();
   const diagPayload = JSON.stringify(
     {
       status: 'fail',
       attemptedEndpoint: `http://${pHost}:${pPort}/api/f92-selftest`,
       classification: lastClassification,
       lastHttpStatus: lastStatus,
-      elapsedMs,
+      elapsedMs: totalElapsed,
       attempts: attempt,
       correlationId: lastCorrId,
       responseExcerpt: lastBody ? lastBody.slice(0, 500) : '',
@@ -192,9 +238,9 @@ export async function runProbe(options = {}) {
 
   writeEvidence(diagPayload);
   console.error(
-    `[f92 smoke] FAIL after ${attempt} attempts in ${elapsedMs}ms. Classification: ${lastClassification}, status: ${lastStatus}`
+    `[f92 smoke] FAIL after ${attempt} attempts in ${totalElapsed}ms. Classification: ${lastClassification}, status: ${lastStatus}`
   );
-  return { ok: false, attempt, classification: lastClassification, status: lastStatus, elapsedMs };
+  return { ok: false, attempt, classification: lastClassification, status: lastStatus, elapsedMs: totalElapsed };
 }
 
 // CLI execution

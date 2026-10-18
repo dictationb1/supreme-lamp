@@ -1447,9 +1447,9 @@ function Start-FxUploadWorker {
     # condition instead of spawning a process that cannot exist.
     param([string]$Root, [string]$QueuePath, [string]$ModulePath)
     $result = @{ started = $false; reason = ''; pidFile = ''; scriptPath = '' }
-    $isWindows = $false
-    try { $isWindows = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) } catch { $isWindows = $false }
-    if (-not $isWindows) { $result.reason = 'not a Windows host: worker not started'; return $result }
+    $winHost = $false
+    try { $winHost = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) } catch { $winHost = $false }
+    if (-not $winHost) { $result.reason = 'not a Windows host: worker not started'; return $result }
     if ($env:GHRDP_FX_UPLOAD_WORKER -eq '0') { $result.reason = 'disabled by GHRDP_FX_UPLOAD_WORKER=0'; return $result }
     if (-not $ModulePath -or -not (Test-Path -LiteralPath $ModulePath)) { $result.reason = 'fx module path missing'; return $result }
     $scriptPath = Join-Path $Root 'fx-upload-worker.ps1'

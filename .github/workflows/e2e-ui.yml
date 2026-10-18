@@ -189,6 +189,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # shellcheck disable=SC2011,SC2012
           set -eo pipefail
           n=$(ls -1 screenshots/r2-*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "R2 screenshots written: $n"
@@ -226,6 +227,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          # shellcheck disable=SC2011,SC2012
           set -eo pipefail
           n=$(ls -1 screenshots/v3-acceptance/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "v3 acceptance screenshots written: $n"

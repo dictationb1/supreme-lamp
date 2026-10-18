@@ -11,11 +11,7 @@
   --skip SUBSTR     skip steps whose name contains SUBSTR (repeatable), e.g.
                     `--skip playwright` when the sandbox has no browser binaries.
 """
-from pathlib import Path
-import subprocess
-import sys
-import yaml
-
+import os
 argv = sys.argv[1:]
 include_default_shell = '--default-shell' in argv
 skips = [argv[i + 1] for i, a in enumerate(argv) if a == '--skip' and i + 1 < len(argv)]
@@ -38,7 +34,7 @@ for job in workflow['jobs'].values():
             print('SKIP ' + step['name'])
             skipped += 1
             continue
-        result = subprocess.run(['bash', '-c', step['run']], capture_output=True, text=True)
+        result = subprocess.run(['bash', '-c', step['run']], capture_output=True, text=True, env=env)
         print(('PASS ' if result.returncode == 0 else 'FAIL ') + step['name'])
         if result.returncode:
             print(result.stdout + result.stderr)

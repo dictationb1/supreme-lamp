@@ -18,6 +18,53 @@ if (faultType === 'NONE' || !faultType) {
   process.exit(0);
 }
 
+// Helper to run probe asynchronously while keeping server event loop alive
+function runProbeAsync(envVars) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['scripts/f92-smoke-probe.mjs'], {
+      env: { ...process.env, ...envVars },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('close', (code) => {
+      resolve({ code, stdout, stderr, output: stdout + stderr });
+    });
+  });
+}
+
+// Positive control
+if (faultType === 'HEALTHY_POSITIVE_CONTROL') {
+  const port = 18331;
+  let serverReceivedRequest = false;
+  const server = http.createServer((req, res) => {
+    serverReceivedRequest = true;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'pass',
+      checks: {
+        'search:test': [{ status: 'pass', output: 'ok' }]
+      }
+    }));
+  });
+
+  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+
+  const probeRes = await runProbeAsync({ PORT: String(port), HOST: '127.0.0.1', DEADLINE_MS: '3000' });
+
+  server.close();
+
+  if (probeRes.code === 0 && serverReceivedRequest) {
+    console.log('[lab-fault] PASS: Healthy positive control passed smoke probe.');
+    process.exit(0);
+  } else {
+    console.error('[lab-fault] FAIL: Healthy positive control failed smoke probe:', probeRes.output);
+    process.exit(1);
+  }
+}
+
 if (faultType === 'PAGES_SCANNER_SYNTHETIC') {
   // Test genuine synthetic detection
   const tmpDir = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || '/tmp', 'canary-'));
@@ -28,11 +75,13 @@ if (faultType === 'PAGES_SCANNER_SYNTHETIC') {
   try {
     const res = execSync(`node scripts/check-artifact-privacy.mjs "${tmpDir}"`, { encoding: 'utf8', stdio: 'pipe' });
     console.error('[lab-fault] FAIL: Privacy scanner passed on synthetic secret file!');
+    fs.rmSync(tmpDir, { recursive: true, force: true });
     process.exit(1);
   } catch (err) {
     const output = (err.stdout || '') + (err.stderr || '');
     if (!output.includes('[REDACTED]') || output.includes(canaryKey)) {
       console.error('[lab-fault] FAIL: Privacy scanner output disclosed canary or missed redaction!');
+      fs.rmSync(tmpDir, { recursive: true, force: true });
       process.exit(1);
     }
     console.log('[lab-fault] PASS: Privacy scanner detected canary secret and redacted output correctly.');
@@ -63,76 +112,80 @@ if (faultType === 'PAGES_SCANNER_FALSE_POSITIVE') {
 }
 
 if (faultType === 'INVALID_READINESS_SCHEMA') {
-  // Spin up HTTP server returning 200 without readiness ok
+  const port = 18332;
+  let serverReceivedRequest = false;
   const server = http.createServer((req, res) => {
+    serverReceivedRequest = true;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ randomField: 'value' }));
   });
 
-  await new Promise((resolve) => server.listen(7331, '127.0.0.1', resolve));
-  console.log('[lab-fault] Mock server returning 200 without readiness schema running on port 7331.');
+  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
 
-  // Run readiness probe against it
-  try {
-    const probeRes = execSync('node scripts/f92-smoke-probe.mjs', {
-      env: { ...process.env, PORT: '7331', DEADLINE_MS: '1500' },
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
-    console.error('[lab-fault] FAIL: Smoke probe accepted HTTP 200 with invalid schema!');
-    server.close();
-    process.exit(1);
-  } catch (err) {
-    const output = (err.stdout || '') + (err.stderr || '');
-    if (output.includes('schema-mismatch') || output.includes('FAIL')) {
-      console.log('[lab-fault] PASS: Smoke probe rejected HTTP 200 with invalid schema as schema-mismatch.');
-      server.close();
-      process.exit(0);
-    }
-    console.error('[lab-fault] FAIL: Unexpected output for schema mismatch: ' + output);
-    server.close();
+  const probeRes = await runProbeAsync({ PORT: String(port), HOST: '127.0.0.1', DEADLINE_MS: '2000' });
+
+  server.close();
+
+  if (probeRes.code !== 0 && serverReceivedRequest && probeRes.output.includes('schema-mismatch')) {
+    console.log('[lab-fault] PASS: Smoke probe rejected HTTP 200 with invalid schema as schema-mismatch.');
+    process.exit(0);
+  } else {
+    console.error('[lab-fault] FAIL: Invalid readiness schema test failed. Output:\n' + probeRes.output);
     process.exit(1);
   }
 }
 
 if (faultType === 'SERVER_500_CORRELATED') {
-  // Test HTTP 500 response handling
+  const port = 18333;
+  let serverReceivedRequest = false;
+  const corrId = 'corr-lab-500-test';
   const server = http.createServer((req, res) => {
-    res.writeHead(500, { 'Content-Type': 'application/json', 'X-Correlation-ID': 'corr-lab-500' });
+    serverReceivedRequest = true;
+    res.writeHead(500, { 'Content-Type': 'application/json', 'X-Correlation-ID': corrId });
     res.end(
       JSON.stringify({
         serverTs: new Date().toISOString(),
-        corrId: 'corr-lab-500',
+        corrId: corrId,
         handlerError: 'TestException',
-        route: '/progress',
+        route: '/api/readiness',
         phase: 'ready',
         sha: 'test-sha',
       })
     );
   });
 
-  await new Promise((resolve) => server.listen(7331, '127.0.0.1', resolve));
+  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
 
+  const probeRes = await runProbeAsync({ PORT: String(port), HOST: '127.0.0.1', DEADLINE_MS: '2000' });
+
+  server.close();
+
+  // Read and verify evidence file
+  const runnerTemp = process.env.RUNNER_TEMP || '/tmp';
+  const srPath = path.join(runnerTemp, 'sr.json');
+  let evidenceData = null;
   try {
-    execSync('node scripts/f92-smoke-probe.mjs', {
-      env: { ...process.env, PORT: '7331', DEADLINE_MS: '1500' },
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
-    console.error('[lab-fault] FAIL: Smoke probe accepted HTTP 500!');
-    server.close();
-    process.exit(1);
-  } catch (err) {
-    const output = (err.stdout || '') + (err.stderr || '');
-    if (output.includes('http-server-error-500') || output.includes('FAIL')) {
-      console.log('[lab-fault] PASS: Smoke probe detected HTTP 500 and captured correlation ID.');
-      server.close();
-      process.exit(0);
+    if (fs.existsSync(srPath)) {
+      evidenceData = JSON.parse(fs.readFileSync(srPath, 'utf8'));
     }
-    server.close();
+  } catch {}
+
+  const capturedCorrId = evidenceData?.correlationId || '';
+
+  if (
+    probeRes.code !== 0 &&
+    serverReceivedRequest &&
+    probeRes.output.includes('http-server-error-500') &&
+    capturedCorrId === corrId
+  ) {
+    console.log(`[lab-fault] PASS: Smoke probe detected HTTP 500 and verified captured correlation ID '${corrId}'.`);
+    process.exit(0);
+  } else {
+    console.error(`[lab-fault] FAIL: Server 500 test failed. Captured correlation ID: '${capturedCorrId}' (expected '${corrId}'). Output:\n${probeRes.output}`);
     process.exit(1);
   }
 }
 
-console.log(`[lab-fault] Executing generic control fault: ${faultType}`);
+// Reject unsupported fault type explicitly
+console.error(`[lab-fault] ERROR: Unsupported fault type requested: ${faultType}`);
 process.exit(1);

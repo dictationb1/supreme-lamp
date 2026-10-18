@@ -837,6 +837,7 @@ jobs:
       - name: F21 CredSSP/NLA handshake verification gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           ui=payloads/ui.html
@@ -968,6 +969,7 @@ jobs:
       - name: F24 auth-reject discriminator gates (server cred proof + 4625/CAPI2 matrix)
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           ui=payloads/ui.html
@@ -1506,6 +1508,7 @@ jobs:
       - name: F28 logon-result loop + one-click recovery + fallback-gap gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           srv=payloads/ghrdp-server.ps1
           ui=payloads/ui.html
@@ -1620,6 +1623,7 @@ jobs:
       - name: F30 TLS/cipher + purge + connlog gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           cs=payloads/ghrdp-rdp-launcher.cs
@@ -1745,6 +1749,7 @@ jobs:
       - name: F31c token diagnostic + live dispatch gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           ui=payloads/ui.html
@@ -1810,6 +1815,7 @@ jobs:
       - name: F34 up-step IP poll + class links + IP-first stage + keep-alive skip gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           up=$(awk '/^      - name: Tailscale up \(TS_AUTHKEY fail-closed/{f=1;next} /^      - name: Wait for Tailscale connected/{f=0} f' "$wf")
@@ -1857,6 +1863,7 @@ jobs:
       - name: F37 telescope single-source + self-explaining lab gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           mod=payloads/rdp-telescope.ps1
           srv=payloads/ghrdp-server.ps1
@@ -2610,6 +2617,7 @@ jobs:
       - name: F42 ui=v2 reachability gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           srv=payloads/ghrdp-server.ps1
           wf=.github/workflows/main.yml
@@ -2648,6 +2656,7 @@ jobs:
       - name: F43 build-ui wiring + default-v2 cutover gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           wf=.github/workflows/main.yml
           srv=payloads/ghrdp-server.ps1
@@ -3049,6 +3058,7 @@ jobs:
       - name: F58 custom source registry gates (store + shared form + presets + provenance-6)
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           core=src/search/custom-source-core.js
           store=src/search/custom-source-store.ts
@@ -3544,6 +3554,7 @@ jobs:
       - name: F60 warm-runner provisioning + pinned bootstrap gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           echo '===== F60 gate: provisioning workflow + pinned warm-VM bootstrap ====='
           for f in .github/workflows/provision-warm-runner.yml .github/workflows/f60-warm-pins-bootstrap.yml scripts/f60-bootstrap.ps1 scripts/f60-scrub-runcommand.ps1 payloads/f60-warm-pins.json payloads/f59-prebuilt-pins.json docs/F60-OPERATOR-SETUP.md; do
@@ -3698,6 +3709,7 @@ jobs:
       - name: F60 warm-dispatch + health + fallback gates
         shell: bash
         run: |
+          # shellcheck disable=SC2013,SC2015,SC2016,SC2034,SC2088
           set -euo pipefail
           echo '===== F60 gate: warm dispatch lane (<60s budget, 3-strike STOP, labeled fallback) ====='
           for f in .github/workflows/warm-dispatch.yml scripts/f60-health.ps1 scripts/f60-stage-and-start.ps1 payloads/f59-timing.ps1 scripts/f59-verify-sha256.mjs; do
