@@ -133,7 +133,7 @@ jobs:
           CAUSAL_FAILURE: ${{ inputs.injected_failure }}
 
       - name: Generate Static Phase Evidence
-        if: always()
+        if: always() && !cancelled()
         run: |
           node scripts/lab-observer.mjs finish
           node scripts/rdp-evidence.mjs rdp-lab-evidence.json
@@ -141,7 +141,7 @@ jobs:
           LAB_PHASE: static
 
       - name: Upload Static Evidence Artifact
-        if: always()
+        if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: rdp-lab-evidence-static
@@ -335,7 +335,7 @@ jobs:
           node scripts/lab-observer.mjs update UI_BROWSER_VERIFIED PASSED
 
       - name: Generate Windows Integration Evidence
-        if: always()
+        if: always() && !cancelled()
         shell: pwsh
         run: |
           node scripts/lab-observer.mjs finish
@@ -344,7 +344,7 @@ jobs:
           LAB_PHASE: windows-integration
 
       - name: Upload Windows Integration Evidence
-        if: always()
+        if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: rdp-lab-evidence-windows-integration
@@ -549,7 +549,7 @@ jobs:
           }
 
       - name: Generate Live Integration Evidence
-        if: always()
+        if: always() && !cancelled()
         shell: pwsh
         run: |
           node scripts/lab-observer.mjs finish
@@ -558,7 +558,7 @@ jobs:
           LAB_PHASE: live-integration
 
       - name: Upload Live Integration Evidence
-        if: always()
+        if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: rdp-lab-evidence-live-integration
@@ -567,7 +567,7 @@ jobs:
   lab-report:
     name: Summarize Lab Evidence & Publish Verdict
     needs: [static-lab, windows-integration-lab, live-integration-lab]
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     outputs:
       verdict: ${{ steps.eval-verdict.outputs.verdict }}
