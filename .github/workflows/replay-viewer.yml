@@ -103,18 +103,55 @@ jobs:
           node scripts/sync-replay-vendor.mjs --check
           echo 'F108 preflight PASS: viewer present, CSP intact, published reader == shipped reader'
 
+      - name: Pre-check Pages capability & dry-run guard
+        id: pages-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          IS_DRY_RUN="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.target }}" = "dry-run" ]; then
+            IS_DRY_RUN="true"
+          fi
+          echo "is_dry_run=${IS_DRY_RUN}" >> $GITHUB_OUTPUT
+
+          # Verify docs artifact privacy - assert no private secrets / keys in docs
+          ! grep -rn "TS_AUTHKEY" docs/ || { echo "ERROR: credentials found in docs/" >&2; exit 1; }
+          ! grep -rn "VNC_PASS" docs/ || { echo "ERROR: credentials found in docs/" >&2; exit 1; }
+
       - name: Configure Pages
+        if: steps.pages-check.outputs.is_dry_run != 'true'
+        id: configure-pages
         uses: actions/configure-pages@v5
+        continue-on-error: true
+
+      - name: Handle Missing Pages Configuration Blocker
+        if: steps.pages-check.outputs.is_dry_run != 'true' && steps.configure-pages.outcome != 'success'
+        shell: bash
+        run: |
+          {
+            echo "### ⚠️ GitHub Pages Setup Blocked"
+            echo ""
+            echo "The repository currently has no Pages site configured or lacks permission."
+            echo ""
+            echo "**Operator Action Required:**"
+            echo "1. Open repository settings: [https://github.com/dictationb1/supreme-lamp/settings/pages](https://github.com/dictationb1/supreme-lamp/settings/pages)"
+            echo "2. Set **Settings → Pages → Build and deployment → Source → GitHub Actions**"
+            echo ""
+            echo "**සිංහල උපදෙස්:**"
+            echo "https://github.com/dictationb1/supreme-lamp/settings/pages වෙත ගොස් Settings → Pages → Build and deployment → Source ලෙස GitHub Actions තෝරන්න."
+            echo "මෙහි අඩුව පවතින්නේ repository Pages configuration access වලයි (කේතයේ දෝෂයක් නොවේ)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Pages Setup Required::Repository Pages is not enabled or source is not set to GitHub Actions. Configure at https://github.com/dictationb1/supreme-lamp/settings/pages"
+          exit 1
 
       - name: Upload docs/ as the Pages artifact
+        if: steps.pages-check.outputs.is_dry_run != 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
       - name: Deploy to GitHub Pages
-        # [M3] Scheduled runs have no inputs; they always publish. Only workflow_dispatch
-        # with target=dry-run skips the deploy.
-        if: github.event_name != 'workflow_dispatch' || inputs.target != 'dry-run'
+        if: steps.pages-check.outputs.is_dry_run != 'true'
         id: deploy
         uses: actions/deploy-pages@v4
 

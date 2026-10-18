@@ -8906,9 +8906,12 @@ boot();
             try { $html = [System.IO.File]::ReadAllText($uiFile, [System.Text.Encoding]::UTF8) } catch { }
             $ip = ''; $tg = ''
             if ($cfg) {
-                $ip = [string]$cfg.rdpIp
-                $tg = [string]$cfg.mirrorIndexUrl
+                if ($cfg.PSObject.Properties['rdpIp'] -and $null -ne $cfg.rdpIp) { $ip = [string]$cfg.rdpIp }
+                if ($cfg.PSObject.Properties['mirrorIndexUrl'] -and $null -ne $cfg.mirrorIndexUrl) { $tg = [string]$cfg.mirrorIndexUrl }
             }
+            if ($null -eq $html) { $html = '<h1>Mission Control UI missing</h1>' }
+            if ($null -eq $ip) { $ip = '' }
+            if ($null -eq $tg) { $tg = '' }
             $html = $html.Replace('__IP__', $ip).Replace('__TELEGRAPH__', $tg)
             if ($v2Missing) {
                 $v2BannerText = 'ui-v2.html not staged in this run - main.yml stage step failed; re-dispatch or check CI'
@@ -9059,7 +9062,41 @@ boot();
         }
         Send-ClientResponse -Stream $stream -Code 404 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('not found'))
     } catch {
-        try { Send-ClientResponse -Stream $stream -Code 500 -CType 'application/json' -Body (ConvertTo-JsonBytes @{ serverTs = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); handlerError = $_.Exception.GetType().Name }) } catch { }
+        $cId = [guid]::NewGuid().ToString('N').Substring(0, 12)
+        try {
+            if ($parts -and $parts.headers -and $parts.headers['x-correlation-id']) { $cId = [string]$parts.headers['x-correlation-id'] }
+        } catch { }
+        $eType = if ($_.Exception) { $_.Exception.GetType().Name } else { 'RuntimeException' }
+        $eMsg = if ($_.Exception) { [string]$_.Exception.Message } else { '' }
+        $eStack = if ($_.ScriptStackTrace) { [string]$_.ScriptStackTrace } else { '' }
+        $reqRoute = if ($path) { [string]$path } else { 'unknown' }
+        $initPhase = if ($script:InitPhase) { [string]$script:InitPhase } else { 'running' }
+        $srcSha = if ($env:GITHUB_SHA) { [string]$env:GITHUB_SHA } else { 'unknown-sha' }
+        try {
+            $diagDir = Join-Path $Root 'diag'
+            if (-not (Test-Path -LiteralPath $diagDir)) { New-Item -ItemType Directory -Path $diagDir -Force | Out-Null }
+            $errRecord = @{
+                ts = (Get-Date).ToUniversalTime().ToString('o')
+                corrId = $cId
+                route = $reqRoute
+                errorType = $eType
+                message = $eMsg
+                stack = $eStack
+                phase = $initPhase
+                sha = $srcSha
+            } | ConvertTo-Json -Compress
+            Add-Content -LiteralPath (Join-Path $diagDir 'server-exceptions.jsonl') -Value $errRecord -ErrorAction SilentlyContinue
+        } catch { }
+        try {
+            Send-ClientResponse -Stream $stream -Code 500 -CType 'application/json' -Body (ConvertTo-JsonBytes @{
+                serverTs = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                corrId = $cId
+                handlerError = $eType
+                route = $reqRoute
+                phase = $initPhase
+                sha = $srcSha
+            }) -ExtraHeaders ("X-Correlation-ID: $cId`r`n")
+        } catch { }
     } finally {
         try { if ($stream) { $stream.Dispose() } } catch { }
         try { $Client.Close() } catch { }
