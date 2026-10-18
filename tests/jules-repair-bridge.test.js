@@ -43,6 +43,9 @@ test("BRIDGE-3: produces sanitized API payload with sourceContext and required f
     assert.strictEqual(res.payload.requirePlanApproval, false);
     assert.strictEqual(res.payload.automationMode, "AUTO_CREATE_PR");
     assert.strictEqual(res.payload.sourceContext.source, "sources/github/dictationb1/supreme-lamp");
+    assert.strictEqual(res.payload.sourceContext.githubRepoContext.startingBranch, "main");
+    assert.strictEqual(res.payload.source, undefined);
+    assert.strictEqual(res.payload.autoCreatePr, undefined);
     assert.ok(!res.payload.prompt.includes("tskey-auth-secretkey12345"));
     assert.ok(res.payload.prompt.includes("[REDACTED_TS_AUTHKEY]"));
   } finally {

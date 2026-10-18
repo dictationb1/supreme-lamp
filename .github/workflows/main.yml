@@ -2183,6 +2183,7 @@ jobs:
                   $LASTEXITCODE = 0
               }
           }
+          Write-Host "::add-mask::$pass"
           Add-Content -Path $env:GITHUB_ENV -Value ("RDP_USER=" + $user)
           Add-Content -Path $env:GITHUB_ENV -Value ("RDP_PASS=" + $pass)
           Write-Host ('[user] created account: ' + $user)
@@ -2257,6 +2258,7 @@ jobs:
           # RNG secret 32B alphanumeric -> GHRDP_ARIA2_RPC_SECRET env + persisted for service
           $chars = @(); $chars += (48..57); $chars += (65..90); $chars += (97..122)
           $secret = -join ((0..31) | ForEach-Object { [char]($chars | Get-Random) })
+          Write-Host "::add-mask::$secret"
           $env:GHRDP_ARIA2_RPC_SECRET = $secret
           if ($env:GITHUB_ENV) { Add-Content -Path $env:GITHUB_ENV -Value ('GHRDP_ARIA2_RPC_SECRET=' + $secret) }
           $secDir = 'C:\ghrdp'
@@ -2357,6 +2359,7 @@ jobs:
           # Operator secret 32B alphanumeric -> GHRDP_QBT_PASSWORD env, SYSTEM-only file.
           $chars = @(); $chars += (48..57); $chars += (65..90); $chars += (97..122)
           $qbtSecret = -join ((0..31) | ForEach-Object { [char]($chars | Get-Random) })
+          Write-Host "::add-mask::$qbtSecret"
           $env:GHRDP_QBT_PASSWORD = $qbtSecret
           if ($env:GITHUB_ENV) { Add-Content -Path $env:GITHUB_ENV -Value ('GHRDP_QBT_PASSWORD=' + $qbtSecret) }
           New-Item -ItemType Directory -Path 'C:\ghrdp' -Force | Out-Null
@@ -2494,6 +2497,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/payloads/ghrdp-install.template.ps1" "$RUNNER_TEMP/ghrdp-stage/ghrdp-install.ps1"
           sed -i "s|__HELPER_B64__|$B64|" "$RUNNER_TEMP/ghrdp-stage/ghrdp-install.ps1"
           rm -f "$RUNNER_TEMP/ghrdp-stage/helper-ghrdp-connect.ps1"
+          cp "$GITHUB_WORKSPACE/payloads/ghrdp-expose-dashboard.ps1" "$RUNNER_TEMP/ghrdp-stage/ghrdp-expose-dashboard.ps1"
           cp "$GITHUB_WORKSPACE/payloads/DEBUG-GHRDP.ps1" "$RUNNER_TEMP/ghrdp-stage/DEBUG-GHRDP.ps1"
           cp "$GITHUB_WORKSPACE/payloads/DEBUG-GHRDP.bat" "$RUNNER_TEMP/ghrdp-stage/DEBUG-GHRDP.bat"
           # [remediation] agent + enroll + accept payload staging removed (C2 client + acceptance-of-agent gone)
@@ -4635,7 +4639,21 @@ jobs:
           $telegraph = [string]$cfg.mirrorIndexUrl
           $egress = [string]$cfg.runnerEgressIp
 
-          $exposeRes = & (Join-Path $root 'ghrdp-expose-dashboard.ps1') -Root $root -TsExe $ts -ServeTimeoutSec 60 -StatusTimeoutSec 15 -FunnelTimeoutSec 60 -ApiToken $env:TS_API_KEY
+          $exposeScript = Join-Path $root 'ghrdp-expose-dashboard.ps1'
+          if (-not (Test-Path -LiteralPath $exposeScript)) {
+              Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'payloads\ghrdp-expose-dashboard.ps1') -Destination $exposeScript -Force -ErrorAction SilentlyContinue
+          }
+          if (-not (Test-Path -LiteralPath $exposeScript)) {
+              Write-Host "::error::ghrdp-expose-dashboard.ps1 not found at $exposeScript"
+              throw "ghrdp-expose-dashboard.ps1 missing"
+          }
+          $srcHash = (Get-FileHash -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'payloads\ghrdp-expose-dashboard.ps1') -Algorithm SHA256).Hash
+          $stageHash = (Get-FileHash -LiteralPath $exposeScript -Algorithm SHA256).Hash
+          if ($srcHash -ne $stageHash) {
+              Write-Host "::error::ghrdp-expose-dashboard.ps1 SHA256 mismatch (src=$srcHash, stage=$stageHash)"
+              throw "ghrdp-expose-dashboard.ps1 hash mismatch"
+          }
+          $exposeRes = & $exposeScript -Root $root -TsExe $ts -ServeTimeoutSec 60 -StatusTimeoutSec 15 -FunnelTimeoutSec 60 -ApiToken $env:TS_API_KEY
           $exposeObj = $exposeRes | ConvertFrom-Json
           $serveOk = $exposeObj.serveOk
           $serveUrl = $exposeObj.serveUrl
@@ -5697,20 +5715,26 @@ jobs:
 
           Write-Host "=== Bounded Pre-Keepalive Service Readiness Verification ==="
 
-          # 1. Dashboard API Contract
+          # 1. Dashboard API Contract with monotonic elapsed-time deadline
           Write-Host "Verifying Mission Control Dashboard responsiveness..."
           $dashboardReady = $false
-          for ($i = 0; $i -lt 12; $i++) {
+          $deadlineSec = 60
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $lastErr = ""
+          while ($sw.Elapsed.TotalSeconds -lt $deadlineSec) {
+              $remSec = [int][Math]::Max(1, [Math]::Min(5, ($deadlineSec - $sw.Elapsed.TotalSeconds)))
               try {
-                  $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-                  if ($res.StatusCode -eq 200) {
+                  $res = Invoke-WebRequest -Uri "http://localhost:7331/progress" -UseBasicParsing -TimeoutSec $remSec -ErrorAction Stop
+                  if ($res.StatusCode -eq 200 -and $res.Content -match '"ok":\s*true') {
                       $dashboardReady = $true
-                      Write-Host "Dashboard API responded with 200 OK."
+                      Write-Host ("Dashboard API responded with 200 OK in {0:F1}s." -f $sw.Elapsed.TotalSeconds)
                       break
                   }
               } catch {
-                  Write-Host "Dashboard API not ready yet. Retrying in 5 seconds..."
-                  Start-Sleep -Seconds 5
+                  $lastErr = $_.Exception.Message
+                  Write-Host ("Dashboard API probe ({0:F1}s elapsed): {1}" -f $sw.Elapsed.TotalSeconds, $lastErr)
+                  $rem = $deadlineSec - $sw.Elapsed.TotalSeconds
+                  if ($rem -gt 2) { Start-Sleep -Seconds 2 }
               }
           }
 
@@ -6789,13 +6813,13 @@ jobs:
         run: |
           set -uo pipefail
           # Check if service startup was actually reached before probing backend
-          if [ ! -f "/c/ghrdp/ghrdp-server.ps1" ] && [ ! -f "C:/ghrdp/ghrdp-server.ps1" ] && ! curl -sf "http://localhost:7331/progress" >/dev/null 2>&1; then
+          if [ ! -f "/c/ghrdp/ghrdp-server.ps1" ] && [ ! -f "C:/ghrdp/ghrdp-server.ps1" ] && ! curl -sf --max-time 5 --connect-timeout 3 "http://localhost:7331/progress" >/dev/null 2>&1; then
             echo "[f92 smoke] SKIPPED: backend service startup was not reached due to earlier provisioning failure"
             exit 0
           fi
           ok=0
           for i in {1..60}; do
-            if curl -sf "http://localhost:7331/api/f92-selftest?frontendSha=${GITHUB_SHA}" -o /tmp/sr.json; then ok=1; break; fi
+            if curl -sf --max-time 5 --connect-timeout 3 "http://localhost:7331/api/f92-selftest?frontendSha=${GITHUB_SHA}" -o /tmp/sr.json; then ok=1; break; fi
             sleep 2
           done
           if [ "$ok" -ne 1 ]; then echo "::error::[f92 smoke] backend never answered /api/f92-selftest within 120s"; exit 1; fi

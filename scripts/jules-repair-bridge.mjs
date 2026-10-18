@@ -135,13 +135,12 @@ Please analyze this failure evidence, reproduce using the reusable lab workflow 
     prompt: promptText,
     sourceContext: {
       source: `sources/github/${repo}`,
-      branch: branch,
+      githubRepoContext: {
+        startingBranch: branch,
+      },
     },
     automationMode: "AUTO_CREATE_PR",
     requirePlanApproval: false,
-    // Backward compatibility fields
-    source: `sources/github/${repo}`,
-    autoCreatePr: true,
   };
 
   return {
