@@ -1,0 +1,7 @@
+name: Unclosed Expression Fixture
+on: push
+jobs:
+  job1:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.sha"

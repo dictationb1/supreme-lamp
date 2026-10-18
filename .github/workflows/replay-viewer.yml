@@ -115,8 +115,7 @@ jobs:
           echo "is_dry_run=${IS_DRY_RUN}" >> $GITHUB_OUTPUT
 
           # Verify docs artifact privacy - assert no private secrets / keys in docs
-          ! grep -rn "TS_AUTHKEY" docs/ || { echo "ERROR: credentials found in docs/" >&2; exit 1; }
-          ! grep -rn "VNC_PASS" docs/ || { echo "ERROR: credentials found in docs/" >&2; exit 1; }
+          node scripts/check-artifact-privacy.mjs docs
 
       - name: Configure Pages
         if: steps.pages-check.outputs.is_dry_run != 'true'
