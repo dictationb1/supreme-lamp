@@ -1,0 +1,70 @@
+name: Workflow Validation
+
+on:
+  push:
+    branches:
+      - main
+      - 'jules-**'
+      - 'fix-**'
+      - 'claude/**'
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+      - 'scripts/**'
+      - 'payloads/**'
+      - 'tests/workflow-validation.test.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Fast Independent Workflow & Script Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Node Dependencies (Frozen Lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Required Validation Tooling (actionlint 1.7.7, shellcheck 0.10.0, pwsh 7.4.2)
+        run: |
+          mkdir -p /tmp/bin
+          echo "Downloading actionlint v1.7.7..."
+          curl -sSL --max-time 30 "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz" | tar -xz -C /tmp/bin
+
+          echo "Downloading shellcheck v0.10.0..."
+          curl -sSL --max-time 30 "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz" | tar -xJ -C /tmp/bin --strip-components=1
+
+          echo "Downloading pwsh 7.4.2..."
+          curl -sSL --max-time 30 "https://github.com/PowerShell/PowerShell/releases/download/v7.4.2/powershell-7.4.2-linux-x64.tar.gz" | tar -xz -C /tmp/bin
+
+          echo "PATH=/tmp/bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Verify Pinned Tooling Availability & Versions
+        run: |
+          actionlint --version
+          shellcheck --version
+          pwsh --version
+
+      - name: Execute Fast Standalone Workflow & Script Validation
+        run: |
+          node scripts/validate-workflows.mjs
+
+      - name: Execute Workflow Validation Unit Tests
+        run: |
+          node --test tests/workflow-validation.test.js

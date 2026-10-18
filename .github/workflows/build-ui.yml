@@ -84,7 +84,8 @@ jobs:
           # [F92 §3.1] stamp the bundle with the sha ACTUALLY checked out:
           # under workflow_call the caller may build a ref other than the
           # workflow event sha.
-          export VITE_BUILD_SHA="$(git rev-parse HEAD)"
+          VITE_BUILD_SHA="$(git rev-parse HEAD)"
+          export VITE_BUILD_SHA
           corepack enable
           pnpm install --frozen-lockfile
           pnpm run build
