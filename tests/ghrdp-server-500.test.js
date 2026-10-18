@@ -10,8 +10,8 @@ test('ghrdp-server.ps1: /progress and /api/progress handle missing mirror module
   assert.match(srv, /function Get-F49OptInVal/, 'server must define Get-F49OptInVal wrapper');
   assert.match(srv, /Get-Command Get-F49RuntimeOptIn/, 'Get-F49OptInVal must check Get-Command before calling Get-F49RuntimeOptIn');
 
-  // Verify /progress contains ok = $true
-  const progIdx = srv.indexOf("if ($path -eq '/progress'");
+  // Verify /progress route handler in Invoke-ClientRequest contains ok = $true
+  const progIdx = srv.lastIndexOf("if ($path -eq '/progress'");
   assert.ok(progIdx >= 0, '/progress route must exist');
   const progBlock = srv.slice(progIdx, progIdx + 6000);
 
@@ -21,7 +21,7 @@ test('ghrdp-server.ps1: /progress and /api/progress handle missing mirror module
 });
 
 test('ghrdp-server.ps1: /progress guards null/missing $cfg properties', () => {
-  const progIdx = srv.indexOf("if ($path -eq '/progress'");
+  const progIdx = srv.lastIndexOf("if ($path -eq '/progress'");
   assert.ok(progIdx >= 0, '/progress route must exist');
   const progBlock = srv.slice(progIdx, progIdx + 6000);
 
