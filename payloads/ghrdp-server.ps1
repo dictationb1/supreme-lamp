@@ -9076,7 +9076,7 @@ boot();
                     mirrorHost = [bool]$script:F46MirrorReady
                 }
                 desktopConnectivity = [ordered]@{
-                    rdpListener = [bool]($null -ne (Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue))
+                    rdpListener = [bool]($(try { $null -ne (Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue) } catch { $false }))
                 }
                 ws = [bool]$script:F96WsUpgradeSupported
                 port = $Port
@@ -9370,6 +9370,9 @@ $lastConnLogScan = Get-Date
 # live. "Not reported yet" means a genuinely absent sample.
 try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
 $lastTelScan = Get-Date
+
+# Transition InitPhase to 'ready' after successful startup initialization
+$script:InitPhase = 'ready'
 # [F45 S4 fx-worker-begin] Queue worker: one process per Root owns
 # %TEMP%\ghrdp\fx-upload-queue.json (same singleton discipline as the wire-probe
 # / rdp-ping / rdp-usage loops). It is a no-op off Windows and it never runs

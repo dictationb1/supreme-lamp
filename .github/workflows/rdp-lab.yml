@@ -527,7 +527,7 @@ jobs:
   lab-report:
     name: Summarize Lab Evidence & Publish Verdict
     needs: [static-lab, windows-integration-lab, live-integration-lab]
-    if: !cancelled()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     outputs:
       verdict: ${{ steps.eval-verdict.outputs.verdict }}
