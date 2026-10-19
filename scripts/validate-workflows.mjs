@@ -211,19 +211,75 @@ export function runActionlint(actionlintBin, filePaths) {
   return { ok: true, output: res.stdout };
 }
 
+export function discoverStandaloneScripts(dirs = [path.join(REPO_ROOT, 'scripts'), path.join(REPO_ROOT, 'payloads')]) {
+  const scripts = [];
+  const validExtensions = new Set(['.js', '.mjs', '.cjs', '.ps1', '.sh']);
+
+  function scanDir(dirPath) {
+    if (!fs.existsSync(dirPath)) return;
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      // Skip fixture directories to prevent scanning intentionally invalid test fixtures
+      if (entry.isDirectory()) {
+        if (entry.name === 'fixtures' || entry.name === 'node_modules' || entry.name === '.git') continue;
+        scanDir(fullPath);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (validExtensions.has(ext)) {
+          scripts.push(fullPath);
+        }
+      }
+    }
+  }
+
+  for (const dir of dirs) {
+    scanDir(dir);
+  }
+  return scripts;
+}
+
+export function validateStandaloneScript(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, error: `File not found: ${filePath}` };
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+
+  if (['.js', '.mjs', '.cjs'].includes(ext)) {
+    const res = spawnSync(process.execPath, ['--check', filePath], { encoding: 'utf8' });
+    if (res.status !== 0) {
+      return { ok: false, error: res.stderr.trim() || res.stdout.trim() || 'Node syntax check failed' };
+    }
+    return { ok: true };
+  } else if (ext === '.sh') {
+    return validateBashCode(content);
+  } else if (ext === '.ps1') {
+    return validatePowershellCode(content);
+  }
+  return { ok: true };
+}
+
 export function validateWorkflowsAndScripts(targetFiles = []) {
-  const results = { ok: true, errors: [] };
+  const results = { ok: true, errors: [], checkedFiles: [] };
 
   const workflowsDir = path.join(REPO_ROOT, '.github', 'workflows');
   let workflowFiles = [];
+  let scriptFiles = [];
 
   if (targetFiles.length > 0) {
     workflowFiles = targetFiles.filter(f => f.endsWith('.yml') || f.endsWith('.yaml'));
-  } else if (fs.existsSync(workflowsDir)) {
-    workflowFiles = fs.readdirSync(workflowsDir)
-      .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
-      .map(f => path.join(workflowsDir, f));
+    scriptFiles = targetFiles.filter(f => !f.endsWith('.yml') && !f.endsWith('.yaml'));
+  } else {
+    if (fs.existsSync(workflowsDir)) {
+      workflowFiles = fs.readdirSync(workflowsDir)
+        .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+        .map(f => path.join(workflowsDir, f));
+    }
+    scriptFiles = discoverStandaloneScripts();
   }
+
+  results.checkedFiles = [...workflowFiles, ...scriptFiles];
 
   let actionlintBin = null;
   try {
@@ -263,6 +319,14 @@ export function validateWorkflowsAndScripts(targetFiles = []) {
     if (!lintRes.ok) {
       results.ok = false;
       results.errors.push(`actionlint error:\n${lintRes.output}`);
+    }
+  }
+
+  for (const sf of scriptFiles) {
+    const scriptRes = validateStandaloneScript(sf);
+    if (!scriptRes.ok) {
+      results.ok = false;
+      results.errors.push(`Script syntax error in ${sf}:\n  ${scriptRes.error}`);
     }
   }
 
