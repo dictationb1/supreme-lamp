@@ -8,7 +8,7 @@
 |---|---|
 | PR | **#29** — https://github.com/dictationb1/supreme-lamp/pull/29 |
 | Branch | `arena/de031d85-supreme-lamp` |
-| පරීක්ෂා කළ SHA (tested) | `10cd512a4639369e1a6dacc8b1f07d4adfffe9e0` (මෙම ලේඛනය එකතු කිරීමට පෙර) |
+| පරීක්ෂා කළ SHA (tested) | `10cd512a4639369e1a6dacc8b1f07d4adfffe9e0` (කේතය) + docs/CI commits — PR #29 හි අවසන් commit එක බලන්න |
 | PR checks | `gates` ✅ · `windows-native` ✅ (csc compile) · `proof` ✅ · `e2e-ui` ✅ · `Static Contracts` ✅ · `build-ui-prebuilt` ✅ |
 | Merge commit | PR #29 හි සටහන් වේ (මෙම ලේඛනය merge වන revision එකේම ඇත) |
 
