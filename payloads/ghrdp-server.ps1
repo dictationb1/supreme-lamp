@@ -369,10 +369,12 @@ function Invoke-F92Selftest {
     }
     $checks['streaming:proxy'] = New-F92Check -Status $stStatus -ObservedValue $stObs -ObservedUnit '' -Output $stOut
     # version:match (same sha source as /api/version)
-    $backendSha = ''
-    try { $backendSha = [string]$env:GHRDP_BUILD_SHA } catch { }
-    if (-not $backendSha) { try { $backendSha = [string]$env:GITHUB_SHA } catch { } }
-    if (-not $backendSha) { $backendSha = 'dev' }
+    # [P002] This used to read the workflow environment only. The server is
+    # started by the GHRDP-Server Scheduled Task, which inherits none of it, so
+    # version:match reported "backend dev != frontend <sha>" - a false failure -
+    # for a server whose deployed identity was in config.json. One resolver now
+    # feeds /api/version, /api/ping and this check.
+    $backendSha = [string](Get-GhrdpBuildIdentity).sha
     $verStatus = 'pass'; $verOut = $null
     if ($FrontendSha -and $FrontendSha -ne $backendSha) {
         $verStatus = 'fail'
@@ -619,6 +621,16 @@ try {
     $tp = Join-Path $Root 'dash-token.txt'
     if (Test-Path -LiteralPath $tp) { $script:Token = ([System.IO.File]::ReadAllText($tp)).Trim() }
 } catch { }
+# [P001] Strict-route credential ledger. $script:Token above is a BOOT SNAPSHOT:
+# main.yml kicks the GHRDP-Server task long before it writes dash-token.txt and
+# config.json dashToken, so a strict route that reads only the snapshot refuses
+# the run's own credential and keeps the previous run's credential mintable.
+# $script:DashTokenCurrent is the credential this process has ESTABLISHED as
+# current; $script:DashTokenRevoked holds every credential this process has
+# superseded, so a revoked value can never become valid again just because the
+# file that replaced it is deleted, emptied or unparsable.
+$script:DashTokenCurrent = [string]$script:Token
+$script:DashTokenRevoked = @{}
 $script:RdpTokens = @{}
 # [F30 §2.2 purge-cmd-begin] The "nuclear option" the operator runs on THEIR PC:
 # ONE PowerShell line that deletes EVERY TERMSRV credential whose LastWritten is
@@ -733,6 +745,57 @@ function Read-JsonFile {
         } catch { Start-Sleep -Milliseconds 40 }
     }
     return $null
+}
+# [P002] Build identity: the commit the DEPLOYED server was built from.
+# main.yml "Stage files + write config.json" writes it as buildSha =
+# $env:GITHUB_SHA, but the dashboard is started by the GHRDP-Server Scheduled
+# Task, which inherits no workflow environment. Reading only `commit` (a key
+# nothing writes) answered sha="dev" for a server whose exact identity was
+# already on disk. Precedence - every step validated as a real 7-40 hex sha, so
+# a malformed or stale value can never be reported as a build:
+#   1. config.json buildSha - the DEPLOYED application identity (authoritative:
+#      it is written by the same staging step that staged these bytes)
+#   2. GHRDP_BUILD_SHA      - explicit execution identity (candidate/lab start)
+#   3. GITHUB_SHA           - execution identity inherited from a workflow step
+#   4. config gitCommit / sourceSha / commit - legacy aliases, nothing writes them
+#   5. 'dev'                - no valid identity anywhere; never invented
+# Execution identity and deployed identity agree in production (both derive
+# from the same run's GITHUB_SHA); when they disagree, the deployed bytes win.
+function Test-GhrdpShaIdentity {
+    param([string]$Value)
+    if (-not $Value) { return $false }
+    return (([string]$Value).Trim() -match '^[0-9a-fA-F]{7,40}$')
+}
+function Get-GhrdpBuildIdentity {
+    param([string]$ConfigPath = '')
+    $sha = ''
+    $src = ''
+    $cfgId = $null
+    if (-not $ConfigPath) { try { $ConfigPath = [string]$script:CfgPath } catch { $ConfigPath = '' } }
+    try { if ($ConfigPath) { $cfgId = Read-JsonFile -Path $ConfigPath } } catch { $cfgId = $null }
+    if ($cfgId -and $cfgId.PSObject.Properties['buildSha']) {
+        $cand = ([string]$cfgId.buildSha).Trim()
+        if (Test-GhrdpShaIdentity $cand) { $sha = $cand; $src = 'config.buildSha' }
+    }
+    if (-not $sha) {
+        foreach ($envName in @('GHRDP_BUILD_SHA', 'GITHUB_SHA')) {
+            $v = ''
+            try { $v = [string][System.Environment]::GetEnvironmentVariable($envName) } catch { $v = '' }
+            if (Test-GhrdpShaIdentity $v) { $sha = ([string]$v).Trim(); $src = 'env.' + $envName; break }
+        }
+    }
+    if (-not $sha -and $cfgId) {
+        foreach ($ck in @('gitCommit', 'sourceSha', 'commit')) {
+            if ($cfgId.PSObject.Properties[$ck]) {
+                $cand = ([string]$cfgId.$ck).Trim()
+                if (Test-GhrdpShaIdentity $cand) { $sha = $cand; $src = 'config.' + $ck; break }
+            }
+        }
+    }
+    if ($sha) { $sha = $sha.ToLowerInvariant() } else { $sha = 'dev'; $src = 'none' }
+    $sha7 = $sha
+    if ($sha7.Length -gt 7) { $sha7 = $sha7.Substring(0, 7) }
+    return [pscustomobject]@{ sha = $sha; sha7 = $sha7; source = $src }
 }
 function Get-RequestParts {
     param([string]$Raw)
@@ -899,6 +962,78 @@ function Test-GhrdpDashToken {
         if (Test-TicketBearer $recv $exb) { return $true }
     }
     return $false
+}
+# [P001] Strict-route credential resolver - the AUTHORIZATION boundary for
+# minting native RDP tickets (/api/rdp-token) and for handing out the
+# credential-deleting purge command (/api/purge-stale-creds).
+# The refresh-aware validator above is a UNION (snapshot + file + config) by
+# design; using it here would keep a superseded credential mintable, so the
+# strict routes get their own single-value policy:
+#   * dash-token.txt is AUTHORITATIVE - main.yml writes config.json first and
+#     dash-token.txt LAST (same $tok), and Provision-GhrdpVps.ps1 writes and
+#     re-validates the same file, so the file carries the current credential.
+#   * config.json dashToken is a FALLBACK only when the token file cannot be
+#     read, and only for the credential already established as current (or to
+#     establish one when nothing is established yet). A config-only value that
+#     disagrees with the established credential is not authority - otherwise a
+#     stale config could re-validate a credential the file already replaced.
+#   * adopting a NEW current credential revokes the previous one AND the boot
+#     snapshot for the life of the process. A revoked value never becomes valid
+#     again, even if every file that replaced it disappears or stops parsing.
+#   * when NO source can be read the last established credential stays valid
+#     (no fail-open, no resurrection, no invented grace window).
+function Test-GhrdpDashTokenShape {
+    param([string]$Candidate)
+    if (-not $Candidate) { return $false }
+    $c = ([string]$Candidate).Trim()
+    if ($c.Length -lt 8 -or $c.Length -gt 256) { return $false }
+    if ($c -notmatch '^[\x21-\x7E]+$') { return $false }
+    return $true
+}
+function Get-GhrdpStrictDashTokenCandidates {
+    param([string]$SnapshotToken)
+    if ($null -eq $script:DashTokenRevoked) { $script:DashTokenRevoked = @{} }
+    if ($null -eq $script:DashTokenCurrent) { $script:DashTokenCurrent = [string]$SnapshotToken }
+    $fileTok = ''
+    try {
+        $tp = Join-Path $Root 'dash-token.txt'
+        if (Test-Path -LiteralPath $tp) {
+            $cand = ([System.IO.File]::ReadAllText($tp)).Trim()
+            if (Test-GhrdpDashTokenShape $cand) { $fileTok = $cand }
+        }
+    } catch { $fileTok = '' }
+    $cfgTok = ''
+    if (-not $fileTok) {
+        try {
+            $cfgS = Read-JsonFile -Path $script:CfgPath
+            if ($cfgS -and $cfgS.PSObject.Properties['dashToken']) {
+                $cand = ([string]$cfgS.dashToken).Trim()
+                if (Test-GhrdpDashTokenShape $cand) { $cfgTok = $cand }
+            }
+        } catch { $cfgTok = '' }
+    }
+    $observed = ''
+    if ($fileTok) { $observed = $fileTok } elseif ($cfgTok) { $observed = $cfgTok }
+    $cur = [string]$script:DashTokenCurrent
+    if (-not $cur -or $script:DashTokenRevoked.ContainsKey($cur)) { $cur = '' }
+    if ($observed) {
+        if (-not $fileTok -and $cur -and $observed -ne $cur) {
+            # config-only value that disagrees with the established credential:
+            # not authority. Keep the established credential; revoke nothing.
+            return @($cur)
+        }
+        # An explicit write to the AUTHORITATIVE token file may re-establish a
+        # value (deliberate operator rollback); a file that disappears or stops
+        # parsing never does, because this branch requires a readable value.
+        if ($cur -and $cur -ne $observed) { $script:DashTokenRevoked[$cur] = $true }
+        $boot = [string]$SnapshotToken
+        if ($boot -and $boot -ne $observed) { $script:DashTokenRevoked[$boot] = $true }
+        if ($script:DashTokenRevoked.ContainsKey($observed)) { $script:DashTokenRevoked.Remove($observed) }
+        $script:DashTokenCurrent = $observed
+        return @($observed)
+    }
+    if ($cur) { return @($cur) }
+    return @()
 }
 function Add-F99TokenTelemetry {
     param([string]$Route, [string]$Presented, [string]$SnapshotToken, [bool]$Valid)
@@ -7092,11 +7227,23 @@ function Invoke-ClientRequest {
         if ($path -eq '/api/rdp-token' -and $parts.method -eq 'POST') {
             # Tailnet reachability alone must not mint native RDP tokens. Require
             # the dashboard secret in a header (never in the request URL).
+            # [P001] Compare against the CURRENT credential (see
+            # Get-GhrdpStrictDashTokenCandidates), not only the boot snapshot:
+            # the workflow writes dash-token.txt after this process is up.
             $auth = [string]$parts.headers['authorization']
-            $expected = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)
             $received = [System.Text.Encoding]::UTF8.GetBytes($auth)
-            if (-not $Token -or $received.Length -ne $expected.Length -or
-                -not (Test-TicketBearer $received $expected)) {
+            $strictCands = @(Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token)
+            $strictExpected = ''
+            if ($strictCands.Count -gt 0) { $strictExpected = [string]$strictCands[0] }
+            $tokOk = $false
+            foreach ($strictCand in $strictCands) {
+                if (-not $strictCand) { continue }
+                $expected = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + [string]$strictCand)
+                if ($received.Length -ne $expected.Length) { continue }
+                if (Test-TicketBearer $received $expected) { $tokOk = $true; break }
+            }
+            try { Add-F99TokenTelemetry -Route '/api/rdp-token' -Presented ([string]$parts.headers['authorization'] -replace '^Bearer\s+', '') -SnapshotToken $strictExpected -Valid $tokOk } catch { }
+            if (-not $tokOk) {
                 Send-ClientResponse -Stream $stream -Code 401 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('dashboard authorization required'))
                 return
             }
@@ -8222,11 +8369,22 @@ function Invoke-ClientRequest {
         # Nothing here runs anything on the server, reads a credential value, or
         # automates any credential UI.
         if ($path -eq '/api/purge-stale-creds') {
+            # [P001B] Same strict-gate defect as /api/rdp-token: this route hands
+            # out a CREDENTIAL-DELETING command, so it must accept the current
+            # run's credential and refuse a superseded one - the boot snapshot
+            # alone does neither. Shared resolver, same policy.
             $authP = [string]$parts.headers['authorization']
-            $expectP = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)
             $recvP = [System.Text.Encoding]::UTF8.GetBytes($authP)
-            if (-not $Token -or $recvP.Length -ne $expectP.Length -or
-                -not (Test-TicketBearer $recvP $expectP)) {
+            $purgeCands = @(Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token)
+            $purgeOk = $false
+            foreach ($purgeCand in $purgeCands) {
+                if (-not $purgeCand) { continue }
+                $expectP = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + [string]$purgeCand)
+                if ($recvP.Length -ne $expectP.Length) { continue }
+                if (Test-TicketBearer $recvP $expectP) { $purgeOk = $true; break }
+            }
+            if (-not $purgeOk) {
+                try { Add-F99TokenTelemetry -Route '/api/purge-stale-creds' -Presented ($authP -replace '^Bearer\s+', '') -SnapshotToken $Token -Valid $false } catch { }
                 Send-ClientResponse -Stream $stream -Code 401 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('dashboard authorization required'))
                 return
             }
@@ -8382,10 +8540,14 @@ function Invoke-ClientRequest {
         # the sha its bundle was BUILT from, so a stale bundle shows as a
         # mismatch instead of a silent half-deploy.
         if ($path -eq '/api/version') {
-            $f85Sha = ''
-            try { $f85Sha = [string]$env:GHRDP_BUILD_SHA } catch { $f85Sha = '' }
-            if (-not $f85Sha) { try { $f85Sha = [string]$env:GITHUB_SHA } catch { $f85Sha = '' } }
-            if (-not $f85Sha) { try { $cfgV = Read-JsonFile -Path $script:CfgPath; $f85Sha = [string]$cfgV.commit } catch { $f85Sha = '' } }
+            # [P002] The identity is resolved by Get-GhrdpBuildIdentity: the
+            # DEPLOYED commit (config.json buildSha, written by the staging step
+            # that staged these bytes) first, then an explicit execution
+            # identity (GHRDP_BUILD_SHA / GITHUB_SHA), then the legacy keys, and
+            # 'dev' only when nothing valid exists. A malformed or stale value
+            # is skipped, never reported.
+            $f85Id = Get-GhrdpBuildIdentity
+            $f85Sha = [string]$f85Id.sha
             if (-not $f85Sha) { $f85Sha = 'dev' }
             $f85Sha7 = $f85Sha
             if ($f85Sha7.Length -gt 7) { $f85Sha7 = $f85Sha7.Substring(0, 7) }
@@ -8394,6 +8556,9 @@ function Invoke-ClientRequest {
                 server = 'ghrdp'
                 sha = $f85Sha
                 sha7 = $f85Sha7
+                # additive, evidence-only: which source produced `sha` (never a
+                # credential, never a path)
+                shaSource = [string]$f85Id.source
                 features = [ordered]@{
                     autoHttps = $true
                     wwwTolerance = $true
@@ -8420,8 +8585,11 @@ function Invoke-ClientRequest {
         }
         if ($path -eq '/api/ping') {
             $tIp = Get-TailnetIp
-            $commit = ''
-            try { $cfgP2 = Read-JsonFile -Path $script:CfgPath; if ($cfgP2 -and $cfgP2.commit) { $commit = [string]$cfgP2.commit } } catch { }
+            # [P002] same identity contract as /api/version (this route read
+            # config.json `commit`, a key nothing writes, so it always answered
+            # an empty commit for a server that had its identity on disk).
+            $commit = [string](Get-GhrdpBuildIdentity).sha
+            if ($commit -eq 'dev') { $commit = '' }
             $obj = [ordered]@{ ok = $true; ip = $tIp; epoch = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); commit = $commit }
             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $obj)
             return

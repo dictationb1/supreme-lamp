@@ -4091,7 +4091,7 @@ jobs:
           # syntax error in them used to surface only as a red Windows lab cell
           # (an expensive loop), and the server DOT-SOURCES the module at start.
           $bad = @()
-          foreach ($file in @('payloads/ghrdp-server.ps1', 'payloads/ghrdp-fx.ps1', 'payloads/ghrdp-mirror.ps1', 'payloads/ghrdp-watcher.ps1', 'payloads/Provision-GhrdpVps.ps1', 'payloads/Enable-RdpTlsCertificate.ps1', 'payloads/helper-ghrdp-connect.ps1', 'payloads/rdp-telescope.ps1', 'payloads/Grant-RdpKeyAccess.ps1', 'payloads/Test-RdpListenerHandshake.ps1', 'tests/f45-fx-server.ps1', 'tests/f46-mirror-policy.ps1', 'tests/f49-mirror-runtime.ps1', 'tests/f52-mirror-telemetry.ps1', 'tests/f53-content-length.ps1')) {
+          foreach ($file in @('payloads/ghrdp-server.ps1', 'payloads/ghrdp-fx.ps1', 'payloads/ghrdp-mirror.ps1', 'payloads/ghrdp-watcher.ps1', 'payloads/Provision-GhrdpVps.ps1', 'payloads/Enable-RdpTlsCertificate.ps1', 'payloads/helper-ghrdp-connect.ps1', 'payloads/rdp-telescope.ps1', 'payloads/Grant-RdpKeyAccess.ps1', 'payloads/Test-RdpListenerHandshake.ps1', 'tests/f45-fx-server.ps1', 'tests/f46-mirror-policy.ps1', 'tests/f49-mirror-runtime.ps1', 'tests/f52-mirror-telemetry.ps1', 'tests/f53-content-length.ps1', 'tests/p001-p002-identity.ps1')) {
               $errors = $null
               $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$null, [ref]$errors)
               if ($errors) {
@@ -4130,6 +4130,23 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & (Join-Path $env:GITHUB_WORKSPACE 'tests\f45-fx-server.ps1')
           if ($LASTEXITCODE -ne 0) { throw ('F45: the fx server test failed with exit ' + $LASTEXITCODE) }
+
+      # [P001/P001B/P002] RUNTIME matrix for the strict credential gate and the
+      # build identity. Extracts the shipped functions from
+      # payloads/ghrdp-server.ps1 with the PowerShell AST and drives the REAL
+      # Invoke-ClientRequest with synthetic peers + a temp Root: credential
+      # written after boot, rotation under a running process, token-file/config
+      # disagreement in both directions, missing/empty/malformed sources, a
+      # superseded boot snapshot that must stay dead, the supported static case,
+      # the purge-route copy-only contract, and /api/version + /api/ping
+      # identity precedence. Every core case also runs the PRE-PATCH comparison
+      # as a baseline arm, so the matrix cannot pass against the old gate.
+      - name: P001/P001B/P002 runtime matrix (credential gate + build identity)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'tests\p001-p002-identity.ps1')
+          if ($LASTEXITCODE -ne 0) { throw ('P001/P002: the runtime matrix failed with exit ' + $LASTEXITCODE) }
 
       # [F46 §6] Mirror policy + contract lab. Drives the SHIPPED
       # payloads/ghrdp-mirror.ps1 with a mock transport: 403/413/415 => exactly
