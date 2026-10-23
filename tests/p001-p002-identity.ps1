@@ -317,14 +317,19 @@ try {
     CheckEq 'P002 no identity: the source is none' 'none' ([string]$v.shaSource)
     Check 'P002 the feature flags still ship' ($v.features.autoHttps -and $v.features.downloadToRdp -and $v.features.mirrorLauncher)
 
+    # re-stage a known deployed identity so the evidence line below quotes the
+    # value the resolver actually reports (never a hard-coded one)
+    Write-Stage -Token $tokP -BuildSha $SCRIPT_BUILD_SHA
     Write-Host ''
     Write-Host ('[P001/P002] runtime: ' + $script:Pass + ' passed, ' + $script:Fail + ' failed')
     if ($script:Fail -gt 0) {
-        Write-Host '::error::P001/P002 runtime matrix failed:'
+        Write-Host ('::error title=P001/P002 runtime matrix::FAIL ' + $script:Fail + ' of ' + ($script:Pass + $script:Fail) + ' checks failed')
         foreach ($f in $script:Failures) { Write-Host ('  - ' + $f) }
         exit 1
     }
     Write-Host 'P001/P002 PASS: current-token authorization, revocation, no-resurrection, purge contract and deployed identity'
+    # durable, API-readable evidence (job logs are not reachable everywhere)
+    Write-Host ('::notice title=P001/P002 runtime matrix::PASS ' + $script:Pass + ' checks, 0 failed - current-credential authorization, rotation/revocation, no-resurrection, static case, purge copy-only contract, deployed identity precedence (sha=' + (Get-GhrdpBuildIdentity).sha + ')')
     exit 0
 } catch {
     Write-Host ('::error::P001/P002 runtime harness error: ' + $_.Exception.Message)
