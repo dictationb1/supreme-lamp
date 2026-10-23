@@ -106,7 +106,21 @@ jobs:
       - name: Node Unit Tests & PowerShell Parser
         run: |
           node scripts/lab-observer.mjs update UNIT_TESTS RUNNING
-          node --test tests/*.test.js
+          # Keep the TAP stream and surface every failing cell as an ANNOTATION.
+          # A bare `node --test` leaves the reason inside a log blob that is not
+          # always reachable; the annotation is readable from the API and the PR.
+          set +e
+          node --test --test-reporter=tap tests/*.test.js > unit-tests.tap 2>&1
+          code=$?
+          set -e
+          tail -n 60 unit-tests.tap
+          if [ "$code" -ne 0 ]; then
+            grep -E '^not ok ' unit-tests.tap | head -n 25 | while IFS= read -r line; do
+              echo "::error title=unit-tests::${line}"
+            done
+            echo "::error title=unit-tests::node --test exited ${code} (full TAP tail above; /tmp has the whole stream)"
+            exit "$code"
+          fi
           node scripts/lab-observer.mjs update UNIT_TESTS PASSED
 
       - name: Vitest Smoke Tests
