@@ -118,6 +118,11 @@ jobs:
             grep -E '^not ok ' unit-tests.tap | head -n 25 | while IFS= read -r line; do
               echo "::error title=unit-tests::${line}"
             done
+            # the failure DETAIL (assertion message) is the part that identifies
+            # the cause - annotate it too, bounded.
+            grep -A 14 -E '^not ok ' unit-tests.tap | head -n 40 | while IFS= read -r line; do
+              echo "::error title=unit-tests-detail::${line}"
+            done
             echo "::error title=unit-tests::node --test exited ${code} (full TAP tail above; /tmp has the whole stream)"
             exit "$code"
           fi
