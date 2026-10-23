@@ -274,6 +274,17 @@ try {
     CheckEq 'P002 deployed identity: sha is config.json buildSha' $SCRIPT_BUILD_SHA ([string]$v.sha)
     CheckEq 'P002 deployed identity: sha7 is the first 7 characters' $SCRIPT_BUILD_SHA.Substring(0, 7) ([string]$v.sha7)
     CheckEq 'P002 deployed identity: the source is reported as config.buildSha' 'config.buildSha' ([string]$v.shaSource)
+    # BASELINE ARM: the PRE-PATCH chain (workflow environment only, then the
+    # config.json `commit` key nothing writes). On a Scheduled-Task server the
+    # environment is absent, so this answered "dev" for a server whose identity
+    # was on disk - the P002 defect, and the reason the F92 version:match check
+    # reported a false backend/frontend mismatch.
+    $oldSha = ''
+    try { $oldSha = [string]$env:GHRDP_BUILD_SHA } catch { $oldSha = '' }
+    if (-not $oldSha) { try { $oldSha = [string]$env:GITHUB_SHA } catch { $oldSha = '' } }
+    if (-not $oldSha) { try { $oldSha = [string](Read-JsonFile -Path $script:CfgPath).commit } catch { $oldSha = '' } }
+    if (-not $oldSha) { $oldSha = 'dev' }
+    CheckEq 'P002 BASELINE ARM: the pre-patch chain answered dev for a server with its identity on disk' 'dev' $oldSha
     $ping = (Request-P -Path '/api/ping' -Source '127.0.0.1').Body | ConvertFrom-Json
     CheckEq 'P002 /api/ping commit agrees with /api/version' ([string]$v.sha) ([string]$ping.commit)
 
