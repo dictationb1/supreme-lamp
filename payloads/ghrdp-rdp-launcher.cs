@@ -125,18 +125,18 @@ using System.Threading;
 // that stored nothing can no longer reach a silent mstsc - the ticket is
 // retried once and the launch then carries the native credential prompt with
 // the 'fallback-mstsc-native-prompt' beacon.
-[assembly: AssemblyVersion("2.8.0.0")]
-[assembly: AssemblyFileVersion("2.8.0.0")]
+[assembly: AssemblyVersion("2.9.0.0")]
+[assembly: AssemblyFileVersion("2.9.0.0")]
 [assembly: AssemblyTitle("ghrdp-rdp-launcher")]
 
 internal static class GhrdpRdpLauncher
 {
-    private const string Ver = "2.8.0.0";
+    private const string Ver = "2.9.0.0";
     // [F19 §2] ONE line: the lab/version-guard read the stamp with
     // `private const string Stamp = "ghrdp-rdp-launcher " + Ver + " ([^)]*)"`,
     // so a wrapped continuation silently broke the guard's ability to rebuild
     // the served stamp (lab cell S: stage=stamp-missing).
-    private const string Stamp = "ghrdp-rdp-launcher " + Ver + " (F30 purge+rdp-assert; F28 recred+fallback-gap; F37 diag telescope)";
+    private const string Stamp = "ghrdp-rdp-launcher " + Ver + " (F30 purge+rdp-assert; F28 recred+fallback-gap; F37 diag telescope; F200 rdp-sign)";
     private const int DefaultPort = 7331;
     // [F19 §2] the RDP TCP port used ONLY for the client-DNS diagnosis probe
     // (the mstsc target itself always stays the MagicDNS FQDN).
@@ -1150,6 +1150,160 @@ internal static class GhrdpRdpLauncher
     }
 
     // ------------------------------------------------------------------
+    // [F200 §7] SIGN THE FINAL GENERATED .rdp FILE WITH THE CLIENT'S EXISTING
+    // CONTROLLED IDENTITY.
+    //
+    // WHAT THIS IS: the native mstsc path writes a .rdp that requests
+    // redirection (drives/devices/clipboard). On a machine whose policy expects
+    // a signed .rdp, Windows shows a consent dialog for an UNSIGNED file. A
+    // signature from a certificate the client already trusts expresses that
+    // intent - it does not bypass anything: no dialog is clicked, no
+    // SmartScreen/Defender setting is touched, no certificate is created,
+    // imported or trusted by this code.
+    //
+    // WHERE THE IDENTITY COMES FROM (never from this repo):
+    //   %ProgramData%\ghrdp\rdp-signing.json   (machine-wide; preferred)
+    //   %LOCALAPPDATA%\ghrdp\rdp-signing.json  (per user fallback)
+    //   {"thumbprint":"<40 or 64 hex>","required":false,"rdpsignPath":"C:\\Windows\\System32\\rdpsign.exe"}
+    // The THUMBPRINT is public metadata that names a certificate already present
+    // in CurrentUser\My WITH its private key. No private key, no PEM, no PFX and
+    // no password is read, written or logged here.
+    //
+    // The lab's bootstrap contract (it creates and trusts the certificate ONCE):
+    //   - create/import the signing certificate itself, with its private key in
+    //     the RDP user's CurrentUser\My;
+    //   - trust exactly that certificate (TrustedPeople / TrustedPublishers) -
+    //     never "trust any publisher";
+    //   - write the JSON above with ITS thumbprint (leave "required" false
+    //     unless the machine enforces .rdp signing).
+    // Missing metadata = today's behaviour (unsigned launch, no new prompt path).
+    // ------------------------------------------------------------------
+    private sealed class RdpSigningPolicy
+    {
+        public string thumbprint = "";
+        public bool required = false;
+        public string rdpsign = "";
+    }
+
+    private static string ShortThumb(string thumb)
+    {
+        if (string.IsNullOrEmpty(thumb)) { return ""; }
+        return thumb.Length > 12 ? thumb.Substring(0, 12) + "..." : thumb;
+    }
+
+    private static RdpSigningPolicy ReadSigningPolicy()
+    {
+        string path = "";
+        try
+        {
+            string machine = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ghrdp", "rdp-signing.json");
+            string user = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ghrdp", "rdp-signing.json");
+            if (File.Exists(machine)) { path = machine; }
+            else if (File.Exists(user)) { path = user; }
+        }
+        catch { return null; }
+        if (string.IsNullOrEmpty(path)) { return null; }
+        RdpSigningPolicy pol = new RdpSigningPolicy();
+        try
+        {
+            string json = File.ReadAllText(path);
+            System.Web.Script.Serialization.JavaScriptSerializer js = new System.Web.Script.Serialization.JavaScriptSerializer();
+            Dictionary<string, object> map = js.DeserializeObject(json) as Dictionary<string, object>;
+            if (map != null)
+            {
+                object v;
+                if (map.TryGetValue("thumbprint", out v) && v != null) { pol.thumbprint = Convert.ToString(v).Trim(); }
+                if (map.TryGetValue("rdpsignPath", out v) && v != null) { pol.rdpsign = Convert.ToString(v).Trim(); }
+                bool req = false;
+                if (map.TryGetValue("required", out v) && v != null) { bool.TryParse(Convert.ToString(v), out req); }
+                pol.required = req;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogJson("warn", "rdp", "rdp-signing.json unreadable (" + ex.GetType().Name + ") - unsigned launch path, nothing was installed or trusted");
+            return null;
+        }
+        // A non-hex thumbprint is a configuration error, not a silent skip.
+        if (!string.IsNullOrEmpty(pol.thumbprint) && !Regex.IsMatch(pol.thumbprint, "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"))
+        {
+            LogJson("error", "rdp", "rdp-signing.json thumbprint is not 40/64 hex - signing skipped, UNSIGNED launch");
+            return null;
+        }
+        if (string.IsNullOrEmpty(pol.thumbprint)) { return null; }
+        return pol;
+    }
+
+    // Signs in place with the in-box rdpsign.exe and PROVES the result: the
+    // tool must exit 0 AND the file must carry a signature directive afterwards.
+    private static bool TrySignRdp(string rdpPath, RdpSigningPolicy pol, out string detail)
+    {
+        detail = "";
+        string exe = pol.rdpsign;
+        if (string.IsNullOrEmpty(exe) || !File.Exists(exe))
+        {
+            try { exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "rdpsign.exe"); }
+            catch { exe = ""; }
+        }
+        if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) { detail = "rdpsign-missing"; return false; }
+        // READ-ONLY check that the configured identity really exists for THIS
+        // user with a private key. Nothing is added to any store.
+        try
+        {
+            System.Security.Cryptography.X509Certificates.X509Store store =
+                new System.Security.Cryptography.X509Certificates.X509Store(
+                    System.Security.Cryptography.X509Certificates.StoreName.My,
+                    System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser);
+            store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly);
+            System.Security.Cryptography.X509Certificates.X509Certificate2Collection hits =
+                store.Certificates.Find(System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint, pol.thumbprint, false);
+            store.Close();
+            if (hits.Count == 0) { detail = "cert-not-in-currentuser-my"; return false; }
+            if (!hits[0].HasPrivateKey) { detail = "cert-has-no-private-key"; return false; }
+        }
+        catch (Exception ex) { detail = "cert-lookup-failed-" + ex.GetType().Name; return false; }
+
+        int code = -1;
+        string stdout = "";
+        string stderr = "";
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo(exe);
+            // NO hidden-window flag here: the F15/F17/F20 invariant bans it in
+            // this file outright (it is what once hid a credential/client
+            // window). rdpsign is a short, visible-by-nature helper; its output
+            // is captured, and a console flash is acceptable - never hidden.
+            psi.UseShellExecute = false;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            psi.Arguments = "/sha256 " + pol.thumbprint + " \"" + rdpPath + "\"";
+            using (Process p = Process.Start(psi))
+            {
+                if (p == null) { detail = "rdpsign-did-not-start"; return false; }
+                stdout = p.StandardOutput.ReadToEnd();
+                stderr = p.StandardError.ReadToEnd();
+                if (!p.WaitForExit(20000)) { try { p.Kill(); } catch { } detail = "rdpsign-timeout"; return false; }
+                code = p.ExitCode;
+            }
+        }
+        catch (Exception ex) { detail = "rdpsign-failed-" + ex.GetType().Name; return false; }
+
+        bool hasSignature = false;
+        try
+        {
+            string after = File.ReadAllText(rdpPath);
+            hasSignature = after.IndexOf("signature:s:", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch { }
+        // rdpsign's own text can quote paths; never log a raw line that might
+        // carry one - the code + the signature directive are the facts.
+        detail = "exit=" + code.ToString(CultureInfo.InvariantCulture) + " signature=" + (hasSignature ? "true" : "false");
+        if (stdout.Length > 0 && stdout.IndexOf("signed", StringComparison.OrdinalIgnoreCase) >= 0) { detail = detail + " tool=reported-signed"; }
+        if (code != 0 && stderr.Length > 0) { detail = detail + " stderr=present"; }
+        return code == 0 && hasSignature;
+    }
+
+    // ------------------------------------------------------------------
     // [F15 §1.3] .rdp write + VISIBLE mstsc; an immediate exit is a visible
     // failure (exit code + last log lines), never a silent nothing.
     // ------------------------------------------------------------------
@@ -1214,6 +1368,39 @@ internal static class GhrdpRdpLauncher
         }
 
         HandoffStep(host, port, "rdp-written", true);
+
+        // [F200 §7] sign the FINAL generated file, if this client has a
+        // controlled signing identity configured. Absent metadata = unchanged
+        // unsigned behaviour; present-but-failing is LOUD (and blocks the
+        // launch only when the machine says signing is required).
+        RdpSigningPolicy signPolicy = ReadSigningPolicy();
+        if (signPolicy != null)
+        {
+            string signDetail;
+            if (TrySignRdp(rdp, signPolicy, out signDetail))
+            {
+                LogJson("rdp", "rdp", "rdp-signed thumbprint=" + ShortThumb(signPolicy.thumbprint) + " " + signDetail +
+                    " (consent expressed by the signature; no dialog was automated)");
+                HandoffStep(host, port, "rdp-signed", true);
+            }
+            else
+            {
+                LogJson("error", "rdp", "rdp-sign-failed thumbprint=" + ShortThumb(signPolicy.thumbprint) + " " + signDetail +
+                    " required=" + (signPolicy.required ? "true" : "false"));
+                HandoffStep(host, port, "rdp-sign-failed", false);
+                if (signPolicy.required)
+                {
+                    ShowBox("ghrdp: .rdp signing FAILED (required by this machine)",
+                        "The configured .rdp signing identity could not sign the generated file (" + signDetail + ").\n\n" +
+                        "mstsc was NOT started: this machine's policy says a signed .rdp is required, and launching from an " +
+                        "unsigned file would produce exactly the consent prompt signing exists to avoid. Nothing was clicked, " +
+                        "no certificate was created, imported or trusted by this launcher.\n\n" +
+                        "Fix the client signing identity (certificate present in CurrentUser\\My with its private key, thumbprint " +
+                        "in %ProgramData%\\ghrdp\\rdp-signing.json) and click again.\n\nlast 5 log lines (" + LogPath() + "):\n\n" + TailLines(5));
+                    throw new InvalidOperationException("rdp-sign-failed " + signDetail);
+                }
+            }
+        }
         if (nativePrompt)
         {
             // No stored credential is known-good: the user types it into WINDOWS'

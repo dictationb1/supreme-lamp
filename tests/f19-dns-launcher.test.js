@@ -237,7 +237,7 @@ test('F19-11 launch gates: credential-UI automation ban + probe/version guard pi
     '[F19 §1 client-DNS probe-begin]', 'clientDnsCore', 'CDNS_TIMEOUT_MS=3000', 'CDNS_PERIOD_MS=30000',
     'launcherVersion = $launcherVer', 'launcherOutdated', 'client-dns-off', '--dns-selftest',
     'Your Tailscale DNS is off. Run once: tailscale set --accept-dns=true',
-    '### 1.11 [F19 §3] Code-signed', 'F19 gates PASS',
+    '### 1.11 [F19 §3 -> F200 §7] Code-signed', 'F19 gates PASS',
   ]) assert.ok(gates.includes(tok), 'F19 gate does not pin: ' + tok);
   assert.match(gates, /name: F19 launcher DNS-guard decision matrix \(csc compile \+ injected resolver\)/);
   // the gate must really ban, not describe: an "if grep ... then exit 1" body.
@@ -253,16 +253,36 @@ test('F19-11 launch gates: credential-UI automation ban + probe/version guard pi
   }
 });
 
-test('F19-12 §3 code-signed .rdp stays DOCUMENTED ONLY (no implementation, no cert trust)', () => {
-  assert.ok(migration.includes('### 1.11 [F19 §3] Code-signed'), 'the §1.11 note is missing');
-  assert.ok(migration.includes('OPTIONAL FUTURE, NOT IMPLEMENTED'), 'the note must say it is not implemented');
+test('F19-12 §3 (F200 supersede) .rdp signing is IMPLEMENTED via the configured identity, and the launcher trusts nothing', () => {
+  // SUPERSEDED PIN, REWRITTEN IN PLACE: the old cell asserted the plan stayed
+  // "documented only" and that no shipped file mentioned rdpsign. F200 §7
+  // implements it client-side on the operator's explicit instruction, so the
+  // invariant that matters now is narrower and still enforced:
+  //   signing goes through the EXISTING identity named by rdp-signing.json,
+  //   the result is PROVEN in the file, and no code creates/imports/trusts a cert.
+  assert.ok(migration.includes('### 1.11 [F19 §3 -> F200 §7] Code-signed'), 'the §1.11 heading was not rewritten');
+  assert.ok(migration.includes('IMPLEMENTED (OPT-IN'), 'the §1.11 note must say it is implemented and opt-in');
   assert.ok(migration.includes('rdpsign'), 'the note must name the signing tool');
+  assert.ok(migration.includes('rdp-signing.json'), 'the note must define the metadata contract');
   assert.ok(migration.includes('certificate-validation bypass'), 'the note must keep the constraints');
-  // nothing in the shipped code signs or trusts a code-signing certificate.
-  for (const src of [launcher, ui, server, mainYml]) {
-    assert.ok(!/rdpsign|CodeSigning|TrustedPublisher/i.test(src),
-      'a code-signing implementation leaked into shipped code (F19 §3 is documentation only)');
+  assert.ok(migration.includes('Never substitute one for another'), 'the note must separate the keys');
+
+  // the launcher reads the contract and proves the outcome
+  for (const tok of ['rdp-signing.json', 'rdpsign.exe', 'rdp-signed', 'signature:s:', 'HasPrivateKey', 'TrySignRdp']) {
+    assert.ok(launcher.includes(tok), 'the shipped launcher lost the F200 §7 token: ' + tok);
   }
+  // ...and performs no trust-store or key-material work of its own.
+  const csCode = launcher.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  for (const banned of ['-addstore', 'TrustedPublisher', 'TrustedPeople', 'New-SelfSignedCertificate', 'Import-Certificate', 'X509Certificate2Collection(']) {
+    assert.ok(!csCode.includes(banned), 'shipped launcher code creates/imports/trusts a certificate: ' + banned);
+  }
+  assert.ok(!/(private key|pfx|password)\s*=\s*"/i.test(csCode), 'a key/password literal leaked into the launcher');
+  // the unsigned default is still the default
+  assert.ok(launcher.includes('Missing metadata = today'), 'the launcher must state that absent metadata = unsigned launch');
+
+  // the gate enforces the same contract (a doc-only claim would not)
+  assert.ok(gates.includes("grep -qF 'rdp-signing.json' \"$cs\""));
+  assert.ok(gates.includes("grep -qF 'signature:s:' \"$cs\""));
 });
 
 test('F19-14 the version-guard regex ACTUALLY matches the shipped launcher (executed)', () => {

@@ -8452,6 +8452,20 @@ function Invoke-ClientRequest {
             if ($sinceIso) { try { $since = [DateTime]::Parse($sinceIso).ToUniversalTime() } catch { } }
             $connected = $false; $ts = ''; $ageSec = -1; $ip = ''; $checked = 0
             $ltSeen = ''
+            # [F200 §6 logon-status-begin] $Matches CLOBBER - THE PROVEN DEFECT.
+            # The old body did:
+            #     if ($msg -notmatch 'Logon Type:\s+(2|10|11)\b') { continue }
+            #     if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { continue }
+            #     $ltSeen = [string]$Matches[1]      # <- reads the USER regex's match
+            # $Matches is a single automatic variable rewritten by EVERY -match,
+            # so the user filter (which has no capture group at all) replaced the
+            # LogonType capture: /api/logon-status reported logonType='' for a
+            # REAL type-10 session whenever a user filter was in play, and the UI
+            # then said "no type-10 4624" while the desktop was on screen.
+            #
+            # FIX: capture the type into a LOCAL immediately, and use
+            # [regex]::Match (which never touches $Matches) for every other
+            # field. Nothing below reads $Matches.
             try {
                 $filter = @{ LogName='Security'; Id=4624; StartTime=$since.ToLocalTime() }
                 $events = Get-WinEvent -FilterHashtable $filter -MaxEvents 80 -ErrorAction SilentlyContinue
@@ -8462,27 +8476,53 @@ function Invoke-ClientRequest {
                     # message carries the numeric type, so accept the same
                     # 2/10/11 set as the F28 collector. \b stops '10' from
                     # matching inside a longer number.
-                    if ($msg -notmatch 'Logon Type:\s+(2|10|11)\b') { continue }
+                    $ltM = [regex]::Match($msg, 'Logon Type:\s+(2|10|11)\b')
+                    if (-not $ltM.Success) { continue }
+                    $ltThis = [string]$ltM.Groups[1].Value
+                    # The user filter may only NARROW the search; it must never
+                    # overwrite the captured type (that was the clobber).
                     if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { continue }
                     $connected = $true
-                    $ltSeen = [string]$Matches[1]
+                    $ltSeen = $ltThis
                     $ts = $ev.TimeCreated.ToUniversalTime().ToString('o')
                     $ageSec = [int]((Get-Date) - $ev.TimeCreated).TotalSeconds
-                    if ($msg -match 'Source Network Address:\s+(\S+)') { $ip = $Matches[1] }
+                    $ipM = [regex]::Match($msg, 'Source Network Address:\s+(\S+)')
+                    if ($ipM.Success) { $ip = [string]$ipM.Groups[1].Value }
                     break
                 }
             } catch { }
-            $body = [ordered]@{
-                connected  = $connected
-                ts         = $ts
-                ageSeconds = $ageSec
-                sourceIp   = $ip
-                user       = $userQ
-                since      = $since.ToString('o')
-                checked    = $checked
-                logonType  = $ltSeen
-                note       = 'Runner-side Security 4624 LogonType 2/10/11 (F95: was type-10 only); requires SeSecurityPrivilege on server process'
+            # [F200 §6] The TYPE decides the proof class - never the IP address.
+            # 10 = RemoteInteractive = an INBOUND RDP logon (the only type that
+            # proves the client VM reached this runner over RDP). 2 = Interactive
+            # / 11 = CachedInteractive prove a desktop exists (Windows
+            # AutoAdminLogon writes 2) but say NOTHING about RDP: a console
+            # logon must never be reported as inbound RDP.
+            $ltKind = ''
+            switch ($ltSeen) {
+                '2'  { $ltKind = 'interactive' }
+                '10' { $ltKind = 'remote-interactive' }
+                '11' { $ltKind = 'cached-interactive' }
+                default { $ltKind = '' }
             }
+            $inboundRdp = ([string]$ltSeen -eq '10')
+            $proofClass = 'none'
+            if ($connected -and $inboundRdp) { $proofClass = 'remote-interactive' }
+            elseif ($connected) { $proofClass = 'desktop-only-not-rdp' }
+            $body = [ordered]@{
+                connected    = $connected
+                ts           = $ts
+                ageSeconds   = $ageSec
+                sourceIp     = $ip
+                user         = $userQ
+                since        = $since.ToString('o')
+                checked      = $checked
+                logonType    = $ltSeen
+                logonKind    = $ltKind
+                inboundRdp   = $inboundRdp
+                proofClass   = $proofClass
+                note         = 'Runner-side Security 4624 LogonType 2/10/11 (F95: was type-10 only). logonType is the ACTUAL captured type (F200: fixed the automatic-match clobber); inboundRdp is derived from the TYPE, never from sourceIp. Requires SeSecurityPrivilege on server process'
+            }
+            # [F200 §6 logon-status-end]
             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $body)
             return
         }

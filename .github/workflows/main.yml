@@ -58,6 +58,10 @@ permissions:
   actions: write    # [F43] artifact upload/download for dist-ui (build-ui -> rdp)
   pages: write      # enable/configure GitHub Pages via API
   id-token: write   # optional, harmless; needed only if you later use OIDC
+  # [F200 / MC-SIGNAL] the live-signal publisher writes THIS run's check run
+  # (`mission-control-live-signal`). Without it the publisher fails with the
+  # named code mc-signal-token-unauthorized instead of silently not publishing.
+  checks: write
 
 jobs:
   preflight:
@@ -5851,8 +5855,111 @@ jobs:
               '*සටහන: මුරපද හෝ සත්‍යාපන ටෝකන Log හෝ Step Summary තුළ කිසිවිටෙකත් ප්‍රකාශයට පත් නොකෙරේ.*' | Add-Content -LiteralPath $S -Encoding utf8
           }
 
+      # [F200 / MC-SIGNAL] PUBLISH THIS RUN'S LIVE SIGNAL.
+      # The lab must be able to discover the REAL application run (this job) and
+      # open the ACTUAL authenticated Mission Control UI on the client VM. Live
+      # workflow logs were measured to be unavailable in the tested paths;
+      # check-run output was readable while the app was still running - so the
+      # transport is a check run named `mission-control-live-signal`, refreshed
+      # every 60 s by a detached publisher, and the dashboard credential travels
+      # ONLY as a sealed envelope addressed to the lab's MC-SIGNAL public key
+      # (repository VARIABLE LAB_SIGNAL_PUBKEY; the matching PRIVATE key lives in
+      # the LAB repository and is never present here).
+      #
+      # The keys are NOT interchangeable: MC-SIGNAL is not the per-run dash
+      # token, not the RDP password and not the .rdp signing certificate.
+      #
+      # FAILURE IS NAMED: a missing/unparseable key, a missing dash token, a
+      # token without checks:write or an HTTP failure is published as
+      # `integration-failed: mc-signal-<class>` AND annotated here. This step is
+      # continue-on-error so a broken signal never destroys an otherwise healthy
+      # RDP session - but it is never silently green either.
+      - name: Publish live Mission Control signal (MC-SIGNAL)
+        if: ${{ success() && (github.event.inputs.mode == 'rdp') }}
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LAB_SIGNAL_PUBKEY: ${{ vars.LAB_SIGNAL_PUBKEY }}
+          # [F200 §8] OPTIONAL event-based wake-up. An application GITHUB_TOKEN
+          # cannot write to another repository, so this only fires when BOTH a
+          # target variable and a cross-repo secret exist. Absent either one the
+          # publisher logs `wake-up: skipped (...)` and the lab's ~10-minute
+          # schedule stays the real mechanism - polling is never called instant.
+          LAB_SIGNAL_LAB_REPO: ${{ vars.LAB_SIGNAL_LAB_REPO }}
+          LAB_SIGNAL_DISPATCH_TOKEN: ${{ secrets.LAB_SIGNAL_DISPATCH_TOKEN }}
+          MC_SIGNAL_ROOT: C:\ghrdp
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $S = $env:GITHUB_STEP_SUMMARY
+          $root = 'C:\ghrdp'
+          $sigDir = Join-Path $root 'live-signal'
+          New-Item -ItemType Directory -Path $sigDir -Force | Out-Null
+          $statePath = Join-Path $sigDir 'state.json'
+          $logPath = Join-Path $sigDir 'publisher.log'
+          $cfgPath = Join-Path $root 'config.json'
+          Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+          function Write-McSignalFailure([string]$Code, [string]$Detail) {
+              Write-Host ('::error title=MC-SIGNAL integration-failed::' + $Code + ' - ' + $Detail)
+              if ($S) {
+                  ('### MC-SIGNAL integration-failed: ' + $Code) | Add-Content -Path $S
+                  ('- ' + $Detail) | Add-Content -Path $S
+                  '- The RDP session itself continues; the lab CANNOT discover this run until this is fixed.' | Add-Content -Path $S
+              }
+          }
+          $script = Join-Path $env:GITHUB_WORKSPACE 'scripts\live-signal-publisher.js'
+          $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+          if (-not $nodeCmd) { Write-McSignalFailure 'mc-signal-node-missing' 'node.exe is not available on this runner'; exit 1 }
+          if (-not (Test-Path -LiteralPath $script)) { Write-McSignalFailure 'mc-signal-script-missing' ('publisher not found at ' + $script); exit 1 }
+          if (-not (Test-Path -LiteralPath $cfgPath)) { Write-McSignalFailure 'mc-signal-config-unreadable' ('config.json not found at ' + $cfgPath + ' - an EARLIER step halted this run'); exit 1 }
+          if (-not $env:LAB_SIGNAL_PUBKEY) {
+              Write-Host '::warning title=MC-SIGNAL::LAB_SIGNAL_PUBKEY is empty - the publisher will publish a NAMED failure check run (mc-signal-pubkey-missing)'
+          }
+          Write-Host '[mc-signal] launching publisher (detached; survives this step and keeps heartbeating during keep-alive)'
+          $p = Start-Process -FilePath $nodeCmd.Source -ArgumentList @($script, '--config', $cfgPath, '--state', $statePath, '--log', $logPath) -WindowStyle Hidden -PassThru
+          Write-Host ('[mc-signal] publisher pid=' + $p.Id)
+          $deadline = (Get-Date).AddSeconds(120)
+          $final = $null
+          while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Seconds 3
+              if (Test-Path -LiteralPath $statePath) {
+                  try { $final = [System.IO.File]::ReadAllText($statePath) | ConvertFrom-Json } catch { $final = $null }
+              }
+              if ($final -and ($final.published -eq $true -or $final.state -eq 'failed')) { break }
+              if ($p.HasExited -and $p.ExitCode -ne 0 -and -not $final) { break }
+          }
+          $tail = @()
+          if (Test-Path -LiteralPath $logPath) { $tail = @(Get-Content -LiteralPath $logPath -Tail 12 -ErrorAction SilentlyContinue) }
+          foreach ($l in $tail) { Write-Host ('[mc-signal] ' + $l) }
+          if (-not $final) {
+              Write-McSignalFailure 'mc-signal-no-state' ('the publisher did not write ' + $statePath + ' within 120s (see ' + $logPath + ')')
+              exit 1
+          }
+          if ($final.state -eq 'failed' -or $final.published -ne $true) {
+              Write-McSignalFailure ([string]$final.reason) ([string]$final.detail)
+              exit 1
+          }
+          Write-Host ('[mc-signal] PUBLISHED check=' + $final.checkUrl + ' keyId=' + $final.keyId + ' endpoint=' + $final.endpoint + ' uiSha=' + [string]$final.uiSha + ' matchesRunSha=' + [string]$final.uiMatchesRunSha)
+          if ($S) {
+              '### MC-SIGNAL published (live)' | Add-Content -Path $S
+              ('- check run: ' + $final.checkUrl) | Add-Content -Path $S
+              ('- run: `' + $final.repository + '#' + $final.runId + '.' + $final.runAttempt + '` sha `' + $final.sha + '`') | Add-Content -Path $S
+              ('- endpoint: `' + $final.endpoint + '` · UI build `' + [string]$final.uiSha + '` (matches run SHA: ' + [string]$final.uiMatchesRunSha + ')') | Add-Content -Path $S
+              ('- MC-SIGNAL keyId: `' + $final.keyId + '` (public key only; the credential is sealed to the lab private key)') | Add-Content -Path $S
+              ('- heartbeat every ' + [string]$final.heartbeatSec + 's; consumers must reject a heartbeat older than ' + (3 * [int]$final.heartbeatSec) + 's') | Add-Content -Path $S
+              '- No plaintext dashboard token, RDP password or key material is published by this step.' | Add-Content -Path $S
+          }
+          exit 0
+
       - name: Keep-alive 5h30 (60s heartbeat, rust probe, auto-restart, banners)
         if: ${{ success() && (github.event.inputs.mode == 'rdp') }}
+        # [F200] the MC-SIGNAL supervisor restarts the publisher from THIS step,
+        # so the child needs the same two values the publish step used. Neither
+        # is ever printed; the publisher logs only checkId/keyId/endpoint.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LAB_SIGNAL_PUBKEY: ${{ vars.LAB_SIGNAL_PUBKEY }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
@@ -5915,6 +6022,8 @@ jobs:
           $webRtcFilter = "Name='" + $webRtcExeName + "'"
           $lastVncFix = (Get-Date).AddMinutes(-10)
           $lastDirectTry = (Get-Date).AddMinutes(-10)
+          # [F200] MC-SIGNAL publisher supervision clock (see the tick below).
+          $lastSigFix = (Get-Date).AddMinutes(-10)
           $icons = [ordered]@{
               rocket = [char]::ConvertFromUtf32(0x1F680)
               screen = [char]::ConvertFromUtf32(0x1F5A5)
@@ -6451,6 +6560,36 @@ jobs:
                       if ($psOk) { Write-Host ($icons.check + ' RECOVERED ' + $stamp + ' PowerShell dashboard is responding again') } else { Write-Host ($icons.warn + ' STILL DOWN ' + $stamp + ' PS dashboard 7331') }
                   }
               }
+              # [F200 / MC-SIGNAL] PUBLISHER SUPERVISION. The publisher rewrites
+              # live-signal\state.json on every heartbeat; a missing/stale file or a
+              # dead pid means the check run stopped being refreshed and the lab
+              # would see a signal that is silently frozen. Restart it loudly, at
+              # most once every 2 minutes - never a quiet stop.
+              try {
+                  $sigState = Join-Path $root 'live-signal\state.json'
+                  $sigAge = 99999
+                  if (Test-Path -LiteralPath $sigState) { try { $sigAge = [int]((Get-Date) - (Get-Item -LiteralPath $sigState).LastWriteTime).TotalSeconds } catch { } }
+                  $sigPid = 0
+                  if (Test-Path -LiteralPath $sigState) { try { $sigPid = [int]((Read-GhrdpJson -Path $sigState).pid) } catch { } }
+                  $sigAlive = $false
+                  if ($sigPid -gt 0) { try { $sigAlive = [bool](Get-Process -Id $sigPid -ErrorAction SilentlyContinue) } catch { } }
+                  if ((-not $sigAlive) -or ($sigAge -gt 180)) {
+                      if (((Get-Date) - $lastSigFix).TotalMinutes -ge 2) {
+                          $lastSigFix = Get-Date
+                          Write-Host ($icons.wrench + ' ' + $stamp + ' MC-SIGNAL publisher stale (alive=' + $sigAlive + ' pid=' + $sigPid + ' stateAgeSec=' + $sigAge + ') - restarting')
+                          $sigScript = Join-Path $env:GITHUB_WORKSPACE 'scripts\live-signal-publisher.js'
+                          $sigNode = Get-Command node.exe -ErrorAction SilentlyContinue
+                          if ($sigNode -and (Test-Path -LiteralPath $sigScript)) {
+                              try {
+                                  Start-Process -FilePath $sigNode.Source -ArgumentList @($sigScript, '--config', $cfgPath, '--state', $sigState, '--log', (Join-Path $root 'live-signal\publisher.log')) -WindowStyle Hidden | Out-Null
+                                  Write-Host ($icons.check + ' MC-SIGNAL publisher restarted')
+                              } catch { Write-Host ($icons.warn + ' MC-SIGNAL publisher restart failed: ' + $_.Exception.Message) }
+                          } else {
+                              Write-Host ($icons.warn + ' MC-SIGNAL publisher CANNOT be restarted (node.exe or scripts\live-signal-publisher.js missing) - the publisher only runs while its process lives')
+                          }
+                      }
+                  }
+              } catch { Write-Host ('[mc-signal] supervisor tick failed: ' + $_.Exception.Message) }
               $vncOk = $false; $brOk = $false
               try { $vncOk = [bool](Get-NetTCPConnection -LocalPort 5900 -State Listen -ErrorAction SilentlyContinue) } catch { }
               try { $brOk = [bool](Get-NetTCPConnection -LocalPort 7333 -State Listen -ErrorAction SilentlyContinue) } catch { }
@@ -6713,6 +6852,42 @@ jobs:
           try { $cfgEnd = Read-GhrdpJson -Path $cfgPath; if ($cfgEnd) { $cfgEnd | Add-Member -NotePropertyName keepAlivePhase -NotePropertyValue 'ended' -Force; $cfgEnd | Add-Member -NotePropertyName keepAliveDeadline -NotePropertyValue ((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')) -Force; [System.IO.File]::WriteAllText($cfgPath, ($cfgEnd | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false))) } } catch { }
           Show-Banner -Reason 'keep-alive window finished - cleanup follows'
           Write-Host '[keepalive] keep-alive window complete; the cleanup steps will run now'
+          exit 0
+
+      # [F200 / MC-SIGNAL] RETIRE THE SIGNAL before anything else runs.
+      # `if: always()` so a CANCELLED or failed keep-alive still closes the check
+      # run: an old signal must never be readable as a usable current session.
+      # The publisher also self-closes on run termination/expiry; this is the
+      # belt-and-braces path, and it is bounded so it cannot hang the job.
+      - name: Close live Mission Control signal (MC-SIGNAL)
+        if: ${{ always() && (github.event.inputs.mode == 'rdp') }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MC_SIGNAL_ROOT: C:\ghrdp
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = 'C:\ghrdp'
+          $statePath = Join-Path $root 'live-signal\state.json'
+          $logPath = Join-Path $root 'live-signal\publisher.log'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'scripts\live-signal-publisher.js'
+          if (-not (Test-Path -LiteralPath $statePath) -or -not (Test-Path -LiteralPath $script)) {
+              Write-Host '[mc-signal] nothing to close (no state file or no publisher script)'
+              exit 0
+          }
+          $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+          if (-not $nodeCmd) { Write-Host '::warning title=MC-SIGNAL::node.exe missing - the check run could not be closed'; exit 0 }
+          & $nodeCmd.Source $script --close --config (Join-Path $root 'config.json') --state $statePath --log $logPath
+          $code = $LASTEXITCODE
+          $LASTEXITCODE = 0
+          if ($code -ne 0) { Write-Host ('::warning title=MC-SIGNAL::close exited ' + $code + ' - inspect ' + $logPath) }
+          else { Write-Host '[mc-signal] signal closed (state=closed, conclusion=neutral - no longer a usable session)' }
+          if ($env:GITHUB_STEP_SUMMARY) {
+              if ($code -eq 0) { '- MC-SIGNAL: closed (neutral) - this run is no longer advertised as a live session.' | Add-Content -Path $env:GITHUB_STEP_SUMMARY }
+              else { ('- MC-SIGNAL: close FAILED (exit ' + $code + ') - the signal may still read live until it expires; see ' + $logPath) | Add-Content -Path $env:GITHUB_STEP_SUMMARY }
+          }
           exit 0
 
       # [F46 §1] the worker's attempt table, whatever the run's outcome: one row
