@@ -228,7 +228,7 @@ export async function dispatchJulesSession(input = {}, fetchFn = globalThis.fetc
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   dispatchJulesSession().then((res) => {
     console.log(`[jules-repair-bridge] Result Status: ${res.status}`);
 
