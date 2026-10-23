@@ -731,10 +731,25 @@ jobs:
           if grep -nE 'ProcessStartInfo\("mstsc\.exe", *"\\"?" *\+ *dnsIp' "$cs"; then
             echo 'F19: mstsc was pointed at the diagnosis IP' >&2; exit 1
           fi
-          # --- §3 the code-signed .rdp plan stays DOCUMENTED, never implemented
-          grep -qF '### 1.11 [F19 §3] Code-signed' "$mig" || { echo 'F19: MIGRATION.md lacks the §1.11 code-signed .rdp note' >&2; exit 1; }
-          grep -qF 'OPTIONAL FUTURE, NOT IMPLEMENTED' "$mig"
+          # --- §3 (F200 supersede) .rdp signing is IMPLEMENTED, opt-in, and the
+          # launcher still creates/imports/trusts NOTHING. The old pin asserted
+          # "never implemented"; that invariant is replaced in place - the new
+          # invariant is "implemented, but only through the configured identity".
+          grep -qF '### 1.11 [F19 §3 -> F200 §7] Code-signed' "$mig" || { echo 'F19: MIGRATION.md lacks the §1.11 code-signed .rdp section' >&2; exit 1; }
           grep -qF 'rdpsign' "$mig"
+          grep -qF 'rdp-signing.json' "$mig"
+          grep -qF 'rdp-signing.json' "$cs" || { echo 'F19: the launcher does not read the rdp-signing.json contract' >&2; exit 1; }
+          grep -qF 'rdpsign.exe' "$cs" || { echo 'F19: the launcher does not use the in-box rdpsign.exe' >&2; exit 1; }
+          grep -qF 'rdp-signed' "$cs" || { echo 'F19: the launcher does not report the rdp-signed step' >&2; exit 1; }
+          grep -qF 'signature:s:' "$cs" || { echo 'F19: the launcher does not PROVE the signature landed in the file' >&2; exit 1; }
+          grep -qF 'HasPrivateKey' "$cs" || { echo 'F19: the launcher does not require the signing key to be present' >&2; exit 1; }
+          # ...and it must never CREATE, IMPORT or TRUST a certificate.
+          # scan EXECUTABLE lines only - the contract comment legitimately names
+          # the trust stores the LAB uses, and naming is not doing.
+          if grep -vE '^[[:space:]]*//' "$cs" | grep -nE '\-addstore|x509store\(|TrustedPublisher|TrustedPeople|New-SelfSignedCertificate|Import-Certificate|X509Certificate2Collection\(|Add\(new X509Certificate2'; then
+            echo 'F19: shipped launcher code creates/imports/trusts a certificate - that belongs to the lab bootstrap' >&2; exit 1
+          fi
+          grep -qF 'imported or trusted by this code' "$cs" || { echo 'F19: the launcher lost its no-trust statement' >&2; exit 1; }
           # --- lab switches stay lab-only ---------------------------------------
           if grep -q 'GHRDP_LAB_' "$wf"; then
             echo 'F19: a lab-only GHRDP_LAB_ switch leaked into production main.yml' >&2; exit 1

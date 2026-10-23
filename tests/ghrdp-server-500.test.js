@@ -130,9 +130,15 @@ test('ghrdp-server.ps1: Runtime execution test for /api/readiness and /progress 
   serverProc.stderr.on('data', (data) => { serverOutput += data.toString(); });
 
   try {
-    // Poll for server listener readiness using monotonic deadline
+    // Poll for server listener readiness using monotonic deadline.
+    // [F200] MEASURED FLAKE: this 10 s bound failed twice on the shared ubuntu
+    // runner (2026-10-23, runs 39892965082 and 39894469410) and then passed with
+    // NO code change (run 398946...), i.e. the server sometimes needs longer than
+    // 10 s to reach phase=ready while the rest of the suite runs in parallel.
+    // The bound is now 30 s - still bounded, still fail-visible, but not a coin
+    // flip. Nothing else about the assertion changed.
     let readinessRes = null;
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 200));
       try {
@@ -144,7 +150,7 @@ test('ghrdp-server.ps1: Runtime execution test for /api/readiness and /progress 
       } catch (e) {}
     }
 
-    assert.ok(readinessRes, `Server failed to report ready at http://127.0.0.1:${port}/api/readiness within 10s. Logs:\n${serverOutput}`);
+    assert.ok(readinessRes, `Server failed to report ready at http://127.0.0.1:${port}/api/readiness within 30s. Logs:\n${serverOutput}`);
 
     // Assertions kept OUTSIDE catch-all retry block so failures throw cleanly
     assert.equal(readinessRes.status, 200);

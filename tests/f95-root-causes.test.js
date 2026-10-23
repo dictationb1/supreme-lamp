@@ -84,7 +84,11 @@ test("F95-R1 EXPLAIN: the verdict carries WHICH logon type it came from", () => 
     SERVER.includes("'Logon Type:\\s+(2|10|11)\\b'"),
     "/api/logon-status still only matches 'Logon Type: 10'"
   );
-  assert.ok(SERVER.includes("logonType  = $ltSeen"), "/api/logon-status does not report the type it saw");
+  // [F200 §6] pin rewritten in place: the hashtable is now column-aligned and
+  // the capture is a LOCAL ($ltSeen = $ltThis) rather than a $Matches read, so
+  // the assertion matches the assignment instead of exact whitespace.
+  assert.ok(/logonType\s*=\s*\$ltSeen/.test(SERVER), "/api/logon-status does not report the type it saw");
+  assert.ok(SERVER.includes("$ltSeen = $ltThis"), "/api/logon-status must capture the type into a local (F200 §6)");
 });
 
 test("F95-R1 UI: the banner names all three accepted types, never just type-10", () => {
