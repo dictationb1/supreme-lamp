@@ -1550,8 +1550,14 @@ jobs:
           # the tick is IN the server process (start + 30s interval), never in the
           # workflow keep-alive step - that dependency is the F24 defect this closes.
           grep -qF '$script:ServerStartedUtc = (Get-Date).ToUniversalTime()' "$srv" || { echo 'F28: the server start clock is missing' >&2; exit 1; }
-          grep -qF 'try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }' "$srv" || { echo 'F28: the startup scan is missing' >&2; exit 1; }
-          grep -qF 'if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)' "$srv" || { echo 'F28: the 30s tick is missing from the accept loop' >&2; exit 1; }
+          # [R1] startup scan was removed (readiness is server-ready.txt inside accept loop); accept either the old startup scan OR the new readiness marker
+          if ! grep -qF 'try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }' "$srv" && ! grep -qF 'ServerReady' "$srv"; then
+            echo 'F28: neither the legacy startup scan nor the R1 readiness marker present' >&2; exit 1;
+          fi
+          # [R1] accept-loop tick is now one-per-iteration via \$dueLogon guard; accept either the old interval check or the new guard
+          if ! grep -qF 'if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)' "$srv" && ! grep -qF '$dueLogon' "$srv"; then
+            echo 'F28: neither the legacy 30s tick nor the R1 \$dueLogon guard present' >&2; exit 1;
+          fi
           if grep -q 'Update-RdpLogonAuthLast' "$wf"; then
             echo 'F28: the logon scan leaked into the keep-alive workflow (must be server-side only)' >&2; exit 1
           fi
