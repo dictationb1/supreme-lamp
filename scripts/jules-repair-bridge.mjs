@@ -127,10 +127,12 @@ Please analyze this failure evidence, reproduce using the reusable lab workflow 
   const apiPayload = {
     prompt: promptText,
     sourceContext: {
+      source: `sources/github/${repo}`,
       githubRepoContext: {
         startingBranch: branch,
       },
     },
+    automationMode: "AUTO_CREATE_PR",
     requirePlanApproval: false,
   };
 
