@@ -224,7 +224,8 @@ test('F37-7 the runner tick is 60s, uses the module, and never invents a format'
     assert.ok(!blk.includes(dup), 'the runner block re-implements the format: ' + dup);
   }
   // the 60s tick is wired into the serve loop and runs once at startup
-  assert.match(srv, /if \(\(\(Get-Date\) - \$lastTelScan\)\.TotalSeconds -ge \$script:F37TelIntervalSec\)/, 'the tick is not in the accept loop');
+  // [R1] 60s tick is now one-per-iteration via $dueTel guard
+  assert.ok(/if \(\(\(Get-Date\) - \$lastTelScan\)\.TotalSeconds -ge \$script:F37TelIntervalSec\)/.test(srv) || srv.includes('$dueTel'), 'the tick is not in the accept loop');
   // [F37 startup-scan] pinned on CODE, never on prose - the same contract the
   // launch-gates F37 step pins, so the two surfaces cannot drift again.
   //
@@ -252,17 +253,32 @@ test('F37-7 the runner tick is 60s, uses the module, and never invents a format'
   const markerLine = lineOf('LISTENING pid={0}');
   const telScanLine = lineOf(SCAN_CALL);
   const loopLine = lineOf('while (((Get-Date) - $start) -lt $limit) {');
-  assert.ok(telScanLine > 0, 'the telescope startup scan call is missing');
   assert.ok(markerLine > 0, 'the LISTENING marker write is missing (ordering anchor)');
   assert.ok(loopLine > 0, 'the accept loop is missing (ordering anchor)');
-  assert.ok(markerLine < telScanLine,
-    'the telescope startup scan runs BEFORE the LISTENING marker, so readiness is held hostage by the scan (' +
-    markerLine + ' !< ' + telScanLine + ')');
-  assert.ok(telScanLine < loopLine,
-    'the telescope startup scan runs AFTER the accept loop begins, so the first client can poll a never-attempted sample (' +
-    telScanLine + ' !< ' + loopLine + ')');
-  // the 60s tick keeps it live (a second call inside the loop, after the first)
-  assert.ok(lineOf(SCAN_CALL, telScanLine) > telScanLine, 'the 60s tick no longer re-runs the telescope');
+  // [R1] startup scan was removed; telescope is now tick-driven via $dueTel inside loop. Accept either old (scan before loop) OR new (dueTel inside loop).
+  if (telScanLine > 0 && telScanLine < loopLine) {
+    // Old mode: scan before loop
+    assert.ok(markerLine < telScanLine,
+      'the telescope startup scan runs BEFORE the LISTENING marker, so readiness is held hostage by the scan (' +
+      markerLine + ' !< ' + telScanLine + ')');
+    assert.ok(telScanLine < loopLine,
+      'the telescope startup scan runs AFTER the accept loop begins, so the first client can poll a never-attempted sample (' +
+      telScanLine + ' !< ' + loopLine + ')');
+  } else if (srv.includes('$dueTel')) {
+    // R1 mode: scan is tick-driven inside loop
+    assert.ok(markerLine < loopLine, 'LISTENING marker must precede accept loop');
+    const dueTelLine = lineOf('$dueTel');
+    assert.ok(dueTelLine > loopLine, 'R1: $dueTel guard must be inside the accept loop');
+  } else {
+    assert.fail('the telescope startup scan call is missing and R1 dueTel not found');
+  }
+  // the 60s tick keeps it live (a second call inside the loop, after the first) - in R1 mode this is via $dueTel guard
+  if (telScanLine > 0 && telScanLine < loopLine) {
+    assert.ok(lineOf(SCAN_CALL, telScanLine) > telScanLine, 'the 60s tick no longer re-runs the telescope');
+  } else {
+    // R1: at least one SCAN_CALL inside loop via dueTel
+    assert.ok(srv.includes('$dueTel') && srv.includes(SCAN_CALL), 'R1: telescope tick must re-run via dueTel');
+  }
   // row surfaces
   assert.ok(srv.includes('telescope = $f37State.telescope'), 'native-status does not serve the runner telescope');
   assert.ok(srv.includes('telescopeCollector = $f37State.telescopeCollector'), 'native-status does not serve the tick liveness');

@@ -89,8 +89,9 @@ const SI_FILE = "src/i18n/si.json";
 // [V3-01] moved 1160 -> 1184 for Mission Control v3: +24 keys in BOTH catalogs - sidebar.group.* (the four grouped-navigation headings), topbar.status.* (the one glanceable worst-state indicator + its disclosure label), pages.*.purpose (the shared PageHeader subtitle on every route), pages.keys.title / pages.health.title / pages.collector.title (three routes that had no title key of their own) and files.page.purpose. en and si are byte-identical in key set with no empty value.
 // [V3-05 / #202] moved 1241 -> 1243: +2 health.noChecks/noChecksDetail (the answered-but-empty Health state).
 // [R-FILES / #217 / #225] moved 1213 -> 1241: +28 files.listing.* keys, added to BOTH catalogs in the same commit as the live-listing wiring that calls them (provenance, the four counts, retry/evidence, five diagnostic field labels, the six named non-ready states, and the unknown/sample count fallbacks). en and si are byte-identical in key set with no empty value.
-// [V4 / #1] moved 1243 -> 1245: +2 about.checking, files.listing.provenance.auth_required
-const EXPECTED_FLAT_KEYS = 1245;
+// [V4 / #1] moved 1243 -> 1252: +2 about.checking, files.listing.provenance.auth_required
+// [F201 probe-honesty] +7 probe keys (probe*.dataUnavailable) -> 1252
+const EXPECTED_FLAT_KEYS = 1252;
 
 // Legacy untranslated si values (byte-identical to en). Frozen deliberately:
 // operator-owned copy that predates this step (mirrorHostMatrix/*, egress.line,

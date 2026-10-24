@@ -105,6 +105,7 @@ jobs:
 
       - name: Node Unit Tests & PowerShell Parser
         run: |
+          pip install pyyaml --break-system-packages -q || pip install pyyaml -q || true
           node scripts/lab-observer.mjs update UNIT_TESTS RUNNING
           # Keep the TAP stream and surface every failing cell as an ANNOTATION.
           # A bare `node --test` leaves the reason inside a log blob that is not

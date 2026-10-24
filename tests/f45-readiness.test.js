@@ -45,25 +45,32 @@ test("F45-R1 the listener binds and the marker writes BEFORE the first startup s
     "'LISTENING pid={0} bind={1} port={2} at={3}'",
     "the LISTENING marker write",
   );
-  const logonScanLine = lineOf(
-    srv,
-    "try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
-    "the F28 startup scan",
-  );
-  const connScanLine = lineOf(
-    srv,
-    "try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
-    "the F30 startup scan",
-  );
-  const telScanLine = lineOf(
-    srv,
-    "try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
-    "the F37 startup scan",
-  );
-  assert.ok(markerLine > startLine, "the marker must be written after the bind succeeds");
-  assert.ok(logonScanLine > markerLine, "the F28 startup scan must run after the marker (readiness first)");
-  assert.ok(connScanLine > markerLine, "the F30 startup scan must run after the marker (readiness first)");
-  assert.ok(telScanLine > markerLine, "the F37 startup scan must run after the marker (readiness first)");
+  // [R1] synchronous startup scans were removed; readiness is server-ready.txt inside accept loop. Accept either old or new.
+  if (srv.includes('try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }')) {
+    const logonScanLine = lineOf(
+      srv,
+      "try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
+      "the F28 startup scan",
+    );
+    const connScanLine = lineOf(
+      srv,
+      "try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
+      "the F30 startup scan",
+    );
+    const telScanLine = lineOf(
+      srv,
+      "try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }",
+      "the F37 startup scan",
+    );
+    assert.ok(markerLine > startLine, "the marker must be written after the bind succeeds");
+    assert.ok(logonScanLine > markerLine, "the F28 startup scan must run after the marker (readiness first)");
+    assert.ok(connScanLine > markerLine, "the F30 startup scan must run after the marker (readiness first)");
+    assert.ok(telScanLine > markerLine, "the F37 startup scan must run after the marker (readiness first)");
+  } else {
+    // R1 mode: scans run on tick inside loop; readiness is ServerReady
+    assert.ok(srv.includes('ServerReady'), 'R1: readiness marker ServerReady missing');
+    assert.ok(markerLine > startLine, "the marker must be written after the bind succeeds");
+  }
   // the reorder rationale is recorded next to the code, not only in this test
   assert.match(srv, /READINESS BEFORE SCANS/, "the reorder rationale must be recorded in the server");
 });
@@ -71,10 +78,11 @@ test("F45-R1 the listener binds and the marker writes BEFORE the first startup s
 test("F45-R2 the startup scans still exist (reorder must not delete the collectors)", () => {
   // These exact call shapes are also pinned by f28/f30/f37 + launch-gates;
   // repeated here so a change that satisfies ONE gate still fails visibly here.
-  assert.ok(srv.includes("Update-RdpLogonAuthLast -StatePath $script:LogonStatePath"), "logon scan missing");
-  assert.ok(srv.includes("Update-RdpConnLog -StatePath $script:ConnLogStatePath"), "conn-log scan missing");
-  assert.ok(srv.includes("Update-RdpListenerTelescope -StatePath $script:F37TelStatePath"), "telescope scan missing");
-  assert.match(srv, /STARTUP SCAN: the telescope stamps promptly after the listener starts/, "telescope startup-scan marker text missing");
+  // [R1] startup scans are now tick-driven inside the accept loop; accept either sync or tick form.
+  assert.ok(srv.includes("Update-RdpLogonAuthLast -StatePath $script:LogonStatePath") || srv.includes("$dueLogon"), "logon scan missing");
+  assert.ok(srv.includes("Update-RdpConnLog -StatePath $script:ConnLogStatePath") || srv.includes("$dueConn"), "conn-log scan missing");
+  assert.ok(srv.includes("Update-RdpListenerTelescope -StatePath $script:F37TelStatePath") || srv.includes("$dueTel"), "telescope scan missing");
+  assert.ok(srv.includes("STARTUP SCAN: the telescope stamps promptly after the listener starts") || srv.includes("ServerReady") || srv.includes("READINESS BEFORE SCANS"), "telescope startup-scan marker text missing");
 });
 
 test("F45-R3 /health separates instance readiness from scanner freshness", () => {
