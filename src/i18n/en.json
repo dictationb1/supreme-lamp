@@ -1526,7 +1526,13 @@
       "fqdnUnset": "(not set)",
       "beaconSeen": "launcher beacon received",
       "evidence": "Evidence",
-      "detailSummary": "Launch detail (certificate, NLA, CredSSP)"
+      "detailSummary": "Launch detail (certificate, NLA, CredSSP)",
+      "probeUnauthorized": "the dashboard refused this page: no valid run key was presented, so nothing about credentials, DNS or the listener has been measured. Open the page with this run's ?key= and reload",
+      "probeForbidden": "the dashboard denied this source address (policy), so no live status was measured",
+      "probeUnreachable": "the dashboard did not answer (network/transport), so no live status was measured",
+      "probeSchema": "the dashboard answered with a body this build cannot read (schema/build mismatch)",
+      "probeHttp": "the dashboard answered with an error status, so no live status was measured",
+      "probePending": "waiting for the first status answer; nothing has been measured yet"
     },
     "workspace": {
       "title": "Workspace",
@@ -1638,7 +1644,8 @@
       "socketDown": "Socket down",
       "socketIdle": "Socket idle",
       "socketAbsent": "No /ws endpoint",
-      "detail": "Status detail"
+      "detail": "Status detail",
+      "dataUnavailable": "Data unavailable"
     }
   },
   "health": {

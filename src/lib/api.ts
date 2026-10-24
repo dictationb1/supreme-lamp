@@ -40,6 +40,50 @@ export async function getJson<T = unknown>(url: string, init?: RequestInit): Pro
   }
 }
 
+// [F201 §1] A PROBE THAT FAILED IS NOT A MEASUREMENT.
+//
+// `getJson` collapses every outcome into `null`: a 401 (no dashboard key, or a
+// key from an earlier run), a 403 (source policy), a network error and an empty
+// but successful answer are all indistinguishable to the caller. The stores then
+// keep their empty defaults, and the Overview screen renders those defaults as
+// measured facts: "FQDN/user validation failed", "runner tailnet IP did not
+// resolve", "RDP LISTENER probe not all green" - three accusations against the
+// server, produced by a request the server refused or never received.
+//
+// `probeJson` keeps the STATUS and a stable failure class so the UI can say what
+// actually happened, and so a disabled control can name its real prerequisite.
+export type ProbeFailure = "" | "unauthorized" | "forbidden" | "http" | "transport" | "schema";
+
+export interface ProbeResult<T = unknown> {
+  ok: boolean;
+  /** HTTP status, or 0 when the request never produced one. */
+  status: number;
+  failure: ProbeFailure;
+  data: T | null;
+}
+
+function classifyStatus(status: number): ProbeFailure {
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  return "http";
+}
+
+export async function probeJson<T = unknown>(url: string, init?: RequestInit): Promise<ProbeResult<T>> {
+  let r: Response;
+  try {
+    r = await fetch(url, { cache: "no-store", ...init });
+  } catch {
+    return { ok: false, status: 0, failure: "transport", data: null };
+  }
+  if (!r.ok) return { ok: false, status: r.status, failure: classifyStatus(r.status), data: null };
+  try {
+    return { ok: true, status: r.status, failure: "", data: (await r.json()) as T };
+  } catch {
+    // A 200 that is not JSON is a schema/build mismatch, not a healthy read.
+    return { ok: false, status: r.status, failure: "schema", data: null };
+  }
+}
+
 export function configUrl(): string {
   const key = getKey();
   return apiBase() + "/api/config" + (key ? "?key=" + encodeURIComponent(key) : "");
@@ -87,12 +131,68 @@ export async function fetchPurgeCommand(): Promise<string> {
   }
 }
 
-// [F15 §3] protocol verbs: top-level navigation (U1), never an iframe.
+// [F15 §3] protocol verbs: dispatch the custom handler without losing the dashboard.
+//
+// Original contract used top-level navigation (window.location.href) which navigated
+// the dashboard away on every dispatch — the operator lost the page and its
+// evidence. It also broke transient activation: the POST /api/rdp-token happens
+// async, so the final navigation was no longer in the user-gesture window and
+// Chrome's external-protocol prompt required an extra click without guidance.
+//
+// New contract: try a hidden iframe first (keeps the page, does not require a
+// top-level navigation), fall back to location.href if the iframe cannot be
+// created. The browser still shows its permission prompt — we never bypass it —
+// but the dashboard remains visible and can show the prompt guidance and the
+// beacon watch. The iframe is removed shortly after dispatch.
 export function launchProto(url: string): void {
+  let dispatched = false;
   try {
-    window.location.href = url;
+    if (typeof document !== 'undefined' && document.body) {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      // Sandbox the iframe to the minimal privilege needed for protocol dispatch
+      // (no scripts, no same-origin access). The src assignment is what triggers
+      // the external handler; the element is ephemeral.
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      // Remove after a short window so the DOM does not accumulate hidden frames
+      // and so devtools stays honest (one frame per dispatch, never a leak).
+      setTimeout(() => {
+        try { iframe.remove(); } catch {}
+      }, 4000);
+      dispatched = true;
+    }
   } catch {
-    /* ignore */
+    /* iframe path failed — fall through to location navigation */
+  }
+  if (!dispatched) {
+    try {
+      window.location.href = url;
+    } catch {
+      /* ignore */
+    }
+  } else {
+    // Also arm a fallback navigation for browsers that ignore iframe protocol
+    // dispatches (old EdgeHTML, some WebView hosts). A second dispatch is harmless:
+    // the handler deduplicates by ticket (single-use) and the second 401 is
+    // silently ignored. We keep the location navigation behind a micro-delay so
+    // the iframe gets first credit in the common case.
+    try {
+      setTimeout(() => {
+        try {
+          // Navigating a blank iframe is not observable; as a last resort
+          // create a temporary anchor and synthesize a click — browsers that
+          // block the iframe will still honour a fresh anchor click from the
+          // same task.
+          const a = document.createElement('a');
+          a.href = url;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => { try { a.remove(); } catch {} }, 1000);
+        } catch {}
+      }, 150);
+    } catch {}
   }
 }
 

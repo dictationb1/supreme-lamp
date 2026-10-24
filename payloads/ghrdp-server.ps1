@@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
 $script:F99WsPingIntervalSec = 20
 $script:F99WsIdleTimeoutSec = 90
 $script:F99WsMaxLifetimeSec = 1800
+# [LAB-R2] Test/ops tunables. Defaults above are unchanged when the environment
+# variables are absent, so production keepalive/idle/lifetime behavior is
+# identical. A lab harness can shrink the idle/lifetime windows to make the
+# idle-expiry and max-lifetime close paths observable inside a bounded test.
+if ($env:GHRDP_WS_PING_INTERVAL_SEC -match '^[0-9]+$') { $script:F99WsPingIntervalSec = [Math]::Max(1, [Math]::Min(120, [int]$env:GHRDP_WS_PING_INTERVAL_SEC)) }
+if ($env:GHRDP_WS_IDLE_TIMEOUT_SEC -match '^[0-9]+$') { $script:F99WsIdleTimeoutSec = [Math]::Max(5, [Math]::Min(300, [int]$env:GHRDP_WS_IDLE_TIMEOUT_SEC)) }
+if ($env:GHRDP_WS_MAX_LIFETIME_SEC -match '^[0-9]+$') { $script:F99WsMaxLifetimeSec = [Math]::Max(10, [Math]::Min(3600, [int]$env:GHRDP_WS_MAX_LIFETIME_SEC)) }
 function Invoke-F99WebSocketUpgrade {
     param($Client, $Stream, $Parts, $Token)
     try {
@@ -535,6 +542,19 @@ function Invoke-F99WebSocketUpgrade {
         try { $Stream.ReadTimeout = 2000 } catch { }
         while ((((Get-Date) - $start).TotalSeconds -lt [int]$script:F99WsMaxLifetimeSec) -and (((Get-Date) - $lastClientFrame).TotalSeconds -lt [int]$script:F99WsIdleTimeoutSec)) {
             try {
+                # [LAB-R2] Prompt peer-closed/reset detection. Poll(SelectRead) is
+                # also signalled on EOF/error with zero bytes available; without this
+                # the loop only issues a Read when data is already buffered, so a
+                # dropped client with no pending frame is not noticed until the idle
+                # timeout, pinning a bounded worker slot (measured as gate count=0 /
+                # avail=0 with only a few sockets held on run 40084261133). An idle,
+                # open socket returns false here and keeps waiting as before.
+                try {
+                    if ($Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and $Client.Client.Available -eq 0) {
+                        $f99CloseStatus = 1006
+                        break
+                    }
+                } catch { break }
                 if ($Client.Client.Available -gt 0 -or $Stream.DataAvailable) {
                     $n = 0; try { $n = $Stream.Read($buf,0,$buf.Length) } catch { break }
                     if ($n -le 0) { $f99CloseStatus = 1006; break }
@@ -646,6 +666,12 @@ $script:HandlerChain = @()
 $script:DeviceTokens = @{}
 $script:DeviceTokensPath = Join-Path $Root 'device-tokens.json'
 $script:ClientAuditLog = Join-Path $Root 'client-audit.log'
+# [LAB-R2] Process-wide audit lock. The WebSocket worker runspaces (see
+# Invoke-R2DispatchWebSocket below) and the inline accept thread append to the
+# same client-audit.log. Runspaces in this process share one AppDomain, so a
+# Monitor on one object serializes EVERY writer: an audit line is never
+# interleaved or lost when a /ws pump and an HTTP request finish together.
+$script:ClientAuditLock = New-Object object
 $script:AgentPath = Join-Path $Root 'ghrdp-agent.ps1'
 $script:DiagDir = Join-Path $Root 'diag-bundles'
 try {
@@ -663,7 +689,14 @@ function Save-DeviceTokens {
 }
 function Write-ClientAudit {
     param([string]$Line)
-    try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) } catch { }
+    # [LAB-R2] Serialize inline + worker-runspace appends on the shared lock.
+    # The uncontended Monitor path is a single interlocked compare, so ordinary
+    # single-threaded HTTP handling keeps its original cost and behavior.
+    try {
+        [System.Threading.Monitor]::Enter($script:ClientAuditLock)
+        try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) }
+        finally { [System.Threading.Monitor]::Exit($script:ClientAuditLock) }
+    } catch { }
 }
 # [F17 §2] ROOT CAUSE of the +05:30 beacon-age bug (19805s): stored ISO ts
 # strings were read back through ConvertFrom-Json, which converts "…Z" into a
@@ -2389,6 +2422,12 @@ function Invoke-F91StreamFetch {
 function Invoke-ClientRequest {
     param($Client, $Token)
     $stream = $null
+    # [LAB-R2] Ownership flag. A dispatched /ws connection is handed to a worker
+    # runspace that owns (and closes) the socket for its whole lifetime; the outer
+    # finally below must NOT dispose it the moment the dispatcher returns, or it
+    # would tear the socket down before the worker writes the 101 (measured as
+    # ECONNRESET on run 40082655039).
+    $r2Dispatched = $false
     try {
         $stream = $Client.GetStream()
         $rr = Read-ClientRequest -Stream $stream
@@ -2430,10 +2469,17 @@ function Invoke-ClientRequest {
         # handshake's token is validated inside the upgrade handler (which supports
         # both header and ?key= query, plus the hello-frame fallback).
         if ($path -eq '/ws') {
-            $f99Handled = $false
-            try { $f99Handled = Invoke-F99WebSocketUpgrade -Client $Client -Stream $stream -Parts $parts -Token $Token } catch { $f99Handled = $false }
-            if ($f99Handled) { return }
-            Send-ClientResponse -Stream $stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required'))
+            # [LAB-R2] The long-lived WebSocket pump is dispatched to a bounded
+            # worker runspace (Invoke-R2DispatchWebSocket) instead of running
+            # inline on this accept thread. The dispatcher owns the response
+            # (101 inside the worker, or 400/503 inline) and the socket
+            # lifetime, so this call returns immediately and the accept loop
+            # keeps draining ordinary HTTP while the socket stays open.
+            Invoke-R2DispatchWebSocket -Client $Client -Stream $stream -Parts $parts -Token $Token
+            # Ownership transferred: the dispatcher (inline 400/503) or the worker
+            # runspace (async pump) now closes this socket. Suppress the outer
+            # finally's dispose so it cannot close a socket still in use.
+            $r2Dispatched = $true
             return
         }
         # [F10-2 §3] per-request creds authorization (strict subset of access).
@@ -2758,6 +2804,15 @@ function Invoke-ClientRequest {
                     probeError = $(if ($hSt -and $hSt.probeError) { [string]$hSt.probeError } else { $null })
                 }
             }
+            # [LAB-R2] This is the SINGLE live /health route: an earlier duplicate
+            # block lower in the chain was unreachable and omitted the ws flag, so
+            # the browser always concluded "no /ws endpoint" even with the RFC6455
+            # upgrade live (run 40086011776). Advertise the upgrade feature flag here.
+            # [LAB-R2 0004] The flag is truthful about SERVICEABILITY, not just code
+            # support: while the worker pool cannot be created, /ws answers 503, so
+            # advertising ws=true would show a connecting UI forever. Advertise
+            # ws=false with the exact degraded reason; when a bounded re-init
+            # succeeds the flag flips back to true on the next poll.
             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{
                 ok               = $true
                 app              = 'ghrdp'
@@ -2766,6 +2821,8 @@ function Invoke-ClientRequest {
                 bind             = [string]$Bind
                 port             = [int]$Port
                 serverStartedUtc = [string]$script:ServerStartedUtc
+                ws               = $(if ($script:R2WsPoolAvailable) { [bool]$script:F96WsUpgradeSupported } else { $false })
+                wsReason         = $(if ($script:R2WsPoolAvailable) { $null } else { 'websocket worker pool unavailable' })
                 scans            = $hScans
             }))
             return
@@ -9228,11 +9285,9 @@ boot();
             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json' -Body (ConvertTo-JsonBytes @{ ok = $true; ts = (Get-Date -Format o); wire = $script:Wire })
             return
         }
-        if ($path -eq '/health') {
-            # [F99 §2.1] was hardcoded ws=false; now computed from the upgrade feature flag
-            Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json' -Body (ConvertTo-JsonBytes @{ ok = $true; ws = [bool]$script:F96WsUpgradeSupported; port = $Port; pid = $PID; ts = (Get-Date -Format o) })
-            return
-        }
+        # [LAB-R2] The former duplicate /health block here was unreachable: the
+        # F45-R readiness route above returns first and is now the single source
+        # of the ws advertisement. Do not re-add a second /health branch.
         if ($path -eq '/api/config') {
             # [F10-2 §3] capture password fields BEFORE Remove-CredKeys strips
             # them; they are re-attached ONLY when $credsAllowed (dash-token or
@@ -9366,8 +9421,13 @@ boot();
             }) -ExtraHeaders ("X-Correlation-ID: $cId`r`n")
         } catch { }
     } finally {
-        try { if ($stream) { $stream.Dispose() } } catch { }
-        try { $Client.Close() } catch { }
+        # A dispatched /ws socket is owned by its worker runspace (or already
+        # closed by the inline 400/503 path); leave it alone here so the async
+        # pump keeps a live connection. Ordinary HTTP is disposed as before.
+        if (-not $r2Dispatched) {
+            try { if ($stream) { $stream.Dispose() } } catch { }
+            try { $Client.Close() } catch { }
+        }
     }
 }
 $script:Wire = $null
@@ -9539,45 +9599,42 @@ try {
     }
 } catch { }
 try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',(Join-Path $Root 'rdp-usage.ps1') -WindowStyle Hidden } catch { }
-# [F45-R §1] READINESS BEFORE SCANS. The listener bind and the LISTENING
-# marker happen FIRST, and /health (added below the auth gate) answers
-# ok/app/pid as soon as the accept loop runs. Rationale: the three startup
-# scans below are synchronous Get-WinEvent walks of the Security/System logs
-# and can take seconds on a busy host. Readiness (listener bound + the right
-# application instance responding) must never be held hostage by them, and a
-# harness waiting on server-ok.txt must observe the bind, not the scan.
-# What this reorder CHANGES: the F28/F30/F37 guarantee softens from "stamped
-# before the first client can poll" to "stamped promptly after the listener
-# accepts, within one scan duration" - every consumer already tolerates the
-# not-yet-stamped window via scanTs/probeError (an honest "not reported yet",
-# never a fabricated value). What it does NOT fix, and documents honestly:
-# while a scan runs on this thread the accept loop is not draining, so
-# requests arriving mid-scan queue in the TCP backlog. Bounding THAT latency
-# is the isolated-scan-worker work package (docs/mission-control tracker,
-# F45-B): a cooperative delay on this thread cannot yield inside Get-WinEvent.
+# [F45-R §1 / LAB-R1] READINESS BEFORE SCANS - the accept loop starts first.
+# The listener bind happens FIRST and the LISTENING marker records a BOUND
+# SOCKET (connectivity), which is NOT the same as HTTP readiness. The three
+# startup Get-WinEvent scans that used to run here SYNCHRONOUSLY, before the
+# accept loop, were the readiness stall: a TCP connect succeeded, the marker
+# existed, but no thread was accepting, so /health could not answer until all
+# three scans finished (seconds on a busy Security/System log). LAB-R1 removes
+# those synchronous startup scans. The F28/F30/F37 collectors are UNCHANGED and
+# still run on the bounded accept-loop ticks below; they remain the ONLY writers
+# of their state files, so audit/logon evidence is preserved - it is merely
+# stamped on the first tick instead of before the first byte is served. A
+# genuinely absent first stamp is reported honestly by /health as scanTs=null
+# ("not reported yet"), never a fabricated value.
+# [LAB-R1 §2] HTTP readiness is published via server-ready.txt, written from
+# INSIDE the accept loop on its first iteration, so a consumer can wait for a
+# service that has actually begun accepting rather than trusting a bind marker.
+# [LAB-R1 §3] Residual, honestly tracked (F45-B): a periodic tick scan still
+# runs on this thread, so one request arriving mid-scan waits one bounded scan.
+# LAB-R1 adds a one-scan-per-iteration guard so two due ticks can never stack
+# their Get-WinEvent cost into a single blocking stretch. A fully isolated scan
+# worker is the documented F45-B follow-up; it is deliberately NOT attempted
+# here because relocating several interdependent collectors cannot be proven
+# safe without more Windows verification cycles than this bundle could run.
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Parse($Bind), $Port)
 try { $listener.Start() } catch {
     try { [System.IO.File]::WriteAllText($script:OkFile, 'LISTEN_FAIL: ' + $_.Exception.Message, $script:NoBom) } catch { }
     exit 1
 }
 [System.IO.File]::WriteAllText($script:OkFile, ('LISTENING pid={0} bind={1} port={2} at={3}' -f $PID, $Bind, $Port, (Get-Date -Format o)), $script:NoBom)
-# [F28 §1] STARTUP SCAN: stamps the logon verdict promptly after the listener
-# starts accepting, so /api/native-status reports a real verdict (scanTs +
-# result) instead of a long "not reported yet" window. Failure is contained
-# (the function stamps probeError + scanTs instead of throwing).
-try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+# [LAB-R1 §1] No synchronous event-log scan before the accept loop. The tick
+# timers below own the first stamp; /health answers immediately from the loop.
 $lastLogonScan = Get-Date
-# [F30 §3] STARTUP SCAN: the first conn-log stamp lands promptly after the
-# listener starts, so the SERVER CONN LOG row reports a real verdict instead
-# of "not reported yet" while the collector is actually alive. Failure is
-# contained (probeError + scanTs are stamped by the function, not a throw).
-try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
 $lastConnLogScan = Get-Date
-# [F37 §4] STARTUP SCAN: the telescope stamps promptly after the listener starts
-# (same shape as the F28/F30 startup scans), and the 60s tick below keeps it
-# live. "Not reported yet" means a genuinely absent sample.
-try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
 $lastTelScan = Get-Date
+$script:ServerReadyPath = Join-Path $Root 'server-ready.txt'
+$script:ServerReadyStamped = $false
 
 # Transition InitPhase to 'ready' after successful startup initialization
 $script:InitPhase = 'ready'
@@ -9756,6 +9813,267 @@ function Invoke-F99WatcherDiagnose {
     }
     return $out
 }
+# =============================================================================
+# [LAB-R2] BOUNDED WEBSOCKET WORKER POOL - the R2 accept-loop starvation repair.
+#
+# Defect: the accept loop is a single thread and used to invoke
+# Invoke-ClientRequest synchronously; GET /ws ran Invoke-F99WebSocketUpgrade
+# INLINE, whose pump lives up to $script:F99WsMaxLifetimeSec (1800s). While one
+# socket was open the accept thread could not drain any other connection, so
+# /health, /api/config, /api/native-status, /api/progress and button POSTs all
+# stalled in the TCP backlog - the dashboard froze the instant its /ws connected.
+#
+# Smallest supported repair (no general concurrency rewrite):
+#   * ordinary HTTP stays INLINE on the accept thread, so every existing
+#     $script: cache / ticket / credential / revocation state keeps its proven
+#     single-threaded semantics (a single-use ticket can never be consumed
+#     twice, because only the accept thread touches the ticket store);
+#   * only the long-lived /ws pump moves to a worker runspace drawn from a pool
+#     whose MaxRunspaces equals a bounded admission SemaphoreSlim;
+#   * admission is NON-BLOCKING (SemaphoreSlim.Wait(0)): at capacity the server
+#     answers 503 and closes at once instead of queueing without bound or
+#     parking the accept thread;
+#   * the worker runspace receives only the small, explicitly-passed dependency
+#     surface the pump uses (4 functions + 3 tunables + the audit path/lock).
+#     It never shares mutable $script: security/cache/ticket state, so credential
+#     rotation/revocation on the accept thread cannot be revived from a stale
+#     worker snapshot (the token is passed per-connection and validated inside
+#     the pump exactly as before);
+#   * sockets, streams, PowerShell handles and the pool/semaphore are disposed
+#     on every close and at process shutdown.
+# =============================================================================
+$script:R2WsMaxClients = 16
+if ($env:GHRDP_WS_MAX_CLIENTS -match '^[0-9]+$') {
+    $script:R2WsMaxClients = [Math]::Max(4, [Math]::Min(64, [int]$env:GHRDP_WS_MAX_CLIENTS))
+}
+# Bounded admission authority: one semaphore count == one concurrent /ws worker.
+$script:R2WsGate = New-Object System.Threading.SemaphoreSlim($script:R2WsMaxClients, $script:R2WsMaxClients)
+# Synchronized registry of in-flight worker handles (reaper + shutdown only).
+$script:R2WsActive = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+$script:R2WsSeq = 0
+$script:R2WsPool = $null
+$script:R2WsPoolAvailable = $false
+# [LAB-R2 0004] Bounded-degradation state for the pool-unavailable case. The
+# 0001-0003 fallback ran the long-lived pump INLINE on the single accept
+# thread, which is exactly the R2 starvation defect this repair exists to
+# remove: one /ws connection would again block all HTTP until the pump
+# exited (idle timeout / close), and a constrained host would hit that on
+# every connection. Now the degraded state is truthful and bounded instead:
+# /ws answers an immediate 503 "websocket worker pool unavailable; retry",
+# a later /ws arrival may retry the pool initialization at most once per
+# retry window, ordinary HTTP is never parked, and the pooled path (the
+# normal path) is untouched.
+$script:R2WsPoolInitError = ''
+$script:R2WsPoolRetryAtUtc = [datetime]::MinValue
+$script:R2WsPoolRetrySec = 30
+if ($env:GHRDP_WS_POOL_RETRY_SEC -match '^[0-9]+$') { $script:R2WsPoolRetrySec = [Math]::Max(5, [Math]::Min(300, [int]$env:GHRDP_WS_POOL_RETRY_SEC)) }
+# The worker body, executed inside each pool runspace. A single-quoted
+# here-string keeps every $-reference literal until it runs in the worker's own
+# scope; nothing from the accept runspace is visible except what $Ctx carries.
+$script:R2WsWorker = @'
+param($Ctx)
+$script:F99WsPingIntervalSec = [int]$Ctx.WsPingIntervalSec
+$script:F99WsIdleTimeoutSec   = [int]$Ctx.WsIdleTimeoutSec
+$script:F99WsMaxLifetimeSec   = [int]$Ctx.WsMaxLifetimeSec
+$script:ClientAuditLog        = [string]$Ctx.ClientAuditLog
+$script:ClientAuditLock       = $Ctx.ClientAuditLock
+try {
+    $r2Handled = Invoke-F99WebSocketUpgrade -Client $Ctx.Client -Stream $Ctx.Stream -Parts $Ctx.Parts -Token $Ctx.Token
+    if (-not $r2Handled) {
+        # Malformed/non-upgrade handshake: preserve the original 400 behavior.
+        try { Write-Host '[LAB-R2] pump returned false; sending 400' } catch { }
+        try { Send-ClientResponse -Stream $Ctx.Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch {
+            try { Write-Host ('[LAB-R2] 400 send failed: ' + $_.Exception.Message) } catch { }
+        }
+    }
+} catch {
+    # Never swallow a worker fault silently again: a bare reset with no message is
+    # how run 40082655039 presented the outer-finally ownership bug.
+    try { Write-Host ('[LAB-R2] worker EXCEPTION: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message) } catch { }
+    try { Write-ClientAudit ('ws worker exception: ' + $_.Exception.Message) } catch { }
+}
+finally {
+    # Deterministic ownership transfer: the worker always closes the socket it
+    # accepted (normal close, idle expiry, abrupt peer disconnect, or shutdown).
+    try { $Ctx.Stream.Dispose() } catch { }
+    try { $Ctx.Client.Close() } catch { }
+    try { $Ctx.Record.Done = $true } catch { }
+    # Release capacity only after the socket is closed. The gate, not the active
+    # list, is the admission authority.
+    try { $Ctx.Gate.Release() | Out-Null } catch { }
+}
+'@
+# Thread-safe audit writer used INSIDE worker runspaces. The inline
+# Write-ClientAudit above shares the same lock object, so all writers serialize.
+$script:R2WsAuditDef = @'
+function Write-ClientAudit {
+    param([string]$Line)
+    try {
+        [System.Threading.Monitor]::Enter($script:ClientAuditLock)
+        try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) }
+        finally { [System.Threading.Monitor]::Exit($script:ClientAuditLock) }
+    } catch { }
+}
+'@
+function Initialize-R2WsPool {
+    # [LAB-R2 0004] The init body is a function so the dispatch path can make
+    # ONE bounded re-init attempt per retry window after a transient failure,
+    # instead of pinning the degraded state for the whole process lifetime.
+    # Idempotent: a successful call replaces the pool object; a failed call
+    # keeps R2WsPoolAvailable=$false, records the exact init error and pushes
+    # the next retry deadline out by the clamped retry window. It never runs
+    # the pump inline and never disables /ws silently.
+    try {
+        $r2Iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        # The pump's exact dependency surface - nothing else is copied across, so
+        # the worker cannot reach mutable ticket/cache/credential state by accident.
+        foreach ($r2Fn in 'Invoke-F99WebSocketUpgrade', 'Test-TicketBearer', 'Test-IsLoopbackAddr', 'Send-ClientResponse') {
+            $r2Fi = Get-Item ("Function:" + $r2Fn) -ErrorAction Stop
+            $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($r2Fn, $r2Fi.Definition)))
+        }
+        $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry('Write-ClientAudit', $script:R2WsAuditDef)))
+        $script:R2WsPool = [runspacefactory]::CreateRunspacePool($r2Iss)
+        $script:R2WsPool.SetMinRunspaces(1)
+        $script:R2WsPool.SetMaxRunspaces([int]$script:R2WsMaxClients)
+        $script:R2WsPool.Open()
+        $script:R2WsPoolAvailable = $true
+        $script:R2WsPoolInitError = ''
+        try { Write-Host ('[LAB-R2] websocket worker pool ready max=' + [string]$script:R2WsMaxClients) } catch { }
+    } catch {
+        $script:R2WsPoolAvailable = $false
+        $script:R2WsPoolInitError = ($_.Exception.GetType().FullName + ' ' + $_.Exception.Message)
+        try { $script:R2WsPoolRetryAtUtc = (Get-Date).ToUniversalTime().AddSeconds([int]$script:R2WsPoolRetrySec) } catch { }
+        try { Write-Host ('[LAB-R2] worker pool unavailable; /ws answers 503 until re-init succeeds: ' + $script:R2WsPoolInitError) } catch { }
+        try { Write-ClientAudit ('ws pool init failed: ' + $script:R2WsPoolInitError) } catch { }
+    }
+}
+Initialize-R2WsPool
+
+function Invoke-R2ReapWebSocketWorkers {
+    # Non-blocking reaper: dispose PowerShell handles whose pump has finished so
+    # a long-lived server never accumulates runspace objects. Runs once per
+    # accept-loop iteration; the synchronized active set is small.
+    try {
+        foreach ($r2Rec in @($script:R2WsActive)) {
+            $r2Finished = $false
+            try { $r2Finished = [bool]$r2Rec.Done -or ($null -ne $r2Rec.Ar -and $r2Rec.Ar.IsCompleted) } catch { $r2Finished = [bool]$r2Rec.Done }
+            if ($r2Finished) {
+                try { if ($null -ne $r2Rec.Ar) { $r2Rec.Ps.EndInvoke($r2Rec.Ar) | Out-Null } } catch { }
+                try { $r2Rec.Ps.Dispose() } catch { }
+                try { $script:R2WsActive.Remove($r2Rec) } catch { }
+            }
+        }
+    } catch { }
+}
+
+function Invoke-R2DispatchWebSocket {
+    param($Client, $Stream, $Parts, $Token)
+    # [LAB-R2 0004] NO inline pump fallback. Invoke-F99WebSocketUpgrade is the
+    # long-lived pump; calling it inline on the single accept thread recreates
+    # exactly the R2 starvation defect this repair removed (one /ws blocks all
+    # HTTP until the pump exits). A pool-unavailable /ws instead gets ONE
+    # bounded re-init attempt per retry window and, while the pool still
+    # cannot be created, an immediate truthful 503 with the socket closed.
+    # Ordinary HTTP keeps being served on the accept thread the whole time,
+    # and the pooled path below is unchanged.
+    if (-not $script:R2WsPoolAvailable) {
+        $r2RetryDue = $true
+        try { $r2RetryDue = ((Get-Date).ToUniversalTime() -ge $script:R2WsPoolRetryAtUtc) } catch { }
+        if ($r2RetryDue) {
+            try { Initialize-R2WsPool } catch { }
+        }
+        if (-not $script:R2WsPoolAvailable) {
+            try { Write-ClientAudit ('ws 503 pool unavailable: ' + [string]$script:R2WsPoolInitError) } catch { }
+            try { Write-Host ('[LAB-R2] ws 503 pool unavailable: ' + [string]$script:R2WsPoolInitError + ' retryInSec=' + [string]$script:R2WsPoolRetrySec) } catch { }
+            Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket worker pool unavailable; retry'))
+            try { $Stream.Dispose() } catch { }
+            try { $Client.Close() } catch { }
+            return
+        }
+    }
+    # Non-blocking bounded admission. Wait(0) never parks the accept thread: a
+    # denied attempt gets an immediate, predictable 503 (the frontend's reconnect
+    # ladder retries) instead of an unbounded queue, and ordinary HTTP keeps
+    # being served because this returns at once.
+    $r2Admitted = $false
+    $r2GateFault = ''
+    try { $r2Admitted = [bool]$script:R2WsGate.Wait(0) } catch { $r2Admitted = $false; $r2GateFault = $_.Exception.Message }
+    if (-not $r2Admitted) {
+        # Diagnostic state: distinguish genuine saturation (count hits 0) from a
+        # semaphore/runtime fault. CurrentCount and pool availability are logged to
+        # both the audit file and stdout (stdout is captured by the lab harness).
+        $r2GateCount = -1; try { $r2GateCount = [int]$script:R2WsGate.CurrentCount } catch { }
+        $r2PoolAvail = -1; try { $r2PoolAvail = [int]$script:R2WsPool.GetAvailableRunspaces() } catch { }
+        if ($r2GateFault -ne '') {
+            try { Write-ClientAudit ('ws gate fault: ' + $r2GateFault + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
+            try { Write-Host ('[LAB-R2] gate FAULT: ' + $r2GateFault + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
+        } else {
+            try { Write-ClientAudit ('ws rejected: at capacity ' + [string]$script:R2WsMaxClients + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
+            try { Write-Host ('[LAB-R2] ws 503 saturated count=' + $r2GateCount + ' avail=' + $r2PoolAvail + ' max=' + [string]$script:R2WsMaxClients) } catch { }
+        }
+        Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket capacity exhausted; retry'))
+        try { $Stream.Dispose() } catch { }
+        try { $Client.Close() } catch { }
+        return
+    }
+    $script:R2WsSeq++
+    $r2Record = [pscustomobject]@{ Id = $script:R2WsSeq; Ps = $null; Ar = $null; Client = $Client; Done = $false }
+    $r2Ctx = @{
+        Client            = $Client
+        Stream            = $Stream
+        Parts             = $Parts
+        Token             = $Token
+        WsPingIntervalSec = [int]$script:F99WsPingIntervalSec
+        WsIdleTimeoutSec  = [int]$script:F99WsIdleTimeoutSec
+        WsMaxLifetimeSec  = [int]$script:F99WsMaxLifetimeSec
+        ClientAuditLog    = [string]$script:ClientAuditLog
+        ClientAuditLock   = $script:ClientAuditLock
+        Gate              = $script:R2WsGate
+        Record            = $r2Record
+    }
+    try {
+        # PS 5.1 compatibility: the [powershell] type accelerator cannot bind the
+        # static Create(RunspacePool) 1-arg overload (MethodException "Cannot find
+        # an overload for Create and the argument count 1", measured on the client
+        # VM run 40081193119). Use the parameterless Create() and assign the pool
+        # through the settable RunspacePool property instead, which is supported on
+        # both Windows PowerShell 5.1 and PowerShell 7.
+        $r2Ps = [powershell]::Create()
+        $r2Ps.RunspacePool = $script:R2WsPool
+        [void]$r2Ps.AddScript($script:R2WsWorker).AddArgument($r2Ctx)
+        $r2Ar = $r2Ps.BeginInvoke()
+        $r2Record.Ps = $r2Ps
+        $r2Record.Ar = $r2Ar
+        [void]$script:R2WsActive.Add($r2Record)
+    } catch {
+        # Dispatch failed after taking a slot: free capacity and answer cleanly.
+        # Log the full exception type/message and pool state so a host-specific
+        # runspace fault is diagnosable from the captured stdout/audit.
+        $r2PoolAvail = -1; try { $r2PoolAvail = [int]$script:R2WsPool.GetAvailableRunspaces() } catch { }
+        try { Write-ClientAudit ('ws dispatch failed: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message + ' avail=' + $r2PoolAvail) } catch { }
+        try { Write-Host ('[LAB-R2] dispatch FAULT: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message + ' avail=' + $r2PoolAvail) } catch { }
+        try { $script:R2WsGate.Release() | Out-Null } catch { }
+        try { Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket worker unavailable')) } catch { }
+        try { $Stream.Dispose() } catch { }
+        try { $Client.Close() } catch { }
+    }
+}
+
+function Stop-R2WebSocketPool {
+    # Deterministic, bounded shutdown. Close live WS sockets so their pumps
+    # unblock, reap the finished handles, then close/dispose the pool and the
+    # admission semaphore. Never blocks process teardown for more than ~3s.
+    try { foreach ($r2Rec in @($script:R2WsActive)) { try { $r2Rec.Client.Close() } catch { } } } catch { }
+    $r2Grace = 0
+    while ($r2Grace -lt 30 -and $script:R2WsActive.Count -gt 0) {
+        Invoke-R2ReapWebSocketWorkers
+        if ($script:R2WsActive.Count -gt 0) { Start-Sleep -Milliseconds 100 }
+        $r2Grace++
+    }
+    try { if ($script:R2WsPool) { $script:R2WsPool.Close() } } catch { }
+    try { if ($script:R2WsPool) { $script:R2WsPool.Dispose() } } catch { }
+    try { if ($script:R2WsGate) { $script:R2WsGate.Dispose() } } catch { }
+}
 $start = Get-Date
 $limit = New-TimeSpan -Minutes $LimitMinutes
 $lastHeal = Get-Date
@@ -9768,31 +10086,37 @@ if ($env:GHRDP_SCAN_DELAY_MS -match '^[0-9]+$') {
     $script:ScanDelayMs = [Math]::Max(5, [Math]::Min(1000, [int]$env:GHRDP_SCAN_DELAY_MS))
 }
 while (((Get-Date) - $start) -lt $limit) {
+    # [LAB-R1 §2] Publish HTTP readiness exactly once, from INSIDE the running
+    # accept loop, so waiting on server-ready.txt implies a thread is accepting.
+    if (-not $script:ServerReadyStamped) {
+        try { [System.IO.File]::WriteAllText($script:ServerReadyPath, ('READY pid={0} port={1} at={2}' -f $PID, $Port, (Get-Date -Format o)), $script:NoBom) } catch { }
+        $script:ServerReadyStamped = $true
+    }
     while ($listener.Pending()) {
         $client = $null
         try { $client = $listener.AcceptTcpClient() } catch { }
         if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
     }
-    # [F28 §1] INDEPENDENT 30s logon-result tick (server start, not the
-    # workflow's keep-alive step). The accept loop sleeps 50ms, so this costs
-    # nothing and the verdict is never older than ~30s.
-    if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec) {
-        $lastLogonScan = Get-Date
+    # [LAB-R2] Dispose completed WebSocket worker handles without blocking the
+    # accept loop; the long-lived pumps themselves run on the worker pool.
+    Invoke-R2ReapWebSocketWorkers
+    # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
+    # last-run timer and remains the sole writer of its state file; the guard
+    # only spreads coincident ticks across adjacent 50ms iterations so their
+    # Get-WinEvent cost can never stack into one long block on the accept
+    # thread. A due-but-deferred collector simply runs on the next iteration.
+    $iterNow = Get-Date
+    $dueLogon = (($iterNow - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)
+    $dueConn  = (($iterNow - $lastConnLogScan).TotalSeconds -ge $script:F30ConnLogIntervalSec)
+    $dueTel   = (($iterNow - $lastTelScan).TotalSeconds -ge $script:F37TelIntervalSec)
+    if ($dueLogon) {
+        $lastLogonScan = $iterNow
         try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
-    }
-    # [F30 §3] INDEPENDENT 30s RDP connection-log tick (both Operational logs).
-    # This is the ONLY surface that can see a TLS handshake drop, because
-    # 4624/4625 never fire for a connection killed before LSA.
-    if (((Get-Date) - $lastConnLogScan).TotalSeconds -ge $script:F30ConnLogIntervalSec) {
-        $lastConnLogScan = Get-Date
+    } elseif ($dueConn) {
+        $lastConnLogScan = $iterNow
         try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
-    }
-    # [F37 §4] INDEPENDENT 60s telescope tick: binds the OBSERVED listener
-    # (boundThumb vs servedThumb, serving, key container + ACL SIDs, Schannel
-    # tail) to the row, so a bind drift or a refused handshake is visible the
-    # moment it happens instead of at the next workflow dispatch.
-    if (((Get-Date) - $lastTelScan).TotalSeconds -ge $script:F37TelIntervalSec) {
-        $lastTelScan = Get-Date
+    } elseif ($dueTel) {
+        $lastTelScan = $iterNow
         try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
     }
     # [F95 §3.2 / R2] was a blind `Start-ScheduledTask -TaskName GhrdpWatcher`
@@ -9806,3 +10130,6 @@ while (((Get-Date) - $start) -lt $limit) {
     Start-Sleep -Milliseconds $script:ScanDelayMs
 }
 try { $listener.Stop() } catch { }
+# [LAB-R2] Close any live WebSocket sockets and dispose the worker pool and
+# admission semaphore so the process leaves no runspace/handle/socket behind.
+try { Stop-R2WebSocketPool } catch { }
