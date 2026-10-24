@@ -19,6 +19,7 @@
 // (fireAutoLogin, openWebDesktop, runDiag, the diag-bundle export) or navigates
 // to an existing route (/files, /search, /sessions, /settings, /keys). No new
 // route was invented to fill a grid.
+import { useEffect } from "react";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { OverviewHeader } from "@/components/overview/OverviewHeader";
@@ -42,6 +43,7 @@ import { useConnectionVerdict } from "@/hooks/useConnectionVerdict";
 import { deriveIssues } from "@/lib/overview/issues";
 import { useSessionStore } from "@/stores/sessionStore";
 import { useTelemetryStore } from "@/stores/telemetryStore";
+import { useIncidentStore } from "@/stores/incidentStore";
 import { logonRowText } from "@/lib/domain/native";
 import { useNow } from "@/lib/useNow";
 
@@ -72,10 +74,17 @@ export default function Overview() {
   const serverNow = useTelemetryStore((s) => s.serverNow);
   const nowMs = serverNow();
 
+  const wsAvailability = useTelemetryStore((st) => st.wsAvailability);
+  const nativeProbeAt = useSessionStore((st) => st.probes.native.at);
+  const user = useSessionStore((st) => st.user);
+  const observeIncidents = useIncidentStore((st) => st.observe);
+
   const s = native || {};
   const rl = s.rdpListener || null;
-  const row = logonRowText((rl && rl.authLast) || null, rl?.logonCollector || s.logonCollector || null, nowMs);
+  const authLast = (rl && rl.authLast) || null;
+  const row = logonRowText(authLast, rl?.logonCollector || s.logonCollector || null, nowMs);
   const scanMs = row.scanTs ? Date.parse(row.scanTs) : NaN;
+  const a = authLast || {};
 
   const issues = deriveIssues({
     progressLost,
@@ -87,12 +96,44 @@ export default function Overview() {
     wsLastDisconnectAtMs: wsLastDisconnectAt,
     serverNowMs: nowMs,
     nativeLost,
+    nativeLastOkAtMs: nativeProbeAt || null,
     collectorDead: !!row.dead,
     authScanTsMs: Number.isFinite(scanMs) ? scanMs : null,
     connState: verdict.state,
     connBlockers: verdict.blockers,
     sessionExpired,
+    // [V4] Identity, event time and freshness travel with the evidence. The
+    // issue layer dates the incident from the EVENT (verdict.eventAtMs) and
+    // never from `nowMs`, and it will not call an uncorrelated rejection
+    // "confirmed".
+    wsAvailability,
+    authEventTsMs: verdict.eventAtMs,
+    authStatus: typeof a.status === "string" ? a.status : undefined,
+    authSub: typeof a.sub === "string" ? a.sub : undefined,
+    authSubMeaning: typeof a.subMeaning === "string" ? a.subMeaning : undefined,
+    authRecordId: typeof a.recordId === "string" ? a.recordId : undefined,
+    authTargetUser: typeof a.targetUser === "string" ? a.targetUser : undefined,
+    expectedUser: user || (typeof a.expectedUser === "string" ? a.expectedUser : undefined),
+    authUserMatched: typeof a.userMatched === "boolean" ? a.userMatched : null,
+    authSourceMatch:
+      a.sourceMatch === "match" || a.sourceMatch === "mismatch" || a.sourceMatch === "unknown" || a.sourceMatch === "not-reported"
+        ? a.sourceMatch
+        : undefined,
+    connFreshness: verdict.freshness,
+    connCorrelation: verdict.correlation,
+    connFailureClass: verdict.failureClass,
   });
+
+  // [V4] Fold this poll into the incident ledger. The ledger keeps the FIRST
+  // observation of each event key, so re-rendering cannot reset an incident's
+  // age, and it stamps `resolvedAt` when a producer stops reporting a key.
+  const issueSignature = issues.map((i) => i.incidentKey + ":" + i.severity).join("|");
+  useEffect(() => {
+    observeIncidents(issues, nowMs);
+    // The signature, not the array identity: an unchanged poll must not create
+    // a new observation count every second.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issueSignature, observeIncidents]);
 
   return (
     <div data-testid="overview-page">

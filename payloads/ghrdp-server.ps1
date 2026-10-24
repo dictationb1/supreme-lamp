@@ -1098,31 +1098,74 @@ $script:F28StaleSec = 90
 $script:F28Scans = 0
 $script:F28LastProbeError = ''
 function Get-RdpLogonEventFields {
+    # [V4 §A] CORRELATION FIELDS. The pre-V4 extractor took TargetUserName and
+    # then never used it: the reduction below picked the newest 4624/4625 in the
+    # window regardless of WHOSE logon it was. That is how another account's
+    # rejection (or a stale one from an earlier attempt) became "THIS client's
+    # connection failed" on the dashboard while RDP was working.
+    #
+    # Everything added here is either (a) a non-secret identity field Windows
+    # itself writes on the event, or (b) a NORMALIZED source classification that
+    # deliberately does not persist an arbitrary internet address. The F28
+    # "never a password / never a domain" rule is unchanged: no password field
+    # is read, and the domain is not stored - the user is normalized instead.
     param([xml]$Xml)
     $id = ''
     $t = ''
+    $rec = ''
     $name = @{}
     try { $id = [string]($Xml.SelectSingleNode("//*[local-name()='EventID']")).InnerText } catch { }
     try { $t = [string]($Xml.SelectSingleNode("//*[local-name()='TimeCreated']").GetAttribute('SystemTime')) } catch { }
+    # The record id is the event's STABLE identity: the dashboard uses it to
+    # deduplicate repeated observations of ONE event (so its age stops
+    # resetting on every poll) and to tell a new rejection from the old one.
+    try { $rec = [string]($Xml.SelectSingleNode("//*[local-name()='EventRecordID']")).InnerText } catch { }
     try {
         foreach ($d in @($Xml.SelectNodes("//*[local-name()='Data']"))) {
             $n = [string]$d.GetAttribute('Name')
             if ($n) { $name[$n] = [string]$d.InnerText }
         }
     } catch { }
+    # Source address: 4625 carries IpAddress; 4624 carries IpAddress too. Keep it
+    # ONLY when it is a tailnet/private peer, and store a CLASS otherwise. An
+    # arbitrary public source is never written to the state file.
+    $srcRaw = ([string]$name['IpAddress']).Trim()
+    $src = ''
+    $srcKind = 'not-reported'
+    if ($srcRaw -and $srcRaw -ne '-' -and $srcRaw -ne '::1' -and $srcRaw -ne '127.0.0.1') {
+        if ($srcRaw -match '^(\d{1,3})\.(\d{1,3})\.' -and [int]$Matches[1] -eq 100 -and [int]$Matches[2] -ge 64 -and [int]$Matches[2] -le 127) {
+            $src = $srcRaw; $srcKind = 'tailnet'
+        } elseif ($srcRaw -match '^(?i)fd7a:115c:a1e0:') {
+            $src = $srcRaw.ToLowerInvariant(); $srcKind = 'tailnet-v6'
+        } elseif ($srcRaw -match '^(?i)(fe80|fc|fd|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)') {
+            $src = $srcRaw; $srcKind = 'private-non-tailnet'
+        } else {
+            $srcKind = 'public-redacted'
+        }
+    }
     return [pscustomobject]@{
         id        = $id.Trim()
+        recordId  = $rec.Trim()
         timeUtc   = $t
         status    = ([string]$name['Status']).Trim().ToUpperInvariant()
         subStatus = ([string]$name['SubStatus']).Trim().ToUpperInvariant()
         reason    = ([string]$name['FailureReason']).Trim()
         logonType = ([string]$name['LogonType']).Trim()
         targetUserName = ([string]$name['TargetUserName']).Trim()
+        source    = $src
+        sourceKind = $srcKind
     }
 }
 function Get-RdpLogonSubMeaning {
-    param([string]$Code)
-    switch (([string]$Code).Trim().ToUpperInvariant()) {
+    # [V4 §D] Status AND SubStatus. A 4625 carries Status (0xC000006D "logon
+    # failure") plus a specific SubStatus; some causes are expressed by Status
+    # alone. Reading only SubStatus labelled the coarse code "bad-user-or-
+    # password", which is how every non-password failure became "wrong stored
+    # password" on the dashboard.
+    param([string]$Code, [string]$Status = '')
+    $code = ([string]$Code).Trim().ToUpperInvariant()
+    if (-not $code) { $code = ([string]$Status).Trim().ToUpperInvariant() }
+    switch ($code) {
         '0XC000006A' { return 'wrong-password' }
         '0XC000006D' { return 'bad-user-or-password' }
         '0XC0000064' { return 'no-such-user' }
@@ -1133,7 +1176,7 @@ function Get-RdpLogonSubMeaning {
         '0XC000006F' { return 'time-restriction' }
         '0XC0000070' { return 'workstation-restriction' }
         '0XC0000071' { return 'credential-expired' }
-        default { if ($Code) { return 'other' } return '' }
+        default { if ($code) { return 'other' } return '' }
     }
 }
 # ---------------------------------------------------------------------------
@@ -1179,15 +1222,52 @@ function Get-RdpLogonAuthLast {
     # type-2 autologon older than 2 min decayed to none even though a desktop
     # was live. Now uses the shared F28WindowSec (3600) so 8 type-2 events in
     # the wider F96 re-scan are also seen by the verdict.
-    param($Items, [datetime]$ScanStartedUtc, [string]$ProbeError = '')
+    # [V4 §A/B] CORRELATED REDUCTION.
+    #
+    # The pre-V4 reduction walked EVERY event in the window and kept the newest
+    # interactive 4624 and the newest 4625, then announced whichever was newer as
+    # the machine's logon verdict. The verdict was therefore machine-wide, not
+    # client-specific: a rejection for another account - or for an earlier
+    # attempt that has since succeeded - decided this client's state.
+    #
+    # The contract is now two-layered, and BOTH layers are published so nothing
+    # is hidden:
+    #   * `count4624`/`count4625` remain MACHINE-WIDE counts (diagnostic history);
+    #   * `result`/`eventTs`/`sub` are computed ONLY from events that can be
+    #     attributed to the intended account (and, where the event reports a
+    #     comparable source, to this client), and the exclusion counts say how
+    #     many events were set aside and why.
+    #
+    # Correlation is by (normalized account, comparable source, time), never by a
+    # trace id: Windows event records contain no ticket/trace identity, so
+    # inventing a join on one would be a fabrication. When the fields needed for
+    # a match are missing, the verdict says `partial`/`unavailable` instead of
+    # guessing - which is exactly what the UI needs to avoid calling an
+    # uncorrelated 4625 "this client's wrong password".
+    param($Items, [datetime]$ScanStartedUtc, [string]$ProbeError = '', [string]$ExpectedUser = '', [string]$ExpectedSource = '')
     $scanTs = (Get-Date).ToUniversalTime().ToString('o')
     $nowUtc = (Get-Date).ToUniversalTime()
     $windowStart = $ScanStartedUtc.AddSeconds(-1 * $script:F28WindowSec)
     $floor = $nowUtc.AddSeconds(-1 * $script:F28WindowSec)
     if ($windowStart -lt $floor) { $windowStart = $floor }
-    $okWhen = $null; $okTs = ''
-    $failWhen = $null; $failTs = ''; $failSub = ''
+    $okWhen = $null; $okTs = ''; $okRec = ''
+    $failWhen = $null; $failTs = ''; $failSub = ''; $failStatus = ''; $failRec = ''
+    $failUser = ''; $failSource = ''
+    $remoteWhen = $null; $remoteTs = ''; $remoteRec = ''
     $c4624 = 0; $c4625 = 0
+    $c4624Corr = 0; $c4625Corr = 0
+    $excludedUser = 0; $excludedSource = 0; $undecidable = 0
+    # The intended account, normalized once. A UPN ("user@host") and a bare
+    # "user" for the same account must compare equal; a trailing domain prefix
+    # ("HOST\user") is dropped from BOTH sides rather than from one.
+    $expUser = ([string]$ExpectedUser).Trim()
+    $expNorm = ''
+    if ($expUser) {
+        $expNorm = $expUser.ToLowerInvariant()
+        if ($expNorm.Contains('@')) { $expNorm = $expNorm.Split('@')[0] }
+        if ($expNorm.Contains('\\')) { $expNorm = $expNorm.Substring($expNorm.LastIndexOf('\\') + 1) }
+    }
+    $expSrc = ([string]$ExpectedSource).Trim().ToLowerInvariant()
     # [F95 §3.1 / R1] lastLogonType: WHICH of 2/10/11 was seen, so the banner
     # can say "interactive" instead of a bare "yes".
     $lastLogonType = ''; $lastLogonKind = ''
@@ -1203,8 +1283,30 @@ function Get-RdpLogonAuthLast {
         } catch { $when = $null }
         if ($null -ne $when) {
             if ($when -lt $windowStart) { continue }
+            # Bound clock skew: an event stamped far in the FUTURE is malformed,
+            # not "very fresh". 120s is the carrier drift allowance already used
+            # by the collector tick.
             if ($when -gt $nowUtc.AddSeconds(120)) { continue }
         }
+        # --- correlation gate -------------------------------------------------
+        # `matched` = 'yes' | 'no' | 'unknown'. Only 'yes' may decide the
+        # verdict; 'no' is excluded but COUNTED; 'unknown' is counted separately
+        # because "the field was absent" is not the same fact as "it differs".
+        $evUserRaw = ([string]$it.targetUserName).Trim()
+        $evNorm = ''
+        if ($evUserRaw) {
+            $evNorm = $evUserRaw.ToLowerInvariant()
+            if ($evNorm.Contains('@')) { $evNorm = $evNorm.Split('@')[0] }
+            if ($evNorm.Contains('\\')) { $evNorm = $evNorm.Substring($evNorm.LastIndexOf('\\') + 1) }
+        }
+        $userMatch = 'unknown'
+        if ($expNorm -and $evNorm) { if ($evNorm -eq $expNorm) { $userMatch = 'yes' } else { $userMatch = 'no' } }
+        $evSrc = ([string]$it.source).Trim().ToLowerInvariant()
+        $srcMatch = 'not-reported'
+        if ($evSrc -and $expSrc) { if ($evSrc -eq $expSrc) { $srcMatch = 'match' } else { $srcMatch = 'mismatch' } }
+        elseif ($evSrc) { $srcMatch = 'unknown' }
+        if ($userMatch -eq 'no' -or $srcMatch -eq 'mismatch') { $excludedUser++; if ($srcMatch -eq 'mismatch') { $excludedSource++ }; continue }
+        if ($userMatch -eq 'unknown') { $undecidable++ }
         if ([string]$it.id -eq '4624') {
             # [F95 §3.1 / R1] Was: "LogonType 10 (RemoteInteractive) only: a
             # console/service logon is never an RDP success." That held a real
@@ -1215,10 +1317,19 @@ function Get-RdpLogonAuthLast {
             # Test-GhrdpInteractiveLogonType.
             if (Test-GhrdpInteractiveLogonType -LogonType ([string]$it.logonType)) {
                 $c4624++
+                # The newest CORRELATED interactive logon is the candidate.
                 if (($null -eq $okWhen) -or ($null -eq $when) -or ($when -ge $okWhen)) {
-                    $okWhen = $when; $okTs = [string]$it.timeUtc
+                    $okWhen = $when; $okTs = [string]$it.timeUtc; $okRec = [string]$it.recordId
                     $lastLogonType = ([string]$it.logonType).Trim()
                     $lastLogonKind = (Get-GhrdpInteractiveLogonTypeLabel -LogonType $lastLogonType)
+                }
+                # [V4 §B] A LogonType-10 logon is the ONLY type that proves an
+                # inbound RDP client. It is tracked separately so a console or
+                # autologon 4624 can never be promoted into "RDP connected".
+                if (([string]$it.logonType).Trim() -eq '10') {
+                    if (($null -eq $remoteWhen) -or ($null -eq $when) -or ($when -ge $remoteWhen)) {
+                        $remoteWhen = $when; $remoteTs = [string]$it.timeUtc; $remoteRec = [string]$it.recordId
+                    }
                 }
             }
             continue
@@ -1226,25 +1337,63 @@ function Get-RdpLogonAuthLast {
         if ([string]$it.id -ne '4625') { continue }
         $c4625++
         if (($null -eq $failWhen) -or ($null -eq $when) -or ($when -ge $failWhen)) {
-            $failWhen = $when; $failTs = [string]$it.timeUtc; $failSub = ([string]$it.subStatus).ToUpperInvariant()
+            $failWhen = $when; $failTs = [string]$it.timeUtc
+            $failSub = ([string]$it.subStatus).ToUpperInvariant()
+            $failStatus = ([string]$it.status).ToUpperInvariant()
+            $failRec = [string]$it.recordId
+            $failUser = [string]$it.targetUserName
+            $failSource = [string]$it.source
         }
     }
-    $result = 'none'; $eventTs = ''; $sub = ''
-    if ($null -ne $okWhen -and ($null -eq $failWhen -or $okWhen -ge $failWhen)) {
-        $result = 'success'; $eventTs = $okTs
-    } elseif ($null -ne $failWhen) {
-        $result = 'failed'; $eventTs = $failTs; $sub = $failSub
+    # Correlation completeness is REPORTED, never assumed. `complete` needs an
+    # account match on the deciding event; `partial` means the account matched
+    # but the server had no comparable source; `unavailable` means the server
+    # was never told which account to correlate against.
+    $correlation = 'unavailable'
+    $correlationNote = ''
+    if (-not $expNorm) {
+        $correlationNote = 'no intended account was published to the collector, so the verdict is machine-wide'
+    } elseif ($null -eq $okWhen -and $null -eq $failWhen) {
+        $correlation = 'complete'
+        $correlationNote = 'no attributable event in the window'
+    } elseif ($undecidable -gt 0) {
+        $correlation = 'partial'
+        $correlationNote = ('no event carried a TargetUserName comparable to ' + $expUser + '; the verdict is the newest unresolvable event')
+    } elseif ($expSrc) {
+        $correlation = 'complete'
+        $correlationNote = 'account and source correlated'
+    } else {
+        $correlation = 'partial'
+        $correlationNote = 'account correlated; the server published no source address to compare against'
     }
+    $result = 'none'; $eventTs = ''; $sub = ''; $status = ''; $recordId = ''; $targetUser = ''; $source = ''
+    if ($null -ne $okWhen -and ($null -eq $failWhen -or $okWhen -ge $failWhen)) {
+        $result = 'success'; $eventTs = $okTs; $recordId = $okRec
+        # The correlated 4624 matched the intended account by construction.
+        $targetUser = $expUser
+    } elseif ($null -ne $failWhen) {
+        $result = 'failed'; $eventTs = $failTs; $sub = $failSub; $status = $failStatus
+        $recordId = $failRec; $targetUser = $failUser; $source = $failSource
+    }
+    # [V4 §B] An old failure followed by a matching success becomes history: the
+    # `$okWhen -ge $failWhen` comparison above already guarantees that ordering.
+    # [V4 §B] `remoteInteractive` is the ONLY claim that may justify "connected":
+    # a LogonType-10 logon (inbound RDP client). A type-2/11 logon is real but it
+    # is a console/autologon desktop, so it is published as remoteInteractive=$false
+    # and the client renders "console", not "connected".
+    $logonTypeIsRemote = (([string]$lastLogonType).Trim() -eq '10')
+    $remoteInteractive = ($null -ne $remoteWhen) -or $logonTypeIsRemote
     return [pscustomobject]@{
         result      = $result
         sub         = $sub
+        status      = $status
         eventTs     = $eventTs
         scanTs      = $scanTs
         windowSec   = $script:F28WindowSec
         windowStart = $windowStart.ToString('o')
         count4624   = $c4624
         count4625   = $c4625
-        subMeaning  = (Get-RdpLogonSubMeaning -Code $sub)
+        subMeaning  = (Get-RdpLogonSubMeaning -Code $sub -Status $status)
         probeError  = $ProbeError
         # [F95 §3.1 / R1] WHICH logon the verdict came from ('2'/'10'/'11' or
         # '' when nothing was seen). Surfaced at
@@ -1252,12 +1401,107 @@ function Get-RdpLogonAuthLast {
         # leaving the operator to guess why it says what it says.
         logonType   = $lastLogonType
         logonKind   = $lastLogonKind
+        # --- [V4] correlation contract (all non-secret) ---------------------
+        recordId      = $recordId
+        targetUser    = $targetUser
+        expectedUser  = $expUser
+        # A MISSING identity field is not a mismatch: `$null` means "could not
+        # decide", which the client reports as an unavailable correlation.
+        userMatched   = $(if (-not $expNorm) { $null } elseif ($result -eq 'none') { $null } elseif ($targetUser) { $true } else { $null })
+        source        = $source
+        sourceMatch   = $(if ($result -eq 'none') { 'not-reported' } elseif ($source -and $expSrc) { 'match' } elseif ($source) { 'unknown' } else { 'not-reported' })
+        correlation   = $correlation
+        correlationNote = $correlationNote
+        excludedUser  = $excludedUser
+        excludedSource = $excludedSource
+        undecidable   = $undecidable
+        remoteInteractive = [bool]$remoteInteractive
+        remote = [pscustomobject]@{
+            seen    = [bool]($null -ne $remoteWhen)
+            eventTs = $remoteTs
+            recordId = $remoteRec
+            count   = [int]$(if ($null -ne $remoteWhen) { 1 } else { 0 })
+        }
+        # Terminal Services evidence is attached by Update-RdpLogonAuthLast,
+        # which is the only place allowed to shell out.
+        session = $null
     }
+}
+# [V4 §B] TERMINAL SERVICES EVIDENCE (secret-free).
+#
+# WHY THIS EXISTS. A 4624 records that a logon HAPPENED. It does not say the
+# session is still there. The two questions are different, and the dashboard
+# used to answer the second with the first:
+#   * "did an inbound RDP client log on?"   -> LogonType 10 in the Security log
+#   * "is a remote desktop session alive?"  -> a Terminal Services session in
+#     state Active whose session name is an rdp-tcp listener instance
+# A failed NEW attempt can therefore coexist with a session that is still up
+# (the screenshot case: an old 4625 sitting next to a working desktop). `quser`
+# is the cheapest honest source for the second question; it needs no privilege
+# beyond the interactive user's own session enumeration.
+function Get-GhrdpSessionEvidence {
+    $out = [ordered]@{
+        active = $null; name = ''; state = ''; user = ''; id = ''; logonTs = ''
+        probed = $false; error = ''
+    }
+    try {
+        $rows = @(& quser.exe 2>$null)
+        if ($LASTEXITCODE -ne 0 -and $rows.Count -eq 0) {
+            $out.error = 'quser-unavailable'
+            return [pscustomobject]$out
+        }
+        $out.probed = $true
+        foreach ($r in $rows) {
+            $line = [string]$r
+            # Skip the header (" USERNAME  SESSIONNAME  ID  STATE ...").
+            if ($line -match '(?i)^\s*USERNAME\s+SESSIONNAME') { continue }
+            if (-not $line.Trim()) { continue }
+            # Format: ">user  rdp-tcp#3  2  Active  .  1/2/2026 10:00 AM"
+            $parts = @(($line -replace '^\s*>\s*', '').Trim() -split '\s{1,}')
+            if ($parts.Count -lt 3) { continue }
+            $u = [string]$parts[0]
+            $sname = [string]$parts[1]
+            $sid = [string]$parts[2]
+            $st = ''
+            for ($i = 3; $i -lt $parts.Count; $i++) {
+                if ($parts[$i] -match '(?i)^(Active|Disc|Conn|Listen|Down)$') { $st = [string]$parts[$i]; break }
+            }
+            if (-not $st) { continue }
+            if ($sname -eq '-' -or $sname -eq '') { continue }
+            # Prefer a live rdp-tcp session: that is the only session name an
+            # inbound RDP client can create.
+            if ($sname -match '(?i)^rdp-tcp#?\d*$' -and $st -match '(?i)^Active$') {
+                $out.active = $true; $out.name = $sname; $out.state = $st
+                $out.user = $u; $out.id = $sid
+                # Logon time is the tail of the line; only the parsed date is
+                # kept, and only when it parses.
+                try {
+                    $tail = ($parts[-2..-1] -join ' ')
+                    $dt = [datetime]::Parse($tail, [System.Globalization.CultureInfo]::CurrentCulture)
+                    $out.logonTs = $dt.ToUniversalTime().ToString('o')
+                } catch { $out.logonTs = '' }
+                return [pscustomobject]$out
+            }
+            # Remember a console session, but do NOT treat it as remote.
+            if ($out.active -eq $null -and $st -match '(?i)^Active$') {
+                $out.active = $false; $out.name = $sname; $out.state = $st
+                $out.user = $u; $out.id = $sid
+            }
+        }
+        if ($out.active -eq $null) { $out.active = $false }
+    } catch {
+        $out.error = 'quser-failed'
+    }
+    return [pscustomobject]$out
 }
 function Update-RdpLogonAuthLast {
     # The tick body: read the runner's OWN Security log, stamp, persist. It
     # never throws (a dead probe stamps result=none + probeError + scanTs) and
     # writes ONLY the allowlisted fields above.
+    #
+    # [V4 §A] The INTENDED ACCOUNT is read from config here - the collector's
+    # own state file is the only writer, and the config file is only READ. That
+    # is what makes the verdict client-specific instead of machine-wide.
     param([string]$StatePath, [datetime]$ScanStartedUtc)
     $items = @()
     $probeErr = ''
@@ -1266,14 +1510,29 @@ function Update-RdpLogonAuthLast {
         $raw = @(Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = @(4624, 4625); StartTime = $since.ToLocalTime() } -MaxEvents 400 -ErrorAction Stop)
         foreach ($e in $raw) { $items += (Get-RdpLogonEventFields -Xml ([xml]$e.ToXml())) }
     } catch { $probeErr = 'security-log-unreadable' }
-    $sum = Get-RdpLogonAuthLast -Items $items -ScanStartedUtc $ScanStartedUtc -ProbeError $probeErr
-    try { [System.IO.File]::WriteAllText($StatePath, ($sum | ConvertTo-Json -Depth 5 -Compress), $script:NoBom) } catch { }
+    $expectedUser = ''
+    try {
+        $cfgLogon = Read-JsonFile -Path $script:CfgPath
+        if ($cfgLogon -and $cfgLogon.PSObject.Properties['rdpUser']) { $expectedUser = [string]$cfgLogon.rdpUser }
+    } catch { $expectedUser = '' }
+    $sum = Get-RdpLogonAuthLast -Items $items -ScanStartedUtc $ScanStartedUtc -ProbeError $probeErr -ExpectedUser $expectedUser
+    # [V4 §B] Session liveness is collected NEXT to the logon verdict, never
+    # fused into it: "a 4624 happened" and "a session is alive" are different
+    # facts and the UI must be able to see both.
+    try {
+        $sum | Add-Member -NotePropertyName session -NotePropertyValue (Get-GhrdpSessionEvidence) -Force
+    } catch {
+        $sum | Add-Member -NotePropertyName session -NotePropertyValue ([pscustomobject]@{ active = $null; name = ''; state = ''; user = ''; id = ''; logonTs = ''; probed = $false; error = 'collector-failed' }) -Force
+    }
+    try { [System.IO.File]::WriteAllText($StatePath, ($sum | ConvertTo-Json -Depth 6 -Compress), $script:NoBom) } catch { }
     $script:F28Scans = [int]$script:F28Scans + 1
     $script:F28LastProbeError = $probeErr
     Write-Host ('[F28] logon scan #' + $script:F28Scans + ' result=' + $sum.result +
         ' sub=' + $(if ($sum.sub) { $sum.sub } else { '-' }) +
         ' eventTs=' + $(if ($sum.eventTs) { $sum.eventTs } else { '-' }) +
         ' 4624=' + $sum.count4624 + ' 4625=' + $sum.count4625 +
+        ' corr=' + $sum.correlation + ' user=' + $(if ($sum.targetUser) { $sum.targetUser } else { '-' }) +
+        ' session=' + $(if ($sum.session -and $sum.session.active) { 'rdp-active' } else { 'none' }) +
         ' scanTs=' + $sum.scanTs + $(if ($probeErr) { ' probeError=' + $probeErr } else { '' }))
     return $sum
 }

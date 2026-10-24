@@ -91,7 +91,7 @@ const SI_FILE = "src/i18n/si.json";
 // [R-FILES / #217 / #225] moved 1213 -> 1241: +28 files.listing.* keys, added to BOTH catalogs in the same commit as the live-listing wiring that calls them (provenance, the four counts, retry/evidence, five diagnostic field labels, the six named non-ready states, and the unknown/sample count fallbacks). en and si are byte-identical in key set with no empty value.
 // [V4 / #1] moved 1243 -> 1252: +2 about.checking, files.listing.provenance.auth_required
 // [F201 probe-honesty] +7 probe keys (probe*.dataUnavailable) -> 1252
-const EXPECTED_FLAT_KEYS = 1252;
+const EXPECTED_FLAT_KEYS = 1267;
 
 // Legacy untranslated si values (byte-identical to en). Frozen deliberately:
 // operator-owned copy that predates this step (mirrorHostMatrix/*, egress.line,

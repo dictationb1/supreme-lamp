@@ -367,8 +367,8 @@ test("F111-e: the declared storage inventory equals what the tree really persist
   // src/stores/prefsStore.ts, addedBy:"F-GLASS", listed under
   // postInventoryGrowth.F-GLASS). The one-way measured-opaque latch in
   // src/lib/glass/quality.ts is IN MEMORY, so it adds no surface. 24 + 1 = 25.
-  assert.equal(scan.keys.length, 25, "derived surface count moved - re-measure and update the declaration");
-  assert.deepEqual(byClass, { live: 21, migration: 1, purged: 3 }, "classification census moved");
+  assert.equal(scan.keys.length, 26, "derived surface count moved - re-measure and update the declaration"); // [V4] + ghrdp:incidentAcks (browser-local acknowledgement ledger)
+  assert.deepEqual(byClass, { live: 22, migration: 1, purged: 3 }, "classification census moved"); // [V4] + 1 live
   assert.equal(scan.keys.filter((k) => k.kind === "indexedDB").length, 2, "two IndexedDB surfaces (ghrdp-dvr, ghrdp-patches)");
   assert.equal(diff.agreed.length, declared.keys.length, "every declared key must be fully agreed, not just present");
 
