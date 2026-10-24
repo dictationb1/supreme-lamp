@@ -4,6 +4,7 @@
 
 import { redactSecrets } from "./rdp-evidence.mjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 
 const INCIDENTS_FILE = process.env.INCIDENTS_TRACKING_FILE || "jules-repair-incidents.json";
@@ -34,7 +35,7 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
   }
 
   try {
-    const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
+    const cmd = `gh run view ${runId} --log -R "${repo}"`;
     // The previous implementation assumed plain text, but run logs are often zip archives.
     const res = execSync(cmd, {
       encoding: "buffer",
@@ -228,7 +229,7 @@ export async function dispatchJulesSession(input = {}, fetchFn = globalThis.fetc
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   dispatchJulesSession().then((res) => {
     console.log(`[jules-repair-bridge] Result Status: ${res.status}`);
 
