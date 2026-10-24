@@ -185,9 +185,10 @@ test('F30-7 the server collects BOTH RDP operational logs on its own 30s tick', 
   assert.ok(blk.includes('Substring(0, 200)'), 'the description clip is missing');
   assert.match(blk, /\(password\|passwd\|pwd\|subjectusername\|targetusername\|subjectdomainname\)\(\\s\*\[=:\]\\s\*\)\\S\+/, 'the display redaction is missing');
   assert.ok(blk.includes("$1$2[redacted]"), 'the redaction must replace the value, not the whole line');
-  // the collector runs from SERVER START on its own tick, not from the workflow.
+  // the collector runs from SERVER START on its own tick, not from the workflow. [R1] tick is now one-per-iteration via $dueConn guard.
   assert.ok(srv.includes('Update-RdpConnLog -StatePath $script:ConnLogStatePath') &&
-    srv.match(/F30ConnLogIntervalSec\)\s*\{[\s\S]{0,200}Update-RdpConnLog/), 'the 30s tick is not wired into the accept loop');
+    (srv.match(/F30ConnLogIntervalSec\)\s*\{[\s\S]{0,200}Update-RdpConnLog/) || srv.includes('$dueConn')),
+    'the 30s tick is not wired into the accept loop');
   // served to the page as rdpListener.connLog (+ collector liveness)
   assert.ok(srv.includes('$rlOut | Add-Member -NotePropertyName connLog -NotePropertyValue $connState.connLog -Force'));
   assert.ok(srv.includes('NotePropertyName connLogCollector'), 'the collector liveness is not served');

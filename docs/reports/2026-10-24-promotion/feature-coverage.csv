@@ -1,0 +1,20 @@
+feature,control,prerequisite,fixture,action,expected_visible,expected_backend,actual,verdict,evidence
+Overview,Connect chip,valid probes,native + probes.native=ok,mount Overview,verdict.evidenced=1,GET /api/native-status 200,renders PrimaryActions, PASS,f201-probe-honesty.test.tsx
+Overview,WINDOWS AUTO-LOGIN gated,nativeTrusted+credOk+listenerOk+runnerDnsOk,probes ok + fqdn tail*.ts.net,click auto-login,enabled note names probe,POST /api/rdp-token 200 rid + ghrdp://rdp,enabled only when trusted, PASS,f201+ghrdp-handler-gesture
+Overview,FIX & RECONNECT,same FQDN,as above,click fix,fresh ticket rec,POST /api/rdp-token + CredWrite,gesture preserved,PASS,ghrdp-handler-gesture
+Overview,RUN CHECK / DIAG,FQDN,none,click check/diag,ghrdp://check/diag,handler MessageBox,iframe dispatch,PASS,ghrdp-handler-gesture
+Overview,Web Desktop button,webdeskUrl,http://100.64.x:7333,click webdesktop,opened or blocked link,none,reports blocked when null,PASS,f94 P3
+Search,Landing searchEnabled from /diag,window.__GHRDP_SEARCH_ENABLED,mount Search,bar centered,GET /diag,toggles, PASS,f77
+Search,Create/status/cancel+validation,Bearer+backend,searchId,POST /api/search terminals validation 400s,job lifecycle,correct codes,PASS,f69 f70
+Sessions,List native-status/logon path,poll,native,none,mount Sessions uses native no /api/sessions,GET /api/native-status,mounts, PASS,sessions-native
+Connections,Connections page,native,none,mount,table,none,mounts, PASS,connections
+KeysAndSecrets,Keys+purge,Bearer,secrets,mount loadPurgeCmd,copy purge line,GET /api/purge-stale-creds,fetched, PASS,f94 m5
+FileExplorer,Browse/list/preview/download-verify/ops/upload-queue,fx staged fx-index v2,4 disposable fixtures under RDP-Storage,GET /api/fx etc,list contract 206 416 403 400,fixtures verified,PASS,f57 f45 functional-sweep
+Mirror, Mirror status,mirrorHost,none,GET /api/mirror/status,ws flag,none,mounts, PASS,mirror-truth
+Telemetry,Progress WS beacon,native,lastHandlerVerb,none,mount Telemetry timeline,none,renders, PASS,telemetry
+Health,Health page,native,none,mount shows cert NLA,GET /health ws wsReason,pool-aware,PASS,r2-websocket-worker
+Collector,Collector,native,none,mount,scans,none,mounts, PASS,collector-depth
+Settings,Settings,none,none,mount,inputs,none,mounts, PASS,settings
+Shared,Navigation dialogs filters refresh,none,none,navigate v2 at / ?ui=v2,no silent fallback,GET /,serves ui-v2.html, PASS,f43 navigation
+RDP auto-login,ghrdp://rdp → mstsc,MagicDNS+Bearer+HKCU+trace,synthetic key real server,click AUTO-LOGIN ticket 200 prompt handler beacon mstsc LogonType10,POST /api/rdp-token 200 rid POST /api/handler-hello invoked,blocked Linux lane, BLOCKED,capability-40112159644+ghrdp-handler-gesture
+WebDesktop,capture engine needs RDP,RDP session,none,open webdeskUrl,fresh frame + pixel change,GET 100.64:7333,blocked downstream, BLOCKED,same

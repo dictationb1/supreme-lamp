@@ -28,6 +28,17 @@ interface AutoLoginState {
   helloSeen: boolean;
 }
 
+// [F201 §2] Data-trust state, per probe. `pending` = no answer yet this session;
+// `ok` = the last answer was a 200 with a JSON body; every other value is the
+// class of failure, and the UI must not derive measurements from an untrusted probe.
+export type ProbeState = "pending" | "ok" | "unauthorized" | "forbidden" | "http" | "transport" | "schema";
+
+export interface ProbeReport {
+  state: ProbeState;
+  status: number;
+  at: number;
+}
+
 interface SessionState {
   configLoaded: boolean;
   fqdn: string;
@@ -52,6 +63,8 @@ interface SessionState {
   lastHandlerTs: string;
   diagOpen: boolean;
   diagText: string;
+  probes: { config: ProbeReport; native: ProbeReport };
+  setProbe: (which: "config" | "native", state: ProbeState, status?: number) => void;
 
   setConfig: (cf: Any) => void;
   setNativeStatus: (s: Any) => void;
@@ -101,6 +114,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   compBundleLastFetched: 0,
   diagOpen: false,
   diagText: "",
+  probes: {
+    config: { state: "pending", status: 0, at: 0 },
+    native: { state: "pending", status: 0, at: 0 },
+  },
+
+  setProbe: (which, state, status) =>
+    set((prev) => ({
+      probes: {
+        ...prev.probes,
+        [which]: { state, status: Number(status || 0), at: Date.now() },
+      },
+    })),
 
   setConfig: (cf) => {
     if (!cf) return;
@@ -233,8 +258,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       st.setAutoLoginNote("AUTO-LOGIN refused: the runner FQDN is missing or malformed - reload /api/native-status or re-dispatch the deploy workflow");
       return;
     }
+    // Preserve transient activation: open a synchronous placeholder so the
+    // subsequent async ticket fetch does not lose the user gesture. Chrome's
+    // external-protocol prompt is gated on a user activation; a fetch-then-navigate
+    // without a placeholder is often classified as not user-initiated.
+    let protoWin: Window | null = null;
+    try {
+      protoWin = window.open('', '_blank');
+      if (protoWin) {
+        try { protoWin.document.title = 'Launching mstsc…'; } catch {}
+      }
+    } catch {}
     const ticket = await postRdpToken();
     if (!ticket.ok) {
+      try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {}
       // [F94 §3.1] No dashboard token is the single most likely cause, and it
       // is recoverable in one click - say which one it is instead of the old
       // catch-all "check dashboard authorization".
@@ -248,11 +285,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
     const trace = mintTraceId("client");
     set({ lastTrace: trace });
-    launchProto(ghrdpRdpUrl(fqdn, user, st.runnerResolvedIP) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid));
-    st.setAutoLoginNote("protocol dispatched - mstsc should open fullscreen shortly");
-    // [F12-1 §1.4] hello-beacon watch: 20s window, native-status polled every 3s.
+    // Arm the beacon watch BEFORE dispatch so the very first handler-hello
+    // (which can arrive within 500ms on the lab VM) is not missed.
     get().armHelloWatch();
     set({ autoLogin: { ...get().autoLogin, staleRegistration: false, installNotice: false } });
+    const ghrdpUrl = ghrdpRdpUrl(fqdn, user, st.runnerResolvedIP) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid);
+    let winNavOk = false;
+    try {
+      if (protoWin && !protoWin.closed) {
+        protoWin.location.href = ghrdpUrl;
+        winNavOk = true;
+        setTimeout(() => { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} }, 4000);
+      }
+    } catch {}
+    if (!winNavOk) {
+      launchProto(ghrdpUrl);
+    } else {
+      try { launchProto(ghrdpUrl); } catch {}
+    }
+    st.setAutoLoginNote("protocol dispatched \u2014 if your browser shows \u2018Open ghrdp-rdp-launcher?\u2019 click Open, then mstsc will open fullscreen. Waiting for handler beacon\u2026 (check %LOCALAPPDATA%\\GhrdpLauncher\\last.log if no beacon in 8 s)");
+    setTimeout(() => {
+      try {
+        const cur = get();
+        if (cur.helloWatchArmed && !cur.helloWatchSeen) {
+          cur.setAutoLoginNote("No handler beacon yet \u2014 did you click Open in the \u2018Open ghrdp-rdp-launcher?\u2019 browser prompt at the top of the window? If you dismissed it, click WINDOWS AUTO-LOGIN again for a fresh ticket (tickets are single-use, 60 s). Launcher log: %LOCALAPPDATA%\\GhrdpLauncher\\last.log");
+        }
+      } catch {}
+    }, 8000);
   },
 
   // [F28 §2] FIX & RECONNECT: fresh ticket -> ghrdp://recred?server&user&t.
@@ -261,11 +320,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const fqdn = st.fqdn;
     const user = st.user || "rdpuser";
     if (!FQDN_RE.test(fqdn)) return;
+    let protoWin: Window | null = null;
+    try { protoWin = window.open('', '_blank'); } catch {}
     const ticket = await postRdpToken();
-    if (!ticket.ok) return;
+    if (!ticket.ok) { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} return; }
     const trace = mintTraceId("client");
     set({ lastTrace: trace, recoveryDispatchedAt: Date.now() });
-    launchProto(ghrdpRecredUrl(fqdn, user) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid));
+    const recredUrl = ghrdpRecredUrl(fqdn, user) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid);
+    let winNavOk = false;
+    try { if (protoWin && !protoWin.closed) { protoWin.location.href = recredUrl; winNavOk = true; setTimeout(() => { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} }, 4000); } } catch {}
+    if (!winNavOk) launchProto(recredUrl); else try { launchProto(recredUrl); } catch {}
   },
 
   // [F15 §3] RUN CHECK: ghrdp://check - MessageBox on the operator PC.

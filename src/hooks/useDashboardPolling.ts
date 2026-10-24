@@ -5,7 +5,7 @@
 // [F56-d §3] Search surface reads window.__GHRDP_SEARCH_ENABLED from /diag at boot + polling.
 import { useEffect } from "react";
 import { announceSearchLane } from "@/lib/search/lane";
-import { configUrl, getJson, nativeStatusUrl } from "@/lib/api";
+import { configUrl, getJson, nativeStatusUrl, probeJson } from "@/lib/api";
 // [F95 §3.4 / R4] the dash token the /ws upgrade needs (and the storage key to
 // watch so a token change rebuilds the socket instead of silently failing).
 import { DASH_TOKEN_STORAGE_KEY, getDashToken } from "@/lib/dashToken";
@@ -26,6 +26,7 @@ export function useDashboardPolling(): void {
   const setConfig = useSessionStore((s) => s.setConfig);
   const setNativeStatus = useSessionStore((s) => s.setNativeStatus);
   const markNativeLost = useSessionStore((s) => s.markNativeLost);
+  const setProbe = useSessionStore((s) => s.setProbe);
   const setProgress = useTelemetryStore((s) => s.setProgress);
   const setWire = useTelemetryStore((s) => s.setWire);
   const setWsLive = useTelemetryStore((s) => s.setWsLive);
@@ -42,15 +43,29 @@ export function useDashboardPolling(): void {
     };
     if (typeof window !== 'undefined') window.addEventListener('ghrdp-force-poll', forcePoll);
 
+    // [F201 §3] The PROBE RESULT is recorded next to the data. A refused or
+    // unreachable read sets the probe state and leaves the last known values
+    // alone; it never silently becomes "the server says this field is empty".
     const pollConfig = async () => {
-      const cf = await getJson(configUrl());
-      if (alive) setConfig(cf);
+      const r = await probeJson(configUrl());
+      if (!alive) return;
+      if (r.ok && r.data) {
+        setConfig(r.data);
+        setProbe("config", "ok", r.status);
+      } else {
+        setProbe("config", r.failure || "schema", r.status);
+      }
     };
     const pollNative = async () => {
-      const s = await getJson(nativeStatusUrl());
+      const r = await probeJson(nativeStatusUrl());
       if (!alive) return;
-      if (s) setNativeStatus(s);
-      else markNativeLost();
+      if (r.ok && r.data) {
+        setNativeStatus(r.data);
+        setProbe("native", "ok", r.status);
+      } else {
+        setProbe("native", r.failure || "schema", r.status);
+        markNativeLost();
+      }
     };
 
     const pollDiagForSearch = async () => {

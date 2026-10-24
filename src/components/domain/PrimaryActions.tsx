@@ -56,6 +56,8 @@ export function PrimaryActions({
   const fqdn = useSessionStore((s) => s.fqdn);
   const user = useSessionStore((s) => s.user);
   const listenerOkFlag = useSessionStore((s) => s.listenerOkFlag);
+  const probes = useSessionStore((s) => s.probes);
+  const configLoaded = useSessionStore((s) => s.configLoaded);
   const runnerDnsOk = useSessionStore((s) => s.runnerDnsOk);
   const autoLogin = useSessionStore((s) => s.autoLogin);
   const fireAutoLogin = useSessionStore((s) => s.fireAutoLogin);
@@ -82,23 +84,61 @@ export function PrimaryActions({
 
   const webdeskUrl = validWebdeskUrl(s.webdeskUrl);
 
-  // Auto-login gate: valid fqdn+user AND listener all green AND runner DNS ok.
-  const autoOk = credOkLocal && listenerOkFlag && runnerDnsOk;
+  // [F201 §4] A probe that did not succeed is NOT evidence about credentials,
+  // DNS or the listener. When /api/native-status (or /api/config) was refused or
+  // unreachable, the gate names THAT and the remediation; the credential/DNS/
+  // listener wording is only reachable from a trusted 200 answer.
+  // TRUSTED = a 200 body arrived (state "ok"), OR the probe has not run yet but
+  // a store already holds status data (a seeded/pushed snapshot, or a render
+  // before the first poll). "pending" with NO data is NOT trust: nothing has
+  // been measured, and the gate says exactly that.
+  const nativeTrusted =
+    probes.native.state === "ok" || (probes.native.state === "pending" && !!native);
+  const configTrusted =
+    probes.config.state === "ok" || (probes.config.state === "pending" && configLoaded);
+  const probeBlocker = (which: "native" | "config"): string => {
+    const pr = probes[which];
+    const status = pr.status ? " (HTTP " + pr.status + ")" : "";
+    switch (pr.state) {
+      case "unauthorized":
+        return t("overview.connect.probeUnauthorized") + status;
+      case "forbidden":
+        return t("overview.connect.probeForbidden") + status;
+      case "transport":
+        return t("overview.connect.probeUnreachable");
+      case "schema":
+        return t("overview.connect.probeSchema") + status;
+      case "http":
+        return t("overview.connect.probeHttp") + status;
+      default:
+        return t("overview.connect.probePending");
+    }
+  };
+
+  // Auto-login gate: a TRUSTED status probe AND valid fqdn+user AND listener all
+  // green AND runner DNS ok.
+  const autoOk = nativeTrusted && credOkLocal && listenerOkFlag && runnerDnsOk;
   const autoNote = autoOk
     ? "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails"
-    : !runnerDnsOk
-      ? "Runner DNS broken"
-      : credOkLocal
-        ? "RDP LISTENER probe not all green (listening/fw/cert/nla) - fix the failed field in the RDP LISTENER row; AUTO-LOGIN stays disabled"
-        : "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails";
+    : !nativeTrusted
+      ? probeBlocker("native")
+      : !runnerDnsOk
+        ? "Runner DNS broken"
+        : credOkLocal
+          ? "RDP LISTENER probe not all green (listening/fw/cert/nla) - fix the failed field in the RDP LISTENER row; AUTO-LOGIN stays disabled"
+          : "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails";
 
   // [F94 §3.3] A disabled <button> swallows its click entirely - no hover, no
   // tooltip, no toast. Every failing gate is named here, in the tooltip AND on
   // the page, so a dead button always says which gate killed it.
   const autoBlockers: string[] = [];
-  if (!credOkLocal) autoBlockers.push(t("autoLoginBlocked.credentials"));
-  if (!runnerDnsOk) autoBlockers.push(t("autoLoginBlocked.dns"));
-  if (!listenerOkFlag) autoBlockers.push(t("autoLoginBlocked.listener"));
+  if (!nativeTrusted) autoBlockers.push(probeBlocker("native"));
+  else {
+    if (!credOkLocal) autoBlockers.push(t("autoLoginBlocked.credentials"));
+    if (!runnerDnsOk) autoBlockers.push(t("autoLoginBlocked.dns"));
+    if (!listenerOkFlag) autoBlockers.push(t("autoLoginBlocked.listener"));
+  }
+  if (nativeTrusted && !configTrusted) autoBlockers.push(probeBlocker("config"));
   const autoWhy = autoBlockers.join("; ");
   const autoTitle = autoOk ? autoNote : t("autoLoginBlocked.title") + " " + autoWhy;
 

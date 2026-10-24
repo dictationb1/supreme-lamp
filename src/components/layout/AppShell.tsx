@@ -100,6 +100,10 @@ function TopBar() {
   const wsAttempts = useTelemetryStore((s) => s.wsAttempts);
   const requestWsReconnect = useTelemetryStore((s) => s.requestWsReconnect);
   const progressLost = useTelemetryStore((s) => s.progressLost);
+  // [F201 §5] An open socket is a VIEWING MODE, not a measurement of the
+  // backend's data. While either status probe is refused or unreachable the
+  // glanceable chip must say so instead of "Live".
+  const probes = useSessionStore((s) => s.probes);
   const mirror = useTelemetryStore((s) => s.mirror);
   const serverNow = useTelemetryStore((s) => s.serverNow);
   useNow(1000);
@@ -117,16 +121,24 @@ function TopBar() {
 
   // The worst state wins, so the one indicator can never read "fine" while a
   // producer underneath is failing.
+  const dataUnavailable =
+    probes.native.state !== "ok" && probes.native.state !== "pending"
+      ? true
+      : probes.config.state !== "ok" && probes.config.state !== "pending";
   const summaryKey = progressLost
     ? "topbar.status.lost"
     : wsDead
       ? "topbar.status.socketDown"
-      : wsLive
-        ? "topbar.status.live"
-        : wsAvailable
-          ? "topbar.status.socketIdle"
-          : "topbar.status.socketAbsent";
-  const summaryTone = progressLost || wsDead ? "danger" : wsLive ? "success" : "warning";
+      : dataUnavailable
+        ? "topbar.status.dataUnavailable"
+        : wsLive
+          ? "topbar.status.live"
+          : wsAvailable
+            ? "topbar.status.socketIdle"
+            : "topbar.status.socketAbsent";
+  // The worst state wins, so the one indicator can never read "fine" while a
+  // producer underneath is failing - including the two status probes.
+  const summaryTone = progressLost || wsDead || dataUnavailable ? "danger" : wsLive ? "success" : "warning";
 
   // [#214 §4] 44px minimum on every top-bar control; the glyph stays 20px.
   const barBtn =

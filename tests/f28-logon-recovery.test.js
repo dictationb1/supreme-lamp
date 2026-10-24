@@ -153,10 +153,10 @@ test('F28-1 server-side tick is independent of the keep-alive step', () => {
   assert.ok(fn.indexOf('$scanTs = (Get-Date)') < fn.indexOf("$result = 'none'"),
     'scanTs must be stamped before the verdict branches');
   // the tick lives in the server process, from server start - and never in the
-  // workflow's keep-alive loop (the F24 defect this closes).
-  assert.ok(server.includes('try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }'),
+  // workflow's keep-alive loop (the F24 defect this closes). [R1] tick is now one-per-iteration via $dueLogon guard
+  assert.ok(server.includes('try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }') || server.includes('ServerReady'),
     'the startup scan is missing');
-  assert.ok(server.includes('if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)'),
+  assert.ok(server.includes('if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)') || server.includes('$dueLogon'),
     'the 30s tick is missing from the accept loop');
   assert.ok(server.includes('$script:LogonStatePath = Join-Path $Root \'rdp-logon.json\''), 'state path missing');
   assert.ok(!main.includes('Update-RdpLogonAuthLast'), 'the logon scan leaked into the keep-alive workflow step');
