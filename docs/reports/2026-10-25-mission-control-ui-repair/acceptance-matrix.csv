@@ -1,0 +1,17 @@
+id,area,operation,prerequisites_fixture,exact_action,expected_visible,expected_backend,verdict,evidence
+V4-OV-01,Overview,connection chip state,"unit+component (shipped component, seeded store)",deriveConnectionState + Overview render,"chip shows the derived state, never 'failed' for a foreign 4625",none (pure),PASS,v4-incident-ui V4-UI-1; v4-conn-correlation V4-1
+V4-OV-02,Overview,evidence line names producer + attempt,component,evidence paragraph,text contains producer and limitation,none,PASS,V4-UI-1/V4-UI-2
+V4-OV-03,Overview,correlated current failure still fails,component,seeded matching 4625,'Connection failed' + critical confirmed issue,none,PASS,V4-UI-2
+V4-OV-04,Overview,Connect / Web Desktop / retry actions,component,existing handlers,existing controls unchanged and still wired,POST /api/rdp-token (not executed),NOT_RUN,no live backend in this environment
+V4-IN-01,Troubleshooting,incident age from event,pure + component,3h-old 4625 seeded,"stale label, age >3h, no '0s'",none,PASS,"V4-UI-1, V4-6"
+V4-IN-02,Troubleshooting,dedupe repeated polls,pure,10 polls of one event,"one record, observations=10, occurredAt unchanged",none,PASS,"V4-6, V4-UI-4"
+V4-IN-03,Troubleshooting,acknowledge != resolve,component + store,click ack,aria-pressed toggles; resolvedAt stays null,localStorage ghrdp:incidentAcks,PASS,V4-UI-2
+V4-IN-04,Troubleshooting,resolution only on recovery,pure,producer stops reporting key,resolvedAt stamped once; unrelated issue unaffected,none,PASS,V4-6
+V4-IN-05,Troubleshooting,reload does not resurrect,component,unmount + reset + fresh mount,old incident not rendered,none,PASS,V4-UI-2
+V4-WS-01,Health/WS,pending / unsupported / pool-unavailable / unauthorized,pure + component,four seeded /health answers,distinct issues; only explicit ok+ws=false says 'no endpoint',/health wsReason,PASS,V4-UI-3
+V4-WS-02,Health/WS,transport failure keeps last capability,store unit,setWsHealth(failed),wsAvailability unchanged unless still pending,none,PASS,telemetryStore.setWsHealth (covered by V4-UI-3 seed path)
+V4-CL-01,Collector,status/substatus classification,pure,12 codes,11 named reasons; unknown sub is 'other',none,PASS,V4-5
+V4-CL-02,Collector,record id extraction,PowerShell contract (static),extractor body,EventRecordID read and published,Get-WinEvent 4625 on Windows,CONTRACT_ONLY,tests/f204 V4-PS-2
+V4-CL-03,Collector,correlated reduction on real Windows,PowerShell (executable),autologin-lab V-step,"foreign rejection excluded, matching kept, type-2 not remote",real Security log,NOT_RUN,assertions added to autologin-lab.yml; needs a Windows runner
+V4-RDP-01,Native RDP,working session preserved,n/a,user report,no change to listener/NLA/ticket/launcher,"POST /api/rdp-token, mstsc",NOT_RUN,out of scope for a browser/CI check; no path changed
+V4-UI-05,Shared,a11y of new ack control,code review,aria-pressed + focus ring + i18n in both catalogs,"labelled toggle, keyboard reachable",none,PARTIAL,no automated axe run in this environment

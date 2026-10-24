@@ -1,0 +1,172 @@
+{
+  "schema": "mission-control-ui-repair/1",
+  "date": "2026-10-25",
+  "branch": "arena/b462ed7a-supreme-lamp",
+  "pull_request": "https://github.com/dictationb1/supreme-lamp/pull/79",
+  "source_sha_tested": "af483d2e7771df1055224edf7636518c2d1b61ac",
+  "base_sha": "451e8136c97f80563df5cf40fc9f6ed9f05eaa4d",
+  "previous_promotion": {
+    "pr": 73,
+    "merge_sha": "d3f13d48d548c66e213a94364cb7f0ab9ac3158a"
+  },
+  "baseline_tests": {
+    "vitest_files": 109,
+    "vitest_tests": 1395,
+    "node_test_pass": 920,
+    "node_test_fail": 9,
+    "node_test_fail_cause": "7 i18n/storage count locks touched by this change + 2 workflow-validator cases that need python pyyaml (absent in the sandbox)"
+  },
+  "tests_after": {
+    "vitest_files": 111,
+    "vitest_tests": 1453,
+    "node_test_pass": 929,
+    "node_test_fail": 0,
+    "node_test_skipped": 26
+  },
+  "new_test_files": [
+    {
+      "file": "src/tests/smoke/v4-conn-correlation.test.ts",
+      "cases": 43
+    },
+    {
+      "file": "src/tests/smoke/v4-incident-ui.test.tsx",
+      "cases": 15
+    },
+    {
+      "file": "tests/f204-logon-correlation.test.js",
+      "cases": 12
+    }
+  ],
+  "build": {
+    "command": "pnpm run build",
+    "artifact": "ui/dist/index.html",
+    "bytes": 1245750,
+    "sha256_prefix": "3aa06e22f854330b",
+    "note": "local build only; the deployed bundle is produced by main.yml on the merged revision"
+  },
+  "defects": [
+    {
+      "id": "D1",
+      "area": "backend",
+      "summary": "logon verdict was machine-wide, not client-specific",
+      "state": "FIXED",
+      "verified_by": "V4-1, V4-PS-4"
+    },
+    {
+      "id": "D2",
+      "area": "readiness",
+      "summary": "failure branch had no freshness rule while success did",
+      "state": "FIXED",
+      "verified_by": "V4-3"
+    },
+    {
+      "id": "D3",
+      "area": "issues",
+      "summary": "incident dated with serverNowMs instead of the event",
+      "state": "FIXED",
+      "verified_by": "V4-6, V4-UI-1"
+    },
+    {
+      "id": "D4",
+      "area": "issues",
+      "summary": "confirmed / 'rejected the stored credential' was unsupported",
+      "state": "FIXED",
+      "verified_by": "V4-5"
+    },
+    {
+      "id": "D5",
+      "area": "issues",
+      "summary": "wsAvailable=false read as 'no /ws endpoint'",
+      "state": "FIXED",
+      "verified_by": "V4-UI-3"
+    },
+    {
+      "id": "D6",
+      "area": "readiness",
+      "summary": "LogonType 2/11 accepted as inbound RDP",
+      "state": "FIXED",
+      "verified_by": "V4-2"
+    },
+    {
+      "id": "D7",
+      "area": "readiness",
+      "summary": "a failed new attempt closed a live session",
+      "state": "FIXED",
+      "verified_by": "V4-1"
+    }
+  ],
+  "coverage_audit": {
+    "source": "docs/reports/2026-10-24-promotion/feature-coverage.csv",
+    "original_pass_rows": 17,
+    "surviving_full_operation_pass": 0,
+    "counts": {
+      "EVIDENCE_INSUFFICIENT": 16,
+      "PARTIAL": 1,
+      "BLOCKED": 2
+    }
+  },
+  "acceptance_matrix_counts": {
+    "PASS": 11,
+    "CONTRACT_ONLY": 1,
+    "PARTIAL": 1,
+    "NOT_RUN": 3,
+    "FAIL": 0,
+    "BLOCKED": 0
+  },
+  "not_verified": [
+    "real Windows execution of the new PowerShell reduction (assertions added to .github/workflows/autologin-lab.yml)",
+    "live /health and /api/native-status against a running instance",
+    "browser E2E results (see the PR check list)",
+    "Search/Files/Settings/Health live operations (independent of this PR)",
+    "native RDP re-test on the user VM (deliberately not attempted; no path changed)",
+    "main.yml deployment of the merged revision"
+  ],
+  "operator_next_action": "Merge PR #79, then dispatch main.yml on main with mode=rdp, runner_target=windows-latest.",
+  "files": [
+    {
+      "name": "FINAL-REPORT-si.md",
+      "sha256": "7557080aa64cf125372117f5a32822973c7e35f6359bdb79dc1aba9775e28465",
+      "bytes": 12847
+    },
+    {
+      "name": "README-si.md",
+      "sha256": "96d0f60677653994c663cb4217c8747d58b54ab24ed656238655a8b41d1089d3",
+      "bytes": 4322
+    },
+    {
+      "name": "acceptance-matrix.csv",
+      "sha256": "3156a1220315ca4cec82ee1af08471502ce9b48e7f5fef61296e06713b386500",
+      "bytes": 3000
+    },
+    {
+      "name": "coverage-audit.csv",
+      "sha256": "1e083fc41828821dacd0567e4de4b1bdfcd3e9abdff2eb2ba300624f3073ca9d",
+      "bytes": 4452
+    },
+    {
+      "name": "coverage-audit.md",
+      "sha256": "17e26a52499f3aef8f6510ce5481cc7ed6775ecb2dc841d0e8dba52ef83643c8",
+      "bytes": 3907
+    },
+    {
+      "name": "defects-and-reproductions.md",
+      "sha256": "3feafcb24c22379f418371eaf4eeebad9cdb6d78676b40d1e68aadf908d8ecc3",
+      "bytes": 8478
+    },
+    {
+      "name": "replay-and-rollback.md",
+      "sha256": "24b3c2b9c06a181b00f9913a4944a1f89ebfa1d4fac545414d25c78699fe870d",
+      "bytes": 4355
+    },
+    {
+      "name": "state-data-source-map.md",
+      "sha256": "fe794e429dc981b3705a24f792af87eaff5e6e800c37d7920d32ccf6af9cd1d4",
+      "bytes": 5191
+    },
+    {
+      "name": "verification-log.md",
+      "sha256": "990e71c2ad268592f686d31f70499298c3333da60bea3dfc7cbb26e9b593a713",
+      "bytes": 5525
+    }
+  ]
+}
