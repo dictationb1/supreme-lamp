@@ -592,7 +592,7 @@ try {
     $markerPid = ''
     for ($i = 0; $i -lt 60 -and -not $up; $i++) {
         Start-Sleep -Milliseconds 500
-        if (Test-Path -LiteralPath $okFile) { $t = [System.IO.File]::ReadAllText($okFile); if ($t -match 'LISTENING') { $up = $true; if ($t -match 'pid=(\d+)') { $markerPid = $Matches[1] } } }
+        if (Test-Path -LiteralPath $okFile) { try { $t = [System.IO.File]::ReadAllText($okFile); if ($t -match 'LISTENING') { $up = $true; if ($t -match 'pid=(\d+)') { $markerPid = $Matches[1] } } } catch { } }
         if ($proc.HasExited) { break }
     }
     Check 'server reached LISTENING' $up ('server-ok.txt absent; stdout=[' + (Get-Content -LiteralPath $srvOut -Raw -ErrorAction SilentlyContinue) + ']')
@@ -704,17 +704,17 @@ try {
 
 # --- redaction assertion over EVERY log this run produced ---------------------
 $srvLogText = ''
-if (Test-Path -LiteralPath $srvOut) { $srvLogText += [System.IO.File]::ReadAllText($srvOut) }
-if (Test-Path -LiteralPath $srvErr) { $srvLogText += [System.IO.File]::ReadAllText($srvErr) }
+if (Test-Path -LiteralPath $srvOut) { try { $srvLogText += [System.IO.File]::ReadAllText($srvOut) } catch { } }
+if (Test-Path -LiteralPath $srvErr) { try { $srvLogText += [System.IO.File]::ReadAllText($srvErr) } catch { } }
 foreach ($logName in @('client-audit.log', 'fx-audit.log')) {
     $lp = Join-Path $root $logName
-    if (Test-Path -LiteralPath $lp) { $srvLogText += [System.IO.File]::ReadAllText($lp) }
+    if (Test-Path -LiteralPath $lp) { try { $srvLogText += [System.IO.File]::ReadAllText($lp) } catch { } }
 }
 CheckEqual 'no log line contains the dash token' $false ([bool]($srvLogText.Contains($Token)))
 CheckEqual 'no log line contains the CSRF token' $false ([bool]$csrfTok -and [bool]($srvLogText.Contains($csrfTok)))
 $auditFile = Join-Path $root 'fx-audit.log'
 $auditText2 = ''
-if (Test-Path -LiteralPath $auditFile) { $auditText2 = [System.IO.File]::ReadAllText($auditFile) }
+if (Test-Path -LiteralPath $auditFile) { try { $auditText2 = [System.IO.File]::ReadAllText($auditFile) } catch { } }
 CheckContains 'the fx audit trail exists' $auditText2 'fx op='
 
 if ($script:Keep) { Write-Host ('[F45] artifacts kept at ' + $root) } else { try { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue } catch { } }
