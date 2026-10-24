@@ -1544,8 +1544,23 @@ jobs:
           s_res=$(grep -nF "\$result = 'none'" <<< "$scan" | head -1 | cut -d: -f1)
           test -n "$s_scan" && test -n "$s_res" && test "$s_scan" -lt "$s_res" || { echo 'F28: scanTs is not stamped before the verdict branches' >&2; exit 1; }
           # secret-free: the scanner may carry codes/target account only.
-          if grep -Eq 'SubjectUserName|IpAddress|"Password"|ChangePassword' <<< "$scan"; then
-            echo 'F28: the logon scanner references subject/address/password fields' >&2; exit 1
+          #
+          # [V4 / 2026-10-25] The blanket `IpAddress` ban is REPLACED, not
+          # deleted. It was written when the collector stored a raw source on a
+          # MACHINE-WIDE verdict; that is precisely what let another client's
+          # rejection decide this client's state. The narrower, testable
+          # invariant now is: no credential material, no subject account, and a
+          # source address that can only ever be kept for a tailnet/private peer
+          # (anything else is reduced to the class 'public-redacted').
+          # tests/f204-logon-correlation.test.js pins the extractor's redaction
+          # branches; this gate keeps the credential line hard in CI.
+          if grep -Eq 'SubjectUserName|"Password"|ChangePassword' <<< "$scan"; then
+            echo 'F28: the logon scanner references subject/password fields' >&2; exit 1
+          fi
+          grep -qF "public-redacted" <<< "$scan" || { echo 'F28: the source-address redaction class is missing' >&2; exit 1; }
+          grep -qF "fd7a:115c:a1e0" <<< "$scan" || { echo 'F28: the tailnet IPv6 range check is missing' >&2; exit 1; }
+          if grep -qE "\$source = \$srcRaw" <<< "$scan"; then
+            echo 'F28: the raw source address is assigned unconditionally (must be tailnet/private only)' >&2; exit 1
           fi
           # the tick is IN the server process (start + 30s interval), never in the
           # workflow keep-alive step - that dependency is the F24 defect this closes.

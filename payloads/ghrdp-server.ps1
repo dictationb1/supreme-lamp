@@ -1126,9 +1126,12 @@ function Get-RdpLogonEventFields {
             if ($n) { $name[$n] = [string]$d.InnerText }
         }
     } catch { }
-    # Source address: 4625 carries IpAddress; 4624 carries IpAddress too. Keep it
-    # ONLY when it is a tailnet/private peer, and store a CLASS otherwise. An
-    # arbitrary public source is never written to the state file.
+    # Source address: 4625 carries IpAddress; 4624 carries IpAddress too. Keep the
+    # VALUE only when it is a TAILNET peer - the only class this project can
+    # compare a client against - and store a CLASS for everything else. A public
+    # address AND a private non-tailnet address are both redacted: neither is a
+    # correlation key here, and the state file stays free of addresses the
+    # operator never agreed to publish (the F28 contract test asserts this).
     $srcRaw = ([string]$name['IpAddress']).Trim()
     $src = ''
     $srcKind = 'not-reported'
@@ -1138,7 +1141,7 @@ function Get-RdpLogonEventFields {
         } elseif ($srcRaw -match '^(?i)fd7a:115c:a1e0:') {
             $src = $srcRaw.ToLowerInvariant(); $srcKind = 'tailnet-v6'
         } elseif ($srcRaw -match '^(?i)(fe80|fc|fd|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)') {
-            $src = $srcRaw; $srcKind = 'private-non-tailnet'
+            $srcKind = 'private-redacted'
         } else {
             $srcKind = 'public-redacted'
         }

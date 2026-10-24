@@ -2073,7 +2073,9 @@ jobs:
           if (-not (Get-Command Get-RdpLogonAuthLast -ErrorAction SilentlyContinue)) { V-Fail 'load-scanner' 'Get-RdpLogonAuthLast was not defined by the extracted block' }
           $start = (Get-Date).ToUniversalTime()
           function New-F28Event([int]$Id, [string]$TimeUtc, [string]$LogonType, [string]$Status, [string]$SubStatus, [string]$Target) {
-              $tpl = '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>{ID}</EventID><TimeCreated SystemTime="{T}"/></System><EventData><Data Name="LogonType">{LT}</Data><Data Name="Status">{ST}</Data><Data Name="SubStatus">{SUB}</Data><Data Name="FailureReason">%%2313</Data><Data Name="TargetUserName">{TU}</Data><Data Name="SubjectUserName">must-not-leak</Data><Data Name="IpAddress">10.0.0.9</Data></EventData></Event>'
+              # [V4] EventRecordID is part of the real event header and is now the
+              # incident's stable identity, so the synthetic event carries one.
+              $tpl = '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>{ID}</EventID><EventRecordID>4242</EventRecordID><TimeCreated SystemTime="{T}"/></System><EventData><Data Name="LogonType">{LT}</Data><Data Name="Status">{ST}</Data><Data Name="SubStatus">{SUB}</Data><Data Name="FailureReason">%%2313</Data><Data Name="TargetUserName">{TU}</Data><Data Name="SubjectUserName">must-not-leak</Data><Data Name="IpAddress">10.0.0.9</Data></EventData></Event>'
               $xml = $tpl.Replace('{ID}', [string]$Id).Replace('{T}', $TimeUtc).Replace('{LT}', $LogonType).Replace('{ST}', $Status).Replace('{SUB}', $SubStatus).Replace('{TU}', $Target)
               return (Get-RdpLogonEventFields -Xml ([xml]$xml))
           }
@@ -2104,6 +2106,28 @@ jobs:
           foreach ($banned in @('SubjectUserName', 'IpAddress', 'Password', 'must-not-leak', '10.0.0.9')) {
               if ($verdictJson.Contains($banned)) { V-Fail 'scan-secret-free' ('the verdict carries ' + $banned) }
           }
+          # --- [V4] CORRELATION CONTRACT, EXECUTED ON WINDOWS ---------------
+          # The screenshot defect: a 4625 that belonged to ANOTHER account (or to
+          # an earlier attempt) decided this client's connection state. These
+          # assertions run the shipped reduction, so the fix is verified in the
+          # language it ships in - not only in the TypeScript model.
+          if ($a1.recordId -ne '4242') { V-Fail 'scan-recordid' ('the event record id was not extracted, got "' + $a1.recordId + '"') }
+          if ($a1.correlation -ne 'unavailable') { V-Fail 'scan-corr-none' ('without an intended account the correlation must be unavailable, got ' + $a1.correlation) }
+          if ($null -ne $a1.userMatched) { V-Fail 'scan-usermatch-null' 'an unattributable event must report userMatched=null, not a guess' }
+          $a8 = Get-RdpLogonAuthLast -Items @($failEv) -ScanStartedUtc $start -ExpectedUser 'rdpF28DECOY'
+          if ($a8.result -ne 'failed' -or $a8.userMatched -ne $true) { V-Fail 'scan-corr-match' ('a matching rejection must stay failed + matched, got ' + $a8.result + '/' + $a8.userMatched) }
+          if ($a8.correlation -ne 'partial') { V-Fail 'scan-corr-partial' ('an account-only correlation must be partial, got ' + $a8.correlation) }
+          $a9 = Get-RdpLogonAuthLast -Items @($failEv) -ScanStartedUtc $start -ExpectedUser 'anotherAccount'
+          if ($a9.result -ne 'none') { V-Fail 'scan-corr-foreign' ('ANOTHER account rejection decided this client verdict: ' + $a9.result) }
+          if ($a9.excludedUser -ne 1 -or $a9.count4625 -ne 1) { V-Fail 'scan-corr-counts' ('the foreign event must be excluded AND still counted machine-wide, got excluded=' + $a9.excludedUser + ' count4625=' + $a9.count4625) }
+          $type2Ev = New-F28Event 4624 (Iso -8) '2' '' '' 'rdpF28DECOY'
+          $a10 = Get-RdpLogonAuthLast -Items @($type2Ev) -ScanStartedUtc $start -ExpectedUser 'rdpF28DECOY'
+          if ($a10.result -ne 'success') { V-Fail 'scan-type2' 'a type-2 autologon is still an interactive desktop (R1) and must be counted' }
+          if ($a10.remoteInteractive -ne $false) { V-Fail 'scan-type2-remote' 'a console/autologon logon must NOT claim remote-interactive proof' }
+          $remoteEv = New-F28Event 4624 (Iso -7) '10' '' '' 'rdpF28DECOY'
+          $a11 = Get-RdpLogonAuthLast -Items @($remoteEv) -ScanStartedUtc $start -ExpectedUser 'rdpF28DECOY'
+          if ($a11.remoteInteractive -ne $true) { V-Fail 'scan-type10-remote' 'a type-10 logon must claim remote-interactive proof' }
+          if (-not $a11.remote.seen) { V-Fail 'scan-remote-block' 'the remote evidence block was not published' }
           Write-Host ('[V] (a) PASS: shipped scanner - 0xC000006A => ' + $a1.result + ' sub=' + $a1.sub + ' scanTs=' + $a1.scanTs + '; newer type-10 => ' + $a2.result + '; empty => ' + $a3.result + '; probeError => ' + $a4.probeError + '; console/pre-window ignored')
           # --- (b) the shipped launcher's fallback decision, EXECUTED ----------
           $m0 = $cs.IndexOf('private static int MstscStep')
