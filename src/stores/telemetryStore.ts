@@ -7,6 +7,10 @@ import type { WireState } from "@/lib/domain/connProbe";
 // [R-METRICS / #212] the authoritative-deadline view model. The 5h30 constant
 // stays available as a POLICY fallback only; it is never the first answer.
 import { remainingTime, type RemainingTime } from "@/lib/domain/metrics";
+// [V4] WebSocket availability is a STATE, not a boolean: "no answer yet",
+// "this build has no /ws", "the worker pool cannot start" and "the probe was
+// refused" are four different facts and used to be one `false`.
+import type { WsAvailability } from "@/lib/overview/issues";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -45,6 +49,26 @@ interface TelemetryState {
   rttSamples: number[];
   httpRtt: number | null;
   wsLive: boolean;
+  /**
+   * [V4] The EXPLICIT WebSocket availability, derived from the /health answer:
+   *   pending          no /health answer has been read yet
+   *   supported        ok && ws === true
+   *   unsupported      ok && ws === false && no degraded reason (no endpoint)
+   *   pool-unavailable ok && ws === false && wsReason names the worker pool
+   *   unauthorized     the /health probe was refused (401/403)
+   *   unknown          the probe failed in another way, or the answer did not
+   *                    contain the flag
+   * `wsAvailable` is kept as the raw advertised boolean for old call sites, but
+   * nothing decides capability from it any more.
+   */
+  wsAvailability: WsAvailability;
+  /** The server's own degraded reason from /health `wsReason`, verbatim. */
+  wsUnavailableReason: string;
+  /** epoch-ms of the last /health answer that carried a ws flag. */
+  wsHealthAtMs: number | null;
+  /** True once /api/progress has yielded a parseable serverTs, i.e. the server
+   *  clock is known and can be used as the evidence time basis. */
+  serverClockKnown: boolean;
   /** [F94 §3.5] Does the SERVER advertise a /ws endpoint? Informational only:
    *  it must never gate whether we TRY to connect (that gate was the deadlock
    *  that left the pill reading "idle" forever). */
@@ -82,6 +106,8 @@ interface TelemetryState {
   setWire: (w: WireState | null | undefined, httpRtt: number | null) => void;
   setWsLive: (v: boolean) => void;
   setWsAvailable: (v: boolean) => void;
+  /** [V4] Publish the /health answer (or the probe failure) explicitly. */
+  setWsHealth: (h: { ok: boolean; ws?: boolean; wsReason?: string | null; status?: number; failed?: boolean; atMs: number }) => void;
   /** [F95 §3.4 / R4] publish the ladder-exhausted state (attempts reset on any
    *  successful open). */
   setWsDead: (v: boolean, reason?: string) => void;
@@ -121,6 +147,10 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   rttSamples: [],
   httpRtt: null,
   wsLive: false,
+  wsAvailability: "pending",
+  wsUnavailableReason: "",
+  wsHealthAtMs: null,
+  serverClockKnown: false,
   wsAvailable: false,
   wsDead: false,
   wsAttempts: 0,
@@ -145,7 +175,13 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     const patch: Partial<TelemetryState> = { progress: d, progressLost: false, progressAtMs: Date.now() };
     if (d.serverTs) {
       const st = parseTs(d.serverTs);
-      if (!isNaN(st)) patch.clockOffsetMs = st - Date.now();
+      if (!isNaN(st)) {
+        patch.clockOffsetMs = st - Date.now();
+        // [V4] ONE authoritative time basis. Collector evidence is compared
+        // against the server clock, never against a browser clock that has no
+        // defined relationship to the runner's.
+        patch.serverClockKnown = true;
+      }
     }
     // [R-METRICS / #212] RUN IDENTITY CHANGES. The old code latched
     // runStartedAtMs once and never revisited it, so a new GitHub run kept the
@@ -215,6 +251,35 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
   setWsLive: (v) => set({ wsLive: v }),
   setWsAvailable: (v) => set({ wsAvailable: v }),
+  setWsHealth: (h) => set((st) => {
+    // [V4] A FAILED PROBE IS NOT A CAPABILITY ANSWER. Keep the last known
+    // availability (a transient network error must not rewrite "supported" to
+    // "unsupported"); only an initial "pending" degrades to "unknown", so the
+    // UI can say "not known" instead of inventing "no endpoint".
+    if (h.failed) {
+      if (st.wsAvailability === "pending") return { wsAvailability: "unknown" };
+      return {};
+    }
+    if (h.status === 401 || h.status === 403) {
+      return { wsAvailability: "unauthorized", wsHealthAtMs: h.atMs, wsUnavailableReason: "health probe refused" };
+    }
+    if (!h.ok) {
+      return st.wsAvailability === "pending"
+        ? { wsAvailability: "unknown", wsHealthAtMs: h.atMs }
+        : { wsHealthAtMs: h.atMs };
+    }
+    const reason = String(h.wsReason || "").trim();
+    let availability: WsAvailability;
+    if (h.ws === true) availability = "supported";
+    else if (h.ws === false && reason) availability = /worker pool|pool/i.test(reason) ? "pool-unavailable" : "unsupported";
+    else availability = "unknown";
+    return {
+      wsAvailable: h.ws === true,
+      wsAvailability: availability,
+      wsUnavailableReason: h.ws === true ? "" : reason,
+      wsHealthAtMs: h.atMs,
+    };
+  }),
   setWsDead: (v, reason) => set({ wsDead: v, wsDeadReason: v ? String(reason || "ladder-exhausted") : "" }),
   setWsAttempts: (n) => set({ wsAttempts: n }),
   setWsConnectedAt: (atMs) => set({ wsLastConnectAt: atMs }),

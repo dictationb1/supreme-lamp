@@ -37,6 +37,7 @@ import { useSessionStore } from "@/stores/sessionStore";
 import { useTelemetryStore } from "@/stores/telemetryStore";
 import { logButtonAction } from "@/lib/collectorAgent";
 import { isStale, orderIssues, worstSeverity, type Issue, type Severity } from "@/lib/overview/issues";
+import { useIncidentStore } from "@/stores/incidentStore";
 import { cn } from "@/lib/cn";
 
 const SEV_ICON: Record<Severity, typeof Info> = {
@@ -52,6 +53,12 @@ function IssueRow({ issue, nowMs }: { issue: Issue; nowMs: number }) {
   const { t } = useTranslation();
   const Icon = SEV_ICON[issue.severity];
   const stale = isStale(issue.observedAtMs, nowMs);
+  // [V4] Acknowledgement is the operator saying "I have read this". It is a
+  // DIFFERENT action from resolution, which only the producer can cause: an
+  // incident leaves the live list when the collector stops reporting its event
+  // key, and that moment is stamped in the ledger. Nothing here can resolve.
+  const acknowledgedAt = useIncidentStore((s) => s.ledger.records[issue.incidentKey]?.acknowledgedAt ?? null);
+  const acknowledge = useIncidentStore((s) => s.acknowledge);
   const setDiag = useSessionStore((s) => s.setDiag);
   const runDiag = useSessionStore((s) => s.runDiag);
   const [retryBusy, setRetryBusy] = useState(false);
@@ -92,6 +99,9 @@ function IssueRow({ issue, nowMs }: { issue: Issue; nowMs: number }) {
       data-testid={"issue-row-" + issue.id}
       data-severity={issue.severity}
       data-stale={stale ? "1" : "0"}
+      data-incident-key={issue.incidentKey}
+      data-occurred-at={issue.occurredAtMs == null ? "" : new Date(issue.occurredAtMs).toISOString()}
+      data-acknowledged={acknowledgedAt != null ? "1" : "0"}
       className="flex flex-col gap-1 py-2.5 first:pt-0 last:pb-0 sm:flex-row sm:gap-3"
     >
       <span
@@ -189,6 +199,16 @@ function IssueRow({ issue, nowMs }: { issue: Issue; nowMs: number }) {
               {t("pages.health.title")}
             </Link>
           ) : null}
+
+          <button
+            type="button"
+            data-testid={"issue-ack-" + issue.id}
+            aria-pressed={acknowledgedAt != null}
+            onClick={() => acknowledge(issue.incidentKey)}
+            className="ml-auto inline-flex min-h-[32px] items-center rounded-md px-2 text-xs font-medium text-tertiary hover:bg-raised hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {acknowledgedAt != null ? t("issues.ack.acknowledged") : t("issues.ack.acknowledge")}
+          </button>
         </div>
       </div>
     </li>

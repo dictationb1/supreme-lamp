@@ -1587,7 +1587,8 @@
     "connected": "Connected",
     "failed": "Connection failed",
     "historical": "Login seen, before this run",
-    "unverified": "Logon evidence unverified"
+    "unverified": "Logon evidence unverified",
+    "console": "Console sign-in only (not RDP)"
   },
   "issues": {
     "severity": {
@@ -1598,7 +1599,8 @@
     "freshness": {
       "noTimestamp": "no timestamp from this producer",
       "stale": "stale ({{sec}}s old)",
-      "current": "{{sec}}s ago"
+      "current": "{{sec}}s ago",
+      "eventAge": "{{sec}}s since the event"
     },
     "cause": {
       "confirmed": "Confirmed",
@@ -1621,8 +1623,13 @@
       "collectorDead": "The server-side logon collector has never stamped a scan, so no logon can be observed.",
       "scanStale": "The last logon scan is {{ageSec}}s old, well past the 30s server tick.",
       "launchGate": "The launch gate is failing: {{blockers}}.",
-      "connFailed": "The host rejected the stored credential (4625 observed).",
-      "sessionExpired": "The published session deadline has passed."
+      "connFailed": "A rejected logon (4625) was observed: {{reason}}",
+      "sessionExpired": "The published session deadline has passed.",
+      "wsPoolUnavailable": "The server answers /health with ws=false because the WebSocket worker pool cannot start; the endpoint exists but cannot be served right now.",
+      "wsUnauthorized": "The /health probe was refused, so whether this build serves /ws is unknown.",
+      "wsUnknown": "No /health answer has been read yet, so the WebSocket capability is not yet known.",
+      "connForeignFailure": "A logon was rejected for {{user}}, which is not the account this client uses ({{expected}}).",
+      "nativeLost": "Native status probe failing - the connection panel shows the last known reading ({{ageSec}}s old)."
     },
     "action": {
       "reachability": "Run Diagnose to capture the current /diag output.",
@@ -1632,8 +1639,18 @@
       "collectorDead": "Check the collector task on /health.",
       "scanStale": "Check the collector task on /health.",
       "launchGate": "Fix the named gate, then retry the launch.",
-      "connFailed": "Re-issue the credential with Fix reconnect.",
-      "sessionExpired": "Re-dispatch the run; the window cannot be extended from the browser."
+      "connFailed": "Re-issue the credential with Fix reconnect, then watch the record id change.",
+      "sessionExpired": "Re-dispatch the run; the window cannot be extended from the browser.",
+      "wsPoolUnavailable": "Retry the bridge; the server re-initialises the pool on the next tick.",
+      "wsUnauthorized": "Run Diagnose to capture why the probe was refused.",
+      "wsUnknown": "No action needed yet; this clears as soon as /health answers.",
+      "connFailedUnsure": "Read the record id and source above before changing any credential - this rejection may not belong to this client.",
+      "connForeignFailure": "No action needed for this client; the rejection belongs to another account or source.",
+      "nativeLost": "Re-run Diagnose; the panel keeps the last good reading until /api/native-status answers again."
+    },
+    "ack": {
+      "acknowledge": "Acknowledge",
+      "acknowledged": "Acknowledged"
     }
   },
   "topbar": {

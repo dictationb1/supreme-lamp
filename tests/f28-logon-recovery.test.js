@@ -165,11 +165,35 @@ test('F28-1 server-side tick is independent of the keep-alive step', () => {
                      'rdpListener = $rlOut', '-NotePropertyName authLast', '-NotePropertyName logonCollector']) {
     assert.ok(server.includes(tok), 'native-status wiring lacks: ' + tok);
   }
-  // the scanner never inventories credential material
+  // the scanner never inventories credential material.
   // FIELD-level scan: a reason SLUG ('wrong-password') is a status-code
   // description, not a credential - match field keys only (the F24 lab run
   // failed here once for exactly this reason).
-  assert.doesNotMatch(block, /SubjectUserName|IpAddress|"Password"|ChangePassword|RDP_PASS/);
+  //
+  // [V4 / 2026-10-25] THE IpAddress TERM IS REPLACED, NOT DELETED.
+  // The old gate banned any read of the source address. That ban was correct
+  // for what the collector used to do - it stored the address verbatim on a
+  // machine-wide verdict - but it made the screenshot defect unfixable: with no
+  // source comparison, a rejection from another client could not be excluded
+  // from THIS client's state. The replacement invariant is narrower and
+  // testable:
+  //   (a) no credential material of any kind is read;
+  //   (b) the address is kept ONLY for a tailnet/private peer, and an arbitrary
+  //       public source is reduced to the class 'public-redacted' (asserted
+  //       below on the extractor body);
+  //   (c) what is PERSISTED is a normalized value plus a match verdict.
+  assert.doesNotMatch(block, /SubjectUserName|"Password"|ChangePassword|RDP_PASS/);
+  const fields = block.slice(block.indexOf('function Get-RdpLogonEventFields'),
+                             block.indexOf('function Get-RdpLogonSubMeaning'));
+  // (b): the redaction branch exists and is the ONLY path that could keep a
+  // public address.
+  assert.ok(fields.includes('public-redacted'), 'the source-address redaction class is gone');
+  assert.match(fields, /100.*64/, 'the tailnet range check is missing from the extractor');
+  assert.ok(fields.includes('fd7a:115c:a1e0'), 'the tailnet IPv6 range check is missing');
+  // The persisted verdict carries the CLASS and never a raw public address.
+  assert.ok(block.includes("$srcKind = 'public-redacted'"), 'a public source must be classed, not stored');
+  assert.ok(!/source\s*=\s*\$srcRaw/.test(block) || fields.includes("$src = $srcRaw; $srcKind = 'tailnet'"),
+    'the raw address may only reach `source` on the tailnet/private branches');
 });
 
 // ---------------------------------------------------------------------------

@@ -280,7 +280,17 @@ describe("R2 Overview: the troubleshooting summary separates confirmed from susp
   });
 
   it("a missing /ws endpoint is INFO and explicitly needs no action", () => {
-    useTelemetryStore.setState({ wsLive: false, wsAvailable: false, wsDead: false });
+    // [V4] "wsAvailable === false" is NOT the claim "this build has no /ws".
+    // The claim needs an explicit /health answer, so the seed supplies the one
+    // that means "server answered ok with ws=false and no degraded reason".
+    // The pending/unknown and pool-unavailable cases are asserted separately in
+    // v4-incident-model.test.tsx.
+    useTelemetryStore.setState({
+      wsLive: false,
+      wsAvailable: false,
+      wsDead: false,
+      wsAvailability: "unsupported",
+    });
     renderOverview();
     const row = screen.getByTestId("issue-row-ws-absent");
     expect(row.getAttribute("data-severity")).toBe("info");
@@ -290,7 +300,7 @@ describe("R2 Overview: the troubleshooting summary separates confirmed from susp
   });
 
   it("an idle-but-advertised socket is SUSPECTED, not confirmed", () => {
-    useTelemetryStore.setState({ wsLive: false, wsAvailable: true, wsDead: false });
+    useTelemetryStore.setState({ wsLive: false, wsAvailable: true, wsDead: false, wsAvailability: "supported" });
     renderOverview();
     expect(screen.getByTestId("issue-row-ws-idle").textContent).toMatch(/suspected/i);
   });

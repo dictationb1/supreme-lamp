@@ -51,13 +51,31 @@ const BASE: IssueInput = {
  * This is the exact shape the old panel showed wrong: it rendered
  * [critical, info, warning] and dropped a critical in favour of an info.
  */
+// [V4] THE SEED NOW CARRIES THE EVIDENCE THE CLAIM NEEDS.
+// This fixture used to reach `severity: "critical"` for a connection failure
+// from `connState: "failed"` ALONE. That is no longer a legitimate claim: a
+// 4625 that cannot be attributed to this client (no user match, no freshness)
+// is exactly the screenshot defect - "the host rejected the stored credential"
+// shown as a critical finding over a working session. The seed therefore
+// supplies an ATTRIBUTED, CURRENT rejection, which is genuinely critical, so the
+// ordering invariant it exists to guard is still exercised. The unattributed
+// case is asserted separately in v4-incident-model.test.tsx.
 const FIVE: IssueInput = {
   ...BASE,
   progressLost: true,
   wsLive: false,
   wsAvailable: true,
+  wsAvailability: "supported",
   collectorDead: true,
   connState: "failed",
+  authUserMatched: true,
+  connFreshness: "current",
+  connCorrelation: "complete",
+  connFailureClass: "wrong-password",
+  authSub: "0XC000006A",
+  authTargetUser: "WIN-NFU1JG4VESE\\User",
+  expectedUser: "WIN-NFU1JG4VESE\\User",
+  authEventTsMs: ago(30_000),
   sessionExpired: true,
 };
 

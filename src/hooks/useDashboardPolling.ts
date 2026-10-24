@@ -108,16 +108,34 @@ export function useDashboardPolling(): void {
         const timer = ctl ? window.setTimeout(() => ctl.abort(), 3000) : 0;
         const r = await fetch("/health", { cache: "no-store", signal: ctl?.signal });
         if (timer) window.clearTimeout(timer);
-        const j = (await r.json()) as { ok?: boolean; ws?: boolean };
+        const j = (await r.json()) as { ok?: boolean; ws?: boolean; wsReason?: string | null };
         // [F94 §3.5] /health's `ws` flag means "the server ADVERTISES a /ws
         // endpoint" - it is INFORMATIONAL and must never be written into
         // wsLive (which means "our socket is open"). Writing it there was the
         // deadlock: payloads/ghrdp-server.ps1 hardcodes ws=$false, and
         // connectWs() refused to run unless wsLive was already true, so the
         // socket could never open and the pill read "idle" permanently.
-        if (alive) setWsAvailable(!!(j && j.ok === true && j.ws === true));
+        //
+        // [V4] The false flag is no longer flattened into wsAvailable=false.
+        // The server publishes `wsReason` ("websocket worker pool unavailable")
+        // exactly so a client can tell a DEGRADED endpoint from an ABSENT one;
+        // reading only the boolean is what made a pool outage look like "this
+        // build exposes no /ws endpoint".
+        if (alive) {
+          const atMs = Date.now();
+          useTelemetryStore.getState().setWsHealth({
+            ok: !!(j && j.ok === true),
+            ws: j ? j.ws : undefined,
+            wsReason: j ? j.wsReason : null,
+            status: r.status,
+            atMs,
+          });
+          setWsAvailable(!!(j && j.ok === true && j.ws === true));
+        }
       } catch {
-        if (alive) setWsAvailable(false);
+        // A transport failure says NOTHING about the server's capability. It
+        // must not overwrite a known answer with "unsupported".
+        if (alive) useTelemetryStore.getState().setWsHealth({ ok: false, failed: true, atMs: Date.now() });
       }
     };
 

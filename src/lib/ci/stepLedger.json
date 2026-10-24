@@ -1,7 +1,7 @@
 {
   "version": 1,
   "contract": "The machine-readable Observatory step ledger: one entry per PR that carried a roadmap step, with the feature ids it shipped, its head branch, and its status. tests/f111-ci-inventory.test.js enforces that no feature id is recorded as shipped twice (the step-6 #173/#174 double-ship damage class), that every retirement cites a real repair, that every entry's declared featureIds agree with its own title, and that this ledger and the human roadmap checkboxes in docs/OBSERVATORY-STATE.md do not disagree about what shipped. Drift that is RECORDED rather than fixed lives in knownRoadmapDrift, and the gate fails both on a new drift and on an allowlisted drift that stops being observed - so the list cannot become a rubbish drawer.",
-  "closesHandoff": "docs/OBSERVATORY-STATE.md \u00a7Handoff-findings #12 ('the roadmap can schedule the SAME step twice, and nothing detects it')",
+  "closesHandoff": "docs/OBSERVATORY-STATE.md §Handoff-findings #12 ('the roadmap can schedule the SAME step twice, and nothing detects it')",
   "roadmapDoc": "docs/OBSERVATORY-STATE.md",
   "statusVocabulary": {
     "merged": "shipped and current",
@@ -129,7 +129,7 @@
       "title": "F108: public replay viewer at docs/replay/ + publish-fence gate + Arena text summary",
       "mergedAt": "2026-10-08T00:47:09Z",
       "statusNote": "Flipped open -> merged by the step-8 session (API-verified: merged 00:47:09Z, merge commit b6c1516, two minutes after #177). 'merged', not 'merged-canonical': the vocabulary reserves -canonical for the survivor of a de-duplication, and F108 never had a second implementation - the sibling was DETECTED and not written. Its deployer ran green on b6c1516 and the site answers (four-method check in docs/OBSERVATORY-STATE.md).",
-      "note": "SIBLING DETECTED by the 2026-10-08 session before it wrote a line of F108 code: `gh pr list --state all --search \"F108 in:title\"` returned this PR, based on post-#175 main and green on gates/windows-native/build-ui-prebuilt/proof. Per \u00a7SIBLING-PR-DETECTION the session did NOT open a second F108 implementation - that is precisely the #173/#174 damage class. detectDuplicateStep() returns sibling-open for any further F108 PR while this one is open, and duplicate-merged once it lands."
+      "note": "SIBLING DETECTED by the 2026-10-08 session before it wrote a line of F108 code: `gh pr list --state all --search \"F108 in:title\"` returned this PR, based on post-#175 main and green on gates/windows-native/build-ui-prebuilt/proof. Per §SIBLING-PR-DETECTION the session did NOT open a second F108 implementation - that is precisely the #173/#174 damage class. detectDuplicateStep() returns sibling-open for any further F108 PR while this one is open, and duplicate-merged once it lands."
     },
     {
       "step": 8,
@@ -140,7 +140,7 @@
       ],
       "status": "merged",
       "mergedAt": "2026-10-08T01:28:13Z",
-      "tickedBy": "F110 (step 9, \u00a7POST-MERGE-ROADMAP-TICK)",
+      "tickedBy": "F110 (step 9, §POST-MERGE-ROADMAP-TICK)",
       "title": "F109: Debug HUD overlay (F12+Shift) with 5 panels, prod-safe default-off",
       "note": "Owns the un-fenced chrome (handoffs #2, #7, #10, #11): AppShell/CommandPalette/DvrFab/SessionListModal fencing, and the runtime DVR off switch that should reuse the three now-unreferenced dvr.fullWarning/fullStart/fullStop i18n keys rather than inventing new ones. Step-8 session: the runtime off switch shipped (HUD Actions panel, reusing exactly those three keys); chrome FENCING is not in this PR (recorded as a handoff in docs/OBSERVATORY-STATE.md). PR #178 opened 2026-10-08; the post-PR commit set the number and ticked the Step 8 roadmap line in the same commit."
     },
@@ -177,6 +177,17 @@
       "status": "open",
       "title": "F-GLASS: Mornye-inspired glass system + responsive Mission Control shell (#213, #214)",
       "note": "Carries one new declared storage surface, `ghrdp:glass` (localStorage, the persisted visual-quality preference: quality / clarity / variant, declared beside the theme in src/stores/prefsStore.ts). The measured-opaque fallback latch in src/lib/glass/quality.ts is deliberately in memory, not storage - it only has to hold for the rest of the page load. number is null until the PR exists, per the step-10 precedent."
+    },
+    {
+      "step": 15,
+      "number": null,
+      "branch": "arena/b462ed7a-supreme-lamp",
+      "featureIds": [
+        "F-V4"
+      ],
+      "status": "open",
+      "title": "F-V4: correlated connection/incident model - attribution, freshness, incident identity",
+      "note": "Carries ONE new declared storage surface: ghrdp:incidentAcks (browser-local acknowledgement ledger, src/stores/incidentStore.ts). Acknowledgements are operator-local and never leave the browser; the ledger itself is memory-only and rebuilt from live producer data, so no resolved incident can be resurrected by a reload."
     }
   ],
   "knownRoadmapDrift": []
