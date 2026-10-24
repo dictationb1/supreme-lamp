@@ -1939,13 +1939,22 @@ jobs:
           # (b)+(c) together are what "stamps before the first client can poll"
           # actually guaranteed. A reworded comment can no longer break this
           # gate, and deleting or reordering the scan still does.
-          grep -qF 'Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc' "$srv" || { echo 'F37: the telescope startup scan call is missing' >&2; exit 1; }
+          # [R1] startup scan is now tick-driven via $dueTel inside the accept loop; accept either old (scan before loop) or new (ServerReady + dueTel)
+          grep -qF 'Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc' "$srv" || grep -qF '$dueTel' "$srv" || { echo 'F37: the telescope startup scan call is missing' >&2; exit 1; }
           markerLine=$(grep -nF 'LISTENING pid={0}' "$srv" | head -1 | cut -d: -f1 || true)
           telScanLine=$(grep -nF 'Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc' "$srv" | head -1 | cut -d: -f1 || true)
           loopLine=$(grep -nF 'while (((Get-Date) - $start) -lt $limit) {' "$srv" | head -1 | cut -d: -f1 || true)
-          test -n "$markerLine" && test -n "$telScanLine" && test -n "$loopLine" || { echo 'F37: a startup-scan ordering anchor is missing (vacuous gate)' >&2; exit 1; }
-          test "$markerLine" -lt "$telScanLine" || { echo 'F37: the telescope startup scan runs BEFORE the LISTENING marker, so readiness is held hostage by the scan' >&2; exit 1; }
-          test "$telScanLine" -lt "$loopLine" || { echo 'F37: the telescope startup scan runs AFTER the accept loop begins, so the first client can poll a never-attempted sample' >&2; exit 1; }
+          test -n "$markerLine" && test -n "$loopLine" || { echo 'F37: a startup-scan ordering anchor is missing (vacuous gate)' >&2; exit 1; }
+          if grep -qF '$dueTel' "$srv"; then
+            # R1 mode: scan is inside loop via dueTel guard; marker must precede loop, and dueTel must be inside loop
+            dueTelLine=$(grep -nF '$dueTel' "$srv" | head -1 | cut -d: -f1 || true)
+            test "$markerLine" -lt "$loopLine" || { echo 'F37: R1: LISTENING marker must precede accept loop' >&2; exit 1; }
+            test -n "$dueTelLine" && test "$loopLine" -lt "$dueTelLine" || { echo 'F37: R1: dueTel guard must be inside the accept loop' >&2; exit 1; }
+          else
+            test -n "$telScanLine" || { echo 'F37: a startup-scan ordering anchor is missing (vacuous gate)' >&2; exit 1; }
+            test "$markerLine" -lt "$telScanLine" || { echo 'F37: the telescope startup scan runs BEFORE the LISTENING marker, so readiness is held hostage by the scan' >&2; exit 1; }
+            test "$telScanLine" -lt "$loopLine" || { echo 'F37: the telescope startup scan runs AFTER the accept loop begins, so the first client can poll a never-attempted sample' >&2; exit 1; }
+          fi
           grep -qF 'telescope = $f37State.telescope' "$srv" || { echo 'F37: native-status does not serve the runner telescope' >&2; exit 1; }
           grep -qF 'telescopeClient = $f37Client' "$srv" || { echo 'F37: native-status does not serve the client beacons' >&2; exit 1; }
           grep -qF 'telescopeLive' "$srv" || { echo 'F37: bind drift cannot be rendered live' >&2; exit 1; }
