@@ -34,7 +34,7 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
   }
 
   try {
-    const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
+    const cmd = `gh run view ${runId} --log -R "${repo}"`;
     // The previous implementation assumed plain text, but run logs are often zip archives.
     const res = execSync(cmd, {
       encoding: "buffer",
