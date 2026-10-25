@@ -82,9 +82,9 @@ The merge itself is not evidence. This section records what the *merged* code di
 | `autologin-lab` run `40144661716` (head `ae5ae2c1`) | job `proof`, step "V: F28 logon-result loop + one-click recovery + fallback gap" | **FAILED** |
 | Failing assertion | `[V] stage=scan-corr-counts :: … got excluded=1 count4625=0` | real defect **D8** |
 | `e2e-ui` / `launch-gates` / `F59 build-ui` (same push) | — | not read in this addendum |
-| Fix commit | `{{D8_COMMIT}}` | pushed to the session branch, PR `{{D8_PR}}` |
+| Fix commit | `ae9e64e93bc4f00fb856f7bb90be9e7ed568180c` | pushed to the session branch, PR `#80` |
 | Local gates on the fix | `node --test tests/*.test.js` → **930 pass / 0 fail / 26 skipped** (was 929; +`V4-PS-13`) | PASS |
-| Windows re-execution of `scan-corr-counts` | requires a lab run on `{{D8_COMMIT}}` | **PENDING** (not claimed) |
+| Windows re-execution of `scan-corr-counts` | requires a lab run on `ae9e64e93bc4f00fb856f7bb90be9e7ed568180c` | **PENDING** (not claimed) |
 
 D8 is described in `defects-and-reproductions.md` (Addendum). The two other red
 cells in that run (`x` F30, `y` F31c, both `0x8009030D` runner key-ACL failures)

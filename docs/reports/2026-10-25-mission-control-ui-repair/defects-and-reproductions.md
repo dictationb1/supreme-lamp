@@ -235,7 +235,7 @@ layer down: the verdict was fixed, the surrounding history was not. A foreign
 rejection would have read as *"nothing else is happening on this machine"*,
 which is exactly the reassurance a user must not be given.
 
-**Fix (commit `{{D8_COMMIT}}`).** Counting is moved above the
+**Fix (commit `ae9e64e93bc4f00fb856f7bb90be9e7ed568180c`).** Counting is moved above the
 gate and made explicit:
 
 ```powershell

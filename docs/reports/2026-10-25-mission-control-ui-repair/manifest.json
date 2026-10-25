@@ -19,7 +19,7 @@
   "tests_after": {
     "vitest_files": 111,
     "vitest_tests": 1453,
-    "node_test_pass": 929,
+    "node_test_pass": 930,
     "node_test_fail": 0,
     "node_test_skipped": 26
   },
@@ -150,8 +150,8 @@
     },
     {
       "name": "defects-and-reproductions.md",
-      "sha256": "3feafcb24c22379f418371eaf4eeebad9cdb6d78676b40d1e68aadf908d8ecc3",
-      "bytes": 8478
+      "sha256": "5c23abca87ef425836a1b33a567c93af325a7cb52e8ffad059f1276b42e46414",
+      "bytes": 12457
     },
     {
       "name": "replay-and-rollback.md",
@@ -165,8 +165,42 @@
     },
     {
       "name": "verification-log.md",
-      "sha256": "990e71c2ad268592f686d31f70499298c3333da60bea3dfc7cbb26e9b593a713",
-      "bytes": 5525
+      "sha256": "648ba510ebabf6a63060210b75c551861f2d28dea6dd61c112c301888a7d9484",
+      "bytes": 6856
+    }
+  ],
+  "post_merge_followup": {
+    "pull_request": "https://github.com/dictationb1/supreme-lamp/pull/80",
+    "fix_commit": "ae9e64e93bc4f00fb856f7bb90be9e7ed568180c",
+    "lab_run_that_found_it": {
+      "id": "40144661716",
+      "head": "ae5ae2c1e2197f966165a218e7cabaf59cff6e1c",
+      "job": "proof",
+      "step": "V: F28 logon-result loop + one-click recovery + fallback gap",
+      "annotation": "[V] stage=scan-corr-counts :: the foreign event must be excluded AND still counted machine-wide, got excluded=1 count4625=0"
+    },
+    "defect": "D8",
+    "defect_summary": "an event excluded by the correlation gate also vanished from count4624/count4625, so published machine-wide counts were client-scoped",
+    "fix": "count machine-wide 4624/4625 above the correlation gate; count4624 stays interactive-types-only (lab scan-console)",
+    "regression_lock": "tests/f204-logon-correlation.test.js V4-PS-13 (order-pinned)",
+    "node_test_after_fix": {
+      "pass": 930,
+      "fail": 0,
+      "skipped": 26
+    },
+    "windows_reexecution": "PENDING - requires a lab run on this fix commit; not claimed",
+    "unrelated_red_cells": {
+      "x": "F30 TLS/cipher purge - runner-schannel 0x8009030D private-key ACL; identical in pre-merge run 40122884082 (head d3f13d48)",
+      "y": "F31c token diagnostic - same runner key-ACL cause; identical in 40122884082"
+    },
+    "deployed_sha": "none (main.yml never dispatched)"
+  },
+  "new_test_cases_added_post_merge": [
+    {
+      "file": "tests/f204-logon-correlation.test.js",
+      "added": [
+        "V4-PS-13"
+      ]
     }
   ]
 }
