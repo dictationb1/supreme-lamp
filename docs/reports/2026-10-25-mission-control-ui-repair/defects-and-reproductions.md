@@ -266,6 +266,24 @@ D8 in the 23 minutes between the PR checks and the lab run.
 the specific `scan-corr-counts` assertion is re-executed by the lab run on the
 fix commit.
 
+## Correction — the `x`/`y` red cells were environmental, and later went green
+
+A later lab run (**`40145737911`**, head `08231502`, the D9 fix) completed with
+**the whole matrix green**:
+
+```
+[G] lab matrix (autologin-lab fallback) k2=pass l=pass m=pass n=pass o=pass
+a=pass b_c=pass d_e=pass f=pass h=pass i=pass j=pass p=pass r=pass s=pass
+t=pass u=pass v=pass x=pass y=pass z=pass w=pass
+```
+
+`x` (F30) and `y` (F31c) therefore fail *intermittently* with
+`runner-schannel … 0x8009030D` — a hosted-runner private-key ACL condition, not a
+product state and not a permanent failure. The earlier statement that they were
+"identical in both runs" was true of the two runs examined and is now superseded
+by this one: they are **flaky infrastructure**, and `v` was the only cell with a
+real, reproducible defect (D8, then D9).
+
 ## The other two red cells in that run are not this project's regressions
 
 `[G] lab matrix … v=fail x=fail y=fail` also appeared in run **`40122884082`**

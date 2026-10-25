@@ -150,8 +150,8 @@
     },
     {
       "name": "defects-and-reproductions.md",
-      "sha256": "32805b9192b596ea0733affa08c2621ab72a2fcdea43a02cb0aee6bc472a9b14",
-      "bytes": 15275
+      "sha256": "8f652f658522c52d744fcda962e8836adea66dd4de1f7c5a89ef403c7e540880",
+      "bytes": 16106
     },
     {
       "name": "replay-and-rollback.md",
@@ -188,10 +188,10 @@
       "fail": 0,
       "skipped": 26
     },
-    "windows_reexecution": "PENDING - requires a lab run on this fix commit; not claimed",
+    "windows_reexecution": "PASS - autologin-lab run 40145737911 (head 08231502) succeeded: v=pass, full matrix green",
     "unrelated_red_cells": {
-      "x": "F30 TLS/cipher purge - runner-schannel 0x8009030D private-key ACL; identical in pre-merge run 40122884082 (head d3f13d48)",
-      "y": "F31c token diagnostic - same runner key-ACL cause; identical in 40122884082"
+      "x": "F30 - intermittently red with runner-schannel 0x8009030D; PASS in run 40145737911 => runner environment, not product",
+      "y": "F31c - same cause; PASS in run 40145737911"
     },
     "deployed_sha": "none (main.yml never dispatched)",
     "defect_2": {
@@ -203,7 +203,13 @@
       "defect_summary": "the lab assertion still quoted the pre-R1 inline guard; R1 (f56b4ffec) replaced it with $iterNow + $dueLogon, which is what the server ships",
       "fix": "narrow the assertion to the current wiring + require the timer to advance $lastLogonScan and $script:F28IntervalSec = 30; server-side-only check unchanged",
       "regression_lock": "tests/f204-logon-correlation.test.js V4-PS-14 (lab token list mirrored locally)",
-      "windows_reexecution": "PENDING - requires a lab run on the next head; not claimed"
+      "windows_reexecution": "PASS - autologin-lab run 40145737911 (head 08231502)"
+    },
+    "lab_verified_run": {
+      "id": "40145737911",
+      "head": "08231502",
+      "conclusion": "success",
+      "matrix": "k2 l m n o a b_c d_e f h i j p r s t u v x y z w = all pass"
     }
   },
   "new_test_cases_added_post_merge": [
