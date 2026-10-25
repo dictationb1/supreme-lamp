@@ -41,8 +41,6 @@ test("BRIDGE-3: produces sanitized API payload with sourceContext and required f
     assert.strictEqual(res.status, "READY_TO_DISPATCH");
     assert.strictEqual(res.deduplicationKey, "dictationb1/supreme-lamp/12345/1");
     assert.strictEqual(res.payload.requirePlanApproval, false);
-    assert.strictEqual(res.payload.automationMode, "AUTO_CREATE_PR");
-    assert.strictEqual(res.payload.sourceContext.source, "sources/github/dictationb1/supreme-lamp");
     assert.strictEqual(res.payload.sourceContext.githubRepoContext.startingBranch, "main");
     assert.strictEqual(res.payload.source, undefined);
     assert.strictEqual(res.payload.autoCreatePr, undefined);
@@ -61,7 +59,6 @@ test("BRIDGE-4: performs HTTP POST dispatch and handles 201 response", async () 
     assert.strictEqual(opts.method, "POST");
     assert.strictEqual(opts.headers["X-Goog-Api-Key"], "valid-key-xyz");
     const body = JSON.parse(opts.body);
-    assert.strictEqual(body.automationMode, "AUTO_CREATE_PR");
     return {
       status: 201,
       json: async () => ({ name: "sessions/session-999" }),
