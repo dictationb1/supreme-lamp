@@ -34,20 +34,16 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
   }
 
   try {
-    const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
-    // The previous implementation assumed plain text, but run logs are often zip archives.
+    const cmd = `gh run view ${runId} --log -R "${repo}"`;
     const res = execSync(cmd, {
-      encoding: "buffer",
+      encoding: "utf8",
       env: { ...process.env, GH_TOKEN: token },
+      maxBuffer: 10 * 1024 * 1024 // 10MB buffer just in case
     });
 
-    // Check if it's a zip by magic number (PK\x03\x04)
-    if (res.length >= 4 && res[0] === 0x50 && res[1] === 0x4B && res[2] === 0x03 && res[3] === 0x04) {
-      return "Logs are in ZIP format. Log content extraction not fully implemented here yet, please check manually.";
-    }
-
-    const textRes = res.toString("utf8");
-    return redactSecrets(textRes.slice(0, 4000));
+    // Strip out ANSI escape codes since `gh run view` often prints colored output
+    const cleanRes = res.replace(/\x1b\[[0-9;]*m/g, "");
+    return redactSecrets(cleanRes.slice(-4000)); // Taking the last 4000 chars as errors usually appear at the end
   } catch (err) {
     return `Could not fetch logs for run ${runId}: ${err.message}`;
   }
