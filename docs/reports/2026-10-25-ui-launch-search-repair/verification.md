@@ -43,6 +43,7 @@ npm run check:glass-contrast
 | `check:fx-ids` | PASS |
 | `check:contrast` | PASS |
 | `check:glass-contrast` | PASS (worst control 5.14:1) |
+| `node --test tests/*.test.js` (the PR's "Native UI and VPS contracts (Node)" step) | **929 pass / 2 fail** locally — both failures are `WF-VALIDATOR-1/-3`, which need PyYAML; the sandbox has no `yaml` module (`ModuleNotFoundError: No module named 'yaml'`). Identical 2 failures on the untouched base revision, and the step passes on GitHub runners. See `evidence/node-contract-gates.log`. |
 
 Baseline before this work (same command): 111 files / 1453 tests PASS. This change
 adds 8 test files with 86 tests (dispatch 19, store 11, correlation 18, lab
@@ -62,6 +63,19 @@ duplicate dispatch it was supposed to prevent): 1453 + 86 - 4 = 1535.
 | Links + repository identity | `npx vitest run src/tests/smoke/repo-identity-links.test.ts` |
 | Incident timestamps (occurred vs observed) | `npx vitest run src/tests/smoke/v4-conn-correlation.test.ts src/tests/smoke/v4-incident-ui.test.tsx` |
 | Whole product regression | `npx vitest run` |
+
+## Static contract suites that had to move with the repair
+
+Five pre-existing source-contract tests asserted literal expressions that this
+repair legitimately replaced (the href fence moved into the shared
+`Get-F86AnchorLinks`, the fetcher gained `-AllowedHosts`, and the inspect gate
+became one per-source literal set). Each was updated to the **new** literal and,
+where the shape changed, strengthened (e.g. the fence is now additionally asserted
+to use the host that actually served the page). No assertion was deleted and no
+security property was relaxed; see the diff of `tests/f78-lab-server.test.js`,
+`tests/f81-launch-url.test.js`, `tests/f84-same-host.test.js`,
+`tests/f90-cross-domain.test.js` and the `EXPECTED_FLAT_KEYS` count lock
+(1267 → 1280, +13 launch/lab keys).
 
 ## What these tests actually prove (and what they do not)
 
@@ -88,3 +102,4 @@ duplicate dispatch it was supposed to prevent): 1453 + 86 - 4 = 1535.
 | `evidence/build-sha256.txt` | sha256 of the built single-file bundle |
 | `evidence/environment.txt` | Revision, tool versions, diffstat |
 | `evidence/route-anchors.txt` | Line anchors for every changed production file (for reviewers) |
+| `evidence/node-contract-gates.log` | `node --test tests/*.test.js` on this revision (929 pass, 2 environment-only failures) |

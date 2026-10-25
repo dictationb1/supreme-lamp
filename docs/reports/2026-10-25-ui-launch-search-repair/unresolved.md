@@ -14,6 +14,7 @@ and the exact command/step that closes it.
 | U7 | Deployment of this branch to the hosted URL | see `promotion.json` | merge + workflow dispatch are recorded there, not assumed | `gh pr merge` then `gh workflow run main.yml -f mode=rdp -f runner_target=windows-latest` |
 | U8 | `replay-viewer` workflow (publishes `docs/` to Pages) | still red (pre-existing) | its publish directory does not exist in the repository; unrelated to this change and not repaired here | separate change that adds the missing `docs/` publish target or moves the workflow's path |
 | U9 | Browser external-protocol consent prompt | out of software control | the page cannot read or answer a browser-native dialog | operator answers "Open"; the UI now names this prompt explicitly |
+| U10 | `WF-VALIDATOR-1/-3` in the local sandbox | **environment only** | the validator shells out to Python and PyYAML is not installed here (`No module named 'yaml'`); the same 2 tests fail identically on the untouched base revision and pass on GitHub runners | nothing to fix in the product; run `pip install pyyaml` and re-run `node --test tests/workflow-validation.test.js` |
 
 ## Deliberately not done (and why)
 

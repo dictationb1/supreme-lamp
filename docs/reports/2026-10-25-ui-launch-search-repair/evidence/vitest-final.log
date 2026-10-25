@@ -731,8 +731,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 
- ✓ src/tests/smoke/f110-live-patch.test.tsx (18 tests) 1969ms
- ✓ src/tests/smoke/r-files-listing-provenance.test.tsx (15 tests) 745ms
+ ✓ src/tests/smoke/f110-live-patch.test.tsx (18 tests) 2205ms
+ ✓ src/tests/smoke/r-files-listing-provenance.test.tsx (15 tests) 779ms
 stdout | src/tests/smoke/f110b-signing.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -1429,8 +1429,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 
- ✓ src/tests/smoke/f110b-signing.test.tsx (13 tests) 1446ms
- ✓ src/tests/smoke/v4-conn-correlation.test.ts (43 tests) 27ms
+ ✓ src/tests/smoke/f110b-signing.test.tsx (13 tests) 1488ms
+ ✓ src/tests/smoke/v4-conn-correlation.test.ts (43 tests) 14ms
 stdout | src/tests/smoke/f106-lab-isolation.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -2640,34 +2640,6 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
-Warning: An update to FeatureLab inside a test was not wrapped in act(...).
-
-When testing, code that causes React state updates should be wrapped into act(...):
-
-act(() => {
-  /* fire events that update state */
-});
-/* assert on the output */
-
-This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
-    at FeatureLab (/home/user/supreme-lamp/src/components/lab/FeatureLab.tsx:25:23)
-    at FeatureBoundary (/home/user/supreme-lamp/src/components/primitives/FeatureBoundary.tsx:170:1)
-    at LabRoute (/home/user/supreme-lamp/src/components/lab/LabRoute.tsx:35:47)
-    at RenderedRoute (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:535:7)
-    at Outlet (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1182:28)
-    at div
-    at main
-    at Main
-    at div
-    at div
-    at div
-    at AppShell (/home/user/supreme-lamp/src/components/layout/AppShell.tsx:1025:39)
-    at ChromeBoundary (/home/user/supreme-lamp/src/components/primitives/ChromeBoundary.tsx:7:1)
-    at RenderedRoute (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:535:7)
-    at Routes (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1269:7)
-    at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
-    at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
-    at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 Warning: An update to TopBar inside a test was not wrapped in act(...).
 
 When testing, code that causes React state updates should be wrapped into act(...):
@@ -2815,8 +2787,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 
- ✓ src/tests/smoke/f106-lab-isolation.test.tsx (21 tests) 3015ms
-   ✓ F106 lab routing > mounts ALL 11 sections cleanly - no section crashes in its own harness 1382ms
+ ✓ src/tests/smoke/f106-lab-isolation.test.tsx (21 tests) 2888ms
+   ✓ F106 lab routing > mounts ALL 11 sections cleanly - no section crashes in its own harness 1315ms
 stdout | src/tests/smoke/f109-debug-hud.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -3872,8 +3844,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 
- ✓ src/tests/smoke/f109-debug-hud.test.tsx (12 tests) 2009ms
-   ✓ F109 default-off (prod-safe) > renders nothing, ignores Shift+F12 and writes no f109 key until enabled 480ms
+ ✓ src/tests/smoke/f109-debug-hud.test.tsx (12 tests) 1711ms
+   ✓ F109 default-off (prod-safe) > renders nothing, ignores Shift+F12 and writes no f109 key until enabled 396ms
 stderr | src/tests/smoke/f-dvr-lite.test.tsx > F-DVR-LITE: the FAB inside the capture, the payload on the clipboard > clicking the FAB is itself recorded (the FAB is deliberately NOT in F104's blind spot)
 Warning: An update to DvrFab inside a test was not wrapped in act(...).
 
@@ -3912,19 +3884,30 @@ act(() => {
 
 This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
     at DvrFab (/home/user/supreme-lamp/src/components/domain/DvrFab.tsx:22:39)
+Warning: An update to DvrFab inside a test was not wrapped in act(...).
 
- ✓ src/tests/smoke/f-dvr-lite.test.tsx (11 tests) 260ms
- ✓ src/tests/smoke/fx-endpoint-client.test.ts (29 tests) 130ms
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at DvrFab (/home/user/supreme-lamp/src/components/domain/DvrFab.tsx:22:39)
+
+ ✓ src/tests/smoke/f-dvr-lite.test.tsx (11 tests) 256ms
+ ✓ src/tests/smoke/fx-endpoint-client.test.ts (29 tests) 133ms
 stdout | src/tests/smoke/f105-feature-boundaries.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
+ ✓ src/tests/smoke/f105-feature-boundaries.test.tsx (26 tests) 1374ms
+   ✓ F105 FeatureBoundary behaviour > leaves exactly one fence mounted per route and none after unmount (all 11 routes) 955ms
 stderr | src/tests/smoke/f105-feature-boundaries.test.tsx > F105 FeatureBoundary behaviour > leaves exactly one fence mounted per route and none after unmount (all 11 routes)
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f105-feature-boundaries.test.tsx (26 tests) 1460ms
-   ✓ F105 FeatureBoundary behaviour > leaves exactly one fence mounted per route and none after unmount (all 11 routes) 1031ms
- ✓ src/tests/smoke/f108-replay-dom.test.tsx (7 tests) 268ms
+ ✓ src/tests/smoke/f108-replay-dom.test.tsx (7 tests) 276ms
 stdout | src/tests/smoke/v3-troubleshoot.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -3933,14 +3916,14 @@ react-i18next:: useTranslation: You will need to pass in an i18next instance by 
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/v3-troubleshoot.test.tsx (16 tests) 215ms
- ✓ src/tests/smoke/f104-global-capture.test.tsx (20 tests) 863ms
+ ✓ src/tests/smoke/v3-troubleshoot.test.tsx (16 tests) 168ms
+ ✓ src/tests/smoke/f104-global-capture.test.tsx (20 tests) 829ms
 stdout | src/tests/smoke/f101-collector-depth.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
- ✓ src/tests/smoke/f101-collector-depth.test.tsx (18 tests) 2011ms
-   ✓ [F101 §3.4] the button registry > 'Click now' drives the REAL DOM element when it is mounted 474ms
-   ✓ [F101 §3.4] the button registry > 'Click now' never route-probes an absent button (F102: it records not-rendered) 1510ms
+ ✓ src/tests/smoke/f101-collector-depth.test.tsx (18 tests) 2002ms
+   ✓ [F101 §3.4] the button registry > 'Click now' drives the REAL DOM element when it is mounted 470ms
+   ✓ [F101 §3.4] the button registry > 'Click now' never route-probes an absent button (F102: it records not-rendered) 1512ms
 stderr | src/tests/smoke/f94-production-audit.test.tsx > F94 P3: WEB DESKTOP opener reports a blocked popup > [F94 §3.2] the logon banner shows a copyable URL when the popup is blocked
 Warning: An update to LogonGateBanner inside a test was not wrapped in act(...).
 
@@ -3954,7 +3937,7 @@ act(() => {
 This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
     at LogonGateBanner (/home/user/supreme-lamp/src/components/domain/LogonGateBanner.tsx:18:39)
 
- ✓ src/tests/smoke/f94-production-audit.test.tsx (25 tests) 343ms
+ ✓ src/tests/smoke/f94-production-audit.test.tsx (25 tests) 280ms
 stdout | src/tests/smoke/v4-incident-ui.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -4920,7 +4903,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at MemoryRouter (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
 
- ✓ src/tests/smoke/v4-incident-ui.test.tsx (15 tests) 1588ms
+ ✓ src/tests/smoke/v4-incident-ui.test.tsx (15 tests) 1590ms
+   ✓ V4-UI-1: the screenshot no longer reads as 'connection failed' > does NOT render the connection chip as failed 307ms
 stdout | src/tests/smoke/r-metrics-truthfulness.test.tsx > R-METRICS-6: rendered DOM states > the remaining cell shows an unknown state (never 05:30:00) with no progress
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -5055,6 +5039,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects_begin (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24917:7)
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
+
+stderr | src/tests/smoke/r-metrics-truthfulness.test.tsx > R-METRICS-6: rendered DOM states > the remaining cell names the policy basis when only a run start is known
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
     at HTMLCanvasElementImpl.getContext (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/living/nodes/HTMLCanvasElement-impl.js:42:5)
@@ -5196,8 +5182,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/r-metrics-truthfulness.test.tsx (29 tests) 1456ms
-   ✓ R-METRICS-6: rendered DOM states > the remaining cell shows an unknown state (never 05:30:00) with no progress 790ms
+ ✓ src/tests/smoke/r-metrics-truthfulness.test.tsx (29 tests) 1499ms
+   ✓ R-METRICS-6: rendered DOM states > the remaining cell shows an unknown state (never 05:30:00) with no progress 856ms
 stdout | src/tests/smoke/r2-overview-redesign.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -6542,8 +6528,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at MemoryRouter (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
 
- ✓ src/tests/smoke/r2-overview-redesign.test.tsx (17 tests) 1777ms
- ✓ src/tests/smoke/lab-inspect-endpoint.test.ts (16 tests) 36ms
+ ✓ src/tests/smoke/r2-overview-redesign.test.tsx (17 tests) 1689ms
+ ✓ src/tests/smoke/lab-inspect-endpoint.test.ts (16 tests) 37ms
 stdout | src/tests/smoke/f-i18n-render.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -28795,8 +28781,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at MemoryRouter (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
 
- ✓ src/tests/smoke/f-i18n-render.test.tsx (19 tests) 1440ms
-   ✓ F-I18N dom: every closed key that the surface renders appears in Sinhala > Overview: 49 formerly-missing strings visible under lang=si, none of them under lang=en 437ms
+ ✓ src/tests/smoke/f-i18n-render.test.tsx (19 tests) 1596ms
+   ✓ F-I18N dom: every closed key that the surface renders appears in Sinhala > Overview: 49 formerly-missing strings visible under lang=si, none of them under lang=en 460ms
 stdout | src/tests/smoke/m2-chrome-unfencing.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -29802,7 +29788,7 @@ The above error occurred in the <Boom> component:
 
 React will try to recreate this component tree from scratch using the error boundary you provided, FeatureBoundary.
 
- ✓ src/tests/smoke/m2-chrome-unfencing.test.tsx (8 tests) 173ms
+ ✓ src/tests/smoke/m2-chrome-unfencing.test.tsx (8 tests) 212ms
 stdout | src/tests/smoke/f107-dvr-full.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -29832,8 +29818,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at Object.record (/home/user/supreme-lamp/src/lib/dvr.ts:224:9)
     at Document.onClick (/home/user/supreme-lamp/src/lib/globalClickCapture.ts:339:24) undefined
 
- ✓ src/tests/smoke/f107-dvr-full.test.tsx (9 tests) 427ms
- ✓ src/tests/smoke/f95-root-causes.test.tsx (18 tests) 12ms
+ ✓ src/tests/smoke/f107-dvr-full.test.tsx (9 tests) 413ms
+ ✓ src/tests/smoke/f95-root-causes.test.tsx (18 tests) 13ms
 stdout | src/tests/smoke/f58-source-form.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -29841,7 +29827,7 @@ stderr | src/tests/smoke/f58-source-form.test.tsx > f58 shared SourceForm (two m
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f58-source-form.test.tsx (8 tests) 437ms
+ ✓ src/tests/smoke/f58-source-form.test.tsx (8 tests) 446ms
 stdout | src/tests/smoke/f58-presets-provenance.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -29849,8 +29835,8 @@ stderr | src/tests/smoke/f58-presets-provenance.test.tsx > f58 provenance row on
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f58-presets-provenance.test.tsx (18 tests) 146ms
- ✓ src/tests/smoke/r2-websocket-worker.test.ts (13 tests) 12ms
+ ✓ src/tests/smoke/f58-presets-provenance.test.tsx (18 tests) 165ms
+ ✓ src/tests/smoke/r2-websocket-worker.test.ts (13 tests) 14ms
 stderr | src/tests/smoke/f90-viewing-mode.test.tsx > F90 viewing-mode badge > is visible WITHOUT ?diag=1 (the mode is needed before a click)
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -29858,9 +29844,9 @@ stderr | src/tests/smoke/f90-viewing-mode.test.tsx > F90 viewing-mode badge > is
 stdout | src/tests/smoke/f90-viewing-mode.test.tsx > F90 viewing-mode badge > lets the operator correct a wrong guess, and remembers it
 [F102] Collector rehydrated: 0 actions (empty)
 
- ✓ src/tests/smoke/f90-viewing-mode.test.tsx (19 tests) 147ms
- ✓ src/tests/smoke/r-glass-container.test.tsx (18 tests) 75ms
- ✓ src/tests/smoke/dispatch-single-attempt.test.ts (19 tests) 17ms
+ ✓ src/tests/smoke/f90-viewing-mode.test.tsx (19 tests) 164ms
+ ✓ src/tests/smoke/r-glass-container.test.tsx (18 tests) 74ms
+ ✓ src/tests/smoke/dispatch-single-attempt.test.ts (19 tests) 18ms
 stdout | src/tests/smoke/r-search-zero-summary.test.tsx > Search page integration (#216) > shows the summary above the empty state when sources failed
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -29868,9 +29854,9 @@ stderr | src/tests/smoke/r-search-zero-summary.test.tsx > Search page integratio
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/r-search-zero-summary.test.tsx (17 tests) 234ms
- ✓ src/tests/smoke/r-files-explorer-scale.test.tsx (13 tests) 388ms
- ✓ src/tests/smoke/f58-source-store.test.ts (9 tests) 37ms
+ ✓ src/tests/smoke/r-search-zero-summary.test.tsx (17 tests) 241ms
+ ✓ src/tests/smoke/r-files-explorer-scale.test.tsx (13 tests) 421ms
+ ✓ src/tests/smoke/f58-source-store.test.ts (9 tests) 35ms
 stderr | src/tests/smoke/fx-gofile-mock.test.tsx > F48 token-less guest flow (mock host only) > HTTP 401 => exactly 1 attempt (fail-fast auth) + labeled chip + rendered operator options
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -29956,6 +29942,7 @@ Read more: https://mswjs.io/docs/http/intercepting-requests
 If you still wish to intercept this unhandled request, please create a request handler for it.
 Read more: https://mswjs.io/docs/http/intercepting-requests
 
+ ✓ src/tests/smoke/fx-gofile-mock.test.tsx (19 tests) 312ms
 stderr | src/tests/smoke/fx-gofile-mock.test.tsx > F48 token-less guest flow (mock host only) > HTTP 403 => exactly 1 attempt (fail-fast auth) + labeled chip + rendered operator options
 Warning: An update to MirrorCard inside a test was not wrapped in act(...).
 
@@ -29991,7 +29978,6 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/fx-gofile-mock.test.tsx (19 tests) 351ms
 stdout | src/tests/smoke/f102-real-buttons.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -30001,14 +29987,14 @@ stdout | src/tests/smoke/f102-real-buttons.test.tsx > [F102 §2.2] rows survive 
 stdout | src/tests/smoke/f102-real-buttons.test.tsx > [F102 §2.2] rows survive a refresh (zustand persist) > migrates the F100/F101 legacy array key once
 [F102] Collector rehydrated: 1 actions (legacy-migration)
 
- ✓ src/tests/smoke/f102-real-buttons.test.tsx (12 tests) 10810ms
-   ✓ [F102 §2.1] Click now performs a REAL DOM click > clicks the element, records the request IT fired, and measures elapsedMs 479ms
-   ✓ [F102 §2.1] Click now performs a REAL DOM click > a failing request becomes a classified fail verdict (not a warn) 461ms
+ ✓ src/tests/smoke/f102-real-buttons.test.tsx (12 tests) 10845ms
+   ✓ [F102 §2.1] Click now performs a REAL DOM click > clicks the element, records the request IT fired, and measures elapsedMs 477ms
+   ✓ [F102 §2.1] Click now performs a REAL DOM click > a failing request becomes a classified fail verdict (not a warn) 459ms
    ✓ [F102 §2.1] Click now performs a REAL DOM click > a missing element is a fail with the route, a fix and issue #159 - and no route probe 1910ms
    ✓ [F102 §2.1] Click now performs a REAL DOM click > a disabled element is recorded as disabled (warn), and is NOT clicked 1910ms
-   ✓ [F102 §2.3] Click every button > aborts after 5 identical errors 5534ms
-   ✓ [F102 §2.3] Click every button > Replay all re-runs real clicks once per distinct button - no 'no replay handler' rows 462ms
- ✓ src/tests/smoke/r2-connection-state.test.ts (26 tests) 10ms
+   ✓ [F102 §2.3] Click every button > aborts after 5 identical errors 5537ms
+   ✓ [F102 §2.3] Click every button > Replay all re-runs real clicks once per distinct button - no 'no replay handler' rows 466ms
+ ✓ src/tests/smoke/r2-connection-state.test.ts (26 tests) 12ms
 stdout | src/tests/smoke/f69-search-fixes.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -30098,8 +30084,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f69-search-fixes.test.tsx (5 tests) 542ms
-   ✓ F69 §1.4 search_enable lane flag > 9 entries survive any /diag answer; false is diagnostic-only 458ms
+ ✓ src/tests/smoke/f69-search-fixes.test.tsx (5 tests) 643ms
+   ✓ F69 §1.4 search_enable lane flag > 9 entries survive any /diag answer; false is diagnostic-only 554ms
 stdout | src/tests/smoke/search-page.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -30107,7 +30093,7 @@ stderr | src/tests/smoke/search-page.test.tsx > Search page (F56-d) > dispatches
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/search-page.test.tsx (6 tests) 420ms
+ ✓ src/tests/smoke/search-page.test.tsx (6 tests) 408ms
 stdout | src/tests/smoke/r-ux-shell.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -33169,6 +33155,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects_begin (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24917:7)
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
+
+stderr | src/tests/smoke/r-ux-shell.test.tsx > R-UX-c: overlay behaviour > the drawer has a visible close control (the back gesture is not the only way out)
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
     at HTMLCanvasElementImpl.getContext (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/living/nodes/HTMLCanvasElement-impl.js:42:5)
@@ -33192,9 +33180,9 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/r-ux-shell.test.tsx (11 tests) 2189ms
-   ✓ R-UX-a: the locked navigation contract survives the redesign > still renders exactly 11 sidebar links in the F76 order 437ms
-   ✓ R-UX-a: the locked navigation contract survives the redesign > every destination reachable on desktop is reachable on the phone through More 332ms
+ ✓ src/tests/smoke/r-ux-shell.test.tsx (11 tests) 2109ms
+   ✓ R-UX-a: the locked navigation contract survives the redesign > still renders exactly 11 sidebar links in the F76 order 429ms
+   ✓ R-UX-a: the locked navigation contract survives the redesign > every destination reachable on desktop is reachable on the phone through More 335ms
 stdout | src/tests/smoke/v3-shell.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -36522,7 +36510,7 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/v3-shell.test.tsx (20 tests) 2424ms
+ ✓ src/tests/smoke/v3-shell.test.tsx (20 tests) 2275ms
    ✓ V3-01-a: every route opens with the shared page identity > '#/' renders a PageHeader with a title and a purpose 369ms
 stdout | src/tests/smoke/f85-ten-sites.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
@@ -36531,8 +36519,8 @@ stderr | src/tests/smoke/f85-ten-sites.test.tsx > F85 operator fixture (local) >
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f85-ten-sites.test.tsx (27 tests) 310ms
- ✓ src/tests/smoke/launch-store-single-dispatch.test.tsx (11 tests) 22ms
+ ✓ src/tests/smoke/f85-ten-sites.test.tsx (27 tests) 266ms
+ ✓ src/tests/smoke/launch-store-single-dispatch.test.tsx (11 tests) 19ms
 stdout | src/tests/smoke/f-testid-dom.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -36741,7 +36729,7 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at MemoryRouter (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
 
- ✓ src/tests/smoke/f-testid-dom.test.tsx (7 tests) 498ms
+ ✓ src/tests/smoke/f-testid-dom.test.tsx (7 tests) 546ms
 stdout | src/tests/smoke/f56c-v3-lab.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -36749,14 +36737,14 @@ stderr | src/tests/smoke/f56c-v3-lab.test.tsx > DEV fixture fallback + empty sta
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f56c-v3-lab.test.tsx (5 tests) 314ms
- ✓ src/tests/smoke/fx-retry-policy.test.ts (401 tests) 59ms
+ ✓ src/tests/smoke/f56c-v3-lab.test.tsx (5 tests) 301ms
+ ✓ src/tests/smoke/fx-retry-policy.test.ts (401 tests) 48ms
  ✓ src/tests/smoke/f98-rdp-clean-ux.test.tsx (11 tests) 17ms
 stderr | tests/f87-diag-banner.test.tsx > F87 expanded diagnostic banner > shows the last five launches with tier + ok/fail and a sha mismatch only when the server sha differs from a real build sha
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f87-diag-banner.test.tsx (5 tests) 129ms
+ ✓ tests/f87-diag-banner.test.tsx (5 tests) 121ms
 stderr | src/tests/smoke/f49-runtime-optin.test.tsx > F49 disabled banner + ConfirmModal > shows the disabled banner while the mirror is off, with no dialog open
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -37016,7 +37004,7 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f49-runtime-optin.test.tsx (7 tests) 536ms
+ ✓ src/tests/smoke/f49-runtime-optin.test.tsx (7 tests) 520ms
 stdout | src/tests/smoke/f56c-v2-landing.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -37024,7 +37012,7 @@ stderr | src/tests/smoke/f56c-v2-landing.test.tsx > F56-c v3 all-in-one landing 
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f56c-v2-landing.test.tsx (6 tests) 328ms
+ ✓ src/tests/smoke/f56c-v2-landing.test.tsx (6 tests) 309ms
 stderr | src/tests/smoke/f57-dragdrop-trash.test.tsx > F57 drag-drop zones > marks the tree node as a drop target while dragging and moves on drop
 Warning: An update to ExplorerProgressRail inside a test was not wrapped in act(...).
 
@@ -37133,22 +37121,22 @@ This ensures that you're testing the behavior the user would see in the browser.
     at div
     at FileExplorer (/home/user/supreme-lamp/src/pages/FileExplorer.tsx:77:39)
 
- ✓ src/tests/smoke/f57-dragdrop-trash.test.tsx (8 tests) 340ms
+ ✓ src/tests/smoke/f57-dragdrop-trash.test.tsx (8 tests) 322ms
 stderr | tests/f87-selftest-panel.test.tsx > F87 self-test panel > renders nothing unless ?selftest=1
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f87-selftest-panel.test.tsx (8 tests) 139ms
+ ✓ tests/f87-selftest-panel.test.tsx (8 tests) 149ms
 stderr | src/tests/smoke/f88-lab-inspector.test.tsx > F88 LabInspector source line + tabs > renders the visible Source line with strategy, count and timing
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f88-lab-inspector.test.tsx (7 tests) 163ms
+ ✓ src/tests/smoke/f88-lab-inspector.test.tsx (7 tests) 161ms
 stderr | src/tests/smoke/lab-inspector-2026-10-25.test.tsx > [LAB-INSPECT UI] result mode > inspects the result's own URL exactly once and renders the rows
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/lab-inspector-2026-10-25.test.tsx (8 tests) 220ms
+ ✓ src/tests/smoke/lab-inspector-2026-10-25.test.tsx (8 tests) 231ms
 stdout | src/tests/smoke/f76-sidebar-search.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -37828,10 +37816,9 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f76-sidebar-search.test.tsx (7 tests) 1030ms
-   ✓ F76 §2.1 sidebar Search entry > renders 9 entries in the F76 order with Search directly under Overview 436ms
-   ✓ F76 §2.1 sidebar Search entry > clicking Search navigates to /search and renders the CommandBar 312ms
- ✓ src/tests/smoke/f91-mirror-toast.test.tsx (7 tests) 10ms
+ ✓ src/tests/smoke/f76-sidebar-search.test.tsx (7 tests) 923ms
+   ✓ F76 §2.1 sidebar Search entry > renders 9 entries in the F76 order with Search directly under Overview 408ms
+ ✓ src/tests/smoke/f91-mirror-toast.test.tsx (7 tests) 11ms
 stdout | src/tests/smoke/f70-source-probe.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -37839,7 +37826,7 @@ stderr | src/tests/smoke/f70-source-probe.test.tsx > F70 §3.2 probe wiring + sa
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f70-source-probe.test.tsx (6 tests) 264ms
+ ✓ src/tests/smoke/f70-source-probe.test.tsx (6 tests) 247ms
 stderr | src/tests/smoke/f48-tokenless-mirror.test.tsx > F47 card title parity with the worker mode > says AES-256 encrypted runner upload only when a row reports encrypted=True
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -37954,8 +37941,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f48-tokenless-mirror.test.tsx (5 tests) 167ms
- ✓ src/tests/smoke/f57-preview-wire.test.tsx (8 tests) 199ms
+ ✓ src/tests/smoke/f48-tokenless-mirror.test.tsx (5 tests) 163ms
+ ✓ src/tests/smoke/f57-preview-wire.test.tsx (8 tests) 185ms
 stdout | src/tests/smoke/f77-search-always-visible.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -39423,9 +39410,9 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f77-search-always-visible.test.tsx (8 tests) 1652ms
-   ✓ F77 §2.1 Search entry is unconditional > renders when /diag never answers searchEnabled (undefined) 425ms
-   ✓ F77 §2.2 stale cache purge > clears every cached lane key on mount, idempotently 379ms
+ ✓ src/tests/smoke/f77-search-always-visible.test.tsx (8 tests) 1571ms
+   ✓ F77 §2.1 Search entry is unconditional > renders when /diag never answers searchEnabled (undefined) 405ms
+   ✓ F77 §2.2 stale cache purge > clears every cached lane key on mount, idempotently 345ms
  ✓ src/tests/smoke/rdp-recovery-correlation.test.ts (18 tests) 7ms
 stdout | src/tests/smoke/f201-probe-honesty.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
@@ -39670,14 +39657,14 @@ This ensures that you're testing the behavior the user would see in the browser.
     at Router (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
     at MemoryRouter (/home/user/supreme-lamp/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
 
- ✓ src/tests/smoke/f201-probe-honesty.test.tsx (8 tests) 728ms
- ✓ src/tests/smoke/i18n-f56-parity.test.ts (4 tests) 46ms
+ ✓ src/tests/smoke/f201-probe-honesty.test.tsx (8 tests) 606ms
+ ✓ src/tests/smoke/i18n-f56-parity.test.ts (4 tests) 42ms
 stderr | src/tests/smoke/f78-lab-inspector.test.tsx > F78 LabInspector > posts sourceId + query and renders title, hostname and the match count
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f78-lab-inspector.test.tsx (8 tests) 180ms
- ✓ src/tests/smoke/f56d-fetch-client.test.tsx (7 tests) 30ms
+ ✓ src/tests/smoke/f78-lab-inspector.test.tsx (8 tests) 170ms
+ ✓ src/tests/smoke/f56d-fetch-client.test.tsx (7 tests) 27ms
 stdout | src/tests/smoke/f56c-v2-import.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -39685,7 +39672,7 @@ stderr | src/tests/smoke/f56c-v2-import.test.tsx > F56-c v2 URL import + own cre
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f56c-v2-import.test.tsx (3 tests) 227ms
+ ✓ src/tests/smoke/f56c-v2-import.test.tsx (3 tests) 195ms
 stderr | src/tests/smoke/f56c-v2-lab.test.tsx > ProgressiveLab component (frozen clock) > renders the classifier stage, the timeline and a 28-source rail at t+10s
 Warning: An update to ProgressiveLab inside a test was not wrapped in act(...).
 
@@ -39712,7 +39699,7 @@ act(() => {
 This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
     at ProgressiveLab (/home/user/supreme-lamp/src/pages/search/v2/ProgressiveLab.tsx:34:39)
 
- ✓ src/tests/smoke/f56c-v2-lab.test.tsx (5 tests) 88ms
+ ✓ src/tests/smoke/f56c-v2-lab.test.tsx (5 tests) 74ms
 stdout | src/tests/smoke/f70-google-books.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -39734,7 +39721,7 @@ Warning: The current testing environment is not configured to support act(...)
 Warning: The current testing environment is not configured to support act(...)
 Warning: The current testing environment is not configured to support act(...)
 
- ✓ src/tests/smoke/f70-google-books.test.tsx (3 tests) 172ms
+ ✓ src/tests/smoke/f70-google-books.test.tsx (3 tests) 161ms
 stderr | src/tests/smoke/f52-mirror-telemetry.test.tsx > F52 honest mirror telemetry > F52-DOM-V2-FROZEN RESULT=PASS: row and header stalled; never day-count ETA
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -39866,9 +39853,9 @@ Warning: A future version of React will block javascript: URLs as a security pre
     at Card (/home/user/supreme-lamp/src/components/primitives/Data.tsx:150:3)
     at KeysCard (/home/user/supreme-lamp/src/components/domain/KeysCard.tsx:42:39)
 
- ✓ src/tests/smoke/f52-mirror-telemetry.test.tsx (9 tests) 197ms
- ✓ src/tests/smoke/m5-auth-routing.test.ts (7 tests) 22ms
- ✓ src/tests/smoke/fx-schema-migration.test.ts (26 tests) 296ms
+ ✓ src/tests/smoke/f52-mirror-telemetry.test.tsx (9 tests) 188ms
+ ✓ src/tests/smoke/m5-auth-routing.test.ts (7 tests) 20ms
+ ✓ src/tests/smoke/fx-schema-migration.test.ts (26 tests) 307ms
 stderr | src/tests/smoke/f57-command-actions.test.tsx > F57 command bar real actions > creates a folder through the inline editor and queues a mkdir op
 Warning: An update to ExplorerProgressRail inside a test was not wrapped in act(...).
 
@@ -40153,14 +40140,14 @@ This ensures that you're testing the behavior the user would see in the browser.
     at div
     at FileExplorer (/home/user/supreme-lamp/src/pages/FileExplorer.tsx:77:39)
 
- ✓ src/tests/smoke/f57-command-actions.test.tsx (6 tests) 659ms
- ✓ src/tests/smoke/f57-op-queue.test.tsx (6 tests) 258ms
- ✓ src/tests/smoke/r-dl-rail-honesty.test.tsx (13 tests) 125ms
+ ✓ src/tests/smoke/f57-command-actions.test.tsx (6 tests) 572ms
+ ✓ src/tests/smoke/f57-op-queue.test.tsx (6 tests) 233ms
+ ✓ src/tests/smoke/r-dl-rail-honesty.test.tsx (13 tests) 118ms
 stderr | src/tests/smoke/f86-lab-result-inspector.test.tsx > F86 Lab result-view > deletes the F75 placeholder: no 'Full inspector coming in F75' text anywhere
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f86-lab-result-inspector.test.tsx (4 tests) 158ms
+ ✓ src/tests/smoke/f86-lab-result-inspector.test.tsx (4 tests) 155ms
 stdout | src/tests/smoke/f56c-v2-cards.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -40168,7 +40155,7 @@ stderr | src/tests/smoke/f56c-v2-cards.test.tsx > F56-c v2 result cards > surfac
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f56c-v2-cards.test.tsx (3 tests) 175ms
+ ✓ src/tests/smoke/f56c-v2-cards.test.tsx (3 tests) 158ms
 stderr | src/tests/smoke/f78-custom-sites-row.test.tsx > F78 CustomSitesRow > renders nothing when there are no stored Lab sources
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -40377,8 +40364,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at div
     at FileExplorer (/home/user/supreme-lamp/src/pages/FileExplorer.tsx:77:39)
 
- ✓ src/tests/smoke/f57-context-menu.test.tsx (6 tests) 587ms
- ✓ src/tests/smoke/v3-glass-wiring.test.tsx (5 tests) 37ms
+ ✓ src/tests/smoke/f57-context-menu.test.tsx (6 tests) 542ms
+ ✓ src/tests/smoke/v3-glass-wiring.test.tsx (5 tests) 30ms
 stderr | src/tests/smoke/f46-mirror-truth.test.tsx > F46 mirror reason visibility > renders the COMPLETE reason and every attempt line - no slice, no CSS truncation
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -40550,7 +40537,7 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/f46-mirror-truth.test.tsx (3 tests) 167ms
+ ✓ src/tests/smoke/f46-mirror-truth.test.tsx (3 tests) 154ms
 stderr | src/tests/smoke/f57-keyboard.test.tsx > F57 keyboard shortcuts > F2 opens the inline rename editor for the single selected row
 Warning: An update to ExplorerProgressRail inside a test was not wrapped in act(...).
 
@@ -40797,17 +40784,17 @@ This ensures that you're testing the behavior the user would see in the browser.
     at div
     at FileExplorer (/home/user/supreme-lamp/src/pages/FileExplorer.tsx:77:39)
 
- ✓ src/tests/smoke/f57-keyboard.test.tsx (7 tests) 637ms
+ ✓ src/tests/smoke/f57-keyboard.test.tsx (7 tests) 605ms
  ✓ src/tests/smoke/f57-selection-undo.test.ts (5 tests) 7ms
 stderr | src/tests/smoke/f91-stream-card.test.tsx > F91 StreamCard > audio-inline renders a real <audio controls> pointed at /api/stream, url encoded
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f91-stream-card.test.tsx (6 tests) 60ms
- ✓ src/tests/smoke/file-explorer-shell.test.tsx (4 tests) 279ms
- ✓ src/tests/smoke/production-bundle-no-demo.test.ts (4 tests) 35ms
+ ✓ src/tests/smoke/f91-stream-card.test.tsx (6 tests) 76ms
+ ✓ src/tests/smoke/file-explorer-shell.test.tsx (4 tests) 280ms
+ ✓ src/tests/smoke/production-bundle-no-demo.test.ts (4 tests) 34ms
  ✓ src/tests/smoke/f78-custom-sources-store.test.ts (6 tests) 8ms
- ✓ src/tests/smoke/repo-identity-links.test.ts (6 tests) 29ms
+ ✓ src/tests/smoke/repo-identity-links.test.ts (6 tests) 35ms
 stdout | src/tests/smoke/f78-add-site-quick.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -40815,10 +40802,10 @@ stderr | src/tests/smoke/f78-add-site-quick.test.tsx > F78 AddSiteQuick > render
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f78-add-site-quick.test.tsx (5 tests) 147ms
- ✓ src/tests/smoke/fx-ids-regression.test.ts (9 tests) 419ms
-   ✓ F45 S1 fx-ids source lock > scans the repository, including page adapters outside the Explorer directory 409ms
- ✓ src/tests/smoke/f72-ext-expansion.test.ts (36 tests) 10ms
+ ✓ src/tests/smoke/f78-add-site-quick.test.tsx (5 tests) 152ms
+ ✓ src/tests/smoke/fx-ids-regression.test.ts (9 tests) 435ms
+   ✓ F45 S1 fx-ids source lock > scans the repository, including page adapters outside the Explorer directory 425ms
+ ✓ src/tests/smoke/f72-ext-expansion.test.ts (36 tests) 9ms
 stderr | src/tests/smoke/r-metrics-connection-card.test.tsx > ConnectionCard: one label per measurement > renders no numeric jitter when fewer than two samples exist
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -40985,7 +40972,7 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/r-metrics-connection-card.test.tsx (6 tests) 139ms
+ ✓ src/tests/smoke/r-metrics-connection-card.test.tsx (6 tests) 127ms
 stdout | src/tests/smoke/f93-logon-banner.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -40993,17 +40980,17 @@ stderr | src/tests/smoke/f93-logon-banner.test.tsx > F93 logon gate banner > ren
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f93-logon-banner.test.tsx (5 tests) 50ms
+ ✓ src/tests/smoke/f93-logon-banner.test.tsx (5 tests) 47ms
 stderr | src/tests/smoke/f85-diagnostic-banner.test.tsx > F85 diagnostic banner > renders nothing unless ?diag=1 is set
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f85-diagnostic-banner.test.tsx (4 tests) 63ms
+ ✓ src/tests/smoke/f85-diagnostic-banner.test.tsx (4 tests) 70ms
 stderr | tests/f84-download-button.test.tsx > F84 download-to-RDP button > renders Open in RDP + Download to RDP for a .mp4 result
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f84-download-button.test.tsx (4 tests) 106ms
+ ✓ tests/f84-download-button.test.tsx (4 tests) 96ms
 stdout | src/tests/smoke/sidebar-nav.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41773,9 +41760,8 @@ This ensures that you're testing the behavior the user would see in the browser.
     at HashRouter (/home/user/supreme-lamp/node_modules/react-router-dom/dist/umd/react-router-dom.development.js:728:7)
     at App (/home/user/supreme-lamp/src/App.tsx:76:26)
 
- ✓ src/tests/smoke/sidebar-nav.test.tsx (4 tests) 1132ms
-   ✓ sidebar navigation (F56-c / F76 order) > renders 9 entries in the F76 order with the two new routes wired 528ms
-   ✓ sidebar navigation (F56-c / F76 order) > routes /files and /search to their pages 368ms
+ ✓ src/tests/smoke/sidebar-nav.test.tsx (4 tests) 859ms
+   ✓ sidebar navigation (F56-c / F76 order) > renders 9 entries in the F76 order with the two new routes wired 402ms
  ✓ src/tests/smoke/launcher-replay-contract.test.ts (4 tests) 4ms
 stderr | src/tests/smoke/f59-dispatch-defaults.test.tsx > F59 plaintext banner > F59-V4 renders PLAINTEXT MODE - uploads not encrypted on an encrypt=false dispatch
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
@@ -41825,7 +41811,7 @@ act(() => {
 This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
     at MirrorCard (/home/user/supreme-lamp/src/components/domain/MirrorCard.tsx:34:39)
 
- ✓ src/tests/smoke/f59-dispatch-defaults.test.tsx (5 tests) 122ms
+ ✓ src/tests/smoke/f59-dispatch-defaults.test.tsx (5 tests) 99ms
 stdout | tests/f79-empty-state.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41833,8 +41819,8 @@ stderr | tests/f79-empty-state.test.tsx > F79 clean empty state + F78 preservati
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f79-empty-state.test.tsx (7 tests) 334ms
- ✓ src/tests/smoke/f56c-v2-explorer.test.tsx (3 tests) 250ms
+ ✓ tests/f79-empty-state.test.tsx (7 tests) 309ms
+ ✓ src/tests/smoke/f56c-v2-explorer.test.tsx (3 tests) 243ms
 stdout | tests/f84-add-site-normalize.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41842,8 +41828,8 @@ stderr | tests/f84-add-site-normalize.test.tsx > F84 AddSiteQuick normalisation 
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f84-add-site-normalize.test.tsx (3 tests) 96ms
- ✓ tests/f84-launch-url-no-fallback.test.tsx (5 tests) 9ms
+ ✓ tests/f84-add-site-normalize.test.tsx (3 tests) 89ms
+ ✓ tests/f84-launch-url-no-fallback.test.tsx (5 tests) 8ms
 stdout | src/tests/smoke/f81-add-site-fields.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41851,7 +41837,7 @@ stderr | src/tests/smoke/f81-add-site-fields.test.tsx > F81 AddSiteQuick per-fie
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/tests/smoke/f81-add-site-fields.test.tsx (3 tests) 79ms
+ ✓ src/tests/smoke/f81-add-site-fields.test.tsx (3 tests) 67ms
  ✓ src/tests/smoke/r1-server-readiness.test.ts (3 tests) 7ms
 stdout | tests/f79-probe-rail-hidden.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
@@ -41860,13 +41846,13 @@ stderr | tests/f79-probe-rail-hidden.test.tsx > F79 debug disclosure > hides the
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f79-probe-rail-hidden.test.tsx (4 tests) 368ms
- ✓ src/tests/smoke/m4-dead-read.test.ts (2 tests) 21ms
- ✓ src/tests/smoke/fx-tokens.test.ts (8 tests) 44ms
- ✓ src/tests/smoke/v2-preview-link.test.ts (4 tests) 6ms
- ✓ tests/f79-default-5-adapters.test.ts (4 tests) 8ms
+ ✓ tests/f79-probe-rail-hidden.test.tsx (4 tests) 274ms
+ ✓ src/tests/smoke/m4-dead-read.test.ts (2 tests) 16ms
+ ✓ src/tests/smoke/fx-tokens.test.ts (8 tests) 52ms
+ ✓ src/tests/smoke/v2-preview-link.test.ts (4 tests) 5ms
+ ✓ tests/f79-default-5-adapters.test.ts (4 tests) 9ms
  ✓ src/tests/smoke/r-glass-perf-fallback.test.ts (3 tests) 4ms
- ✓ src/tests/smoke/f56-f57-ids.test.ts (4 tests) 23ms
+ ✓ src/tests/smoke/f56-f57-ids.test.ts (4 tests) 13ms
 stderr | src/tests/smoke/f53-queue-progress.test.tsx > F53 queue progress > F53-QUEUE-PROGRESS RESULT=PASS: pending row is 0% · attempt 2, never 100%
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (/home/user/supreme-lamp/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
@@ -41891,8 +41877,8 @@ act(() => {
 This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
     at MirrorCard (/home/user/supreme-lamp/src/components/domain/MirrorCard.tsx:34:39)
 
- ✓ src/tests/smoke/f53-queue-progress.test.tsx (1 test) 97ms
- ✓ src/tests/smoke/r4-troubleshooting-retry.test.tsx (1 test) 5ms
+ ✓ src/tests/smoke/f53-queue-progress.test.tsx (1 test) 76ms
+ ✓ src/tests/smoke/r4-troubleshooting-retry.test.tsx (1 test) 3ms
 stdout | tests/f79-loading-state.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41900,7 +41886,7 @@ stderr | tests/f79-loading-state.test.tsx > F79 single-spinner loading > shows o
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ tests/f79-loading-state.test.tsx (5 tests) 227ms
+ ✓ tests/f79-loading-state.test.tsx (5 tests) 218ms
 stdout | src/tests/smoke/scale-persist.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -41990,9 +41976,9 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/scale-persist.test.tsx (2 tests) 481ms
-   ✓ text scale persistence > persists scale and reflects it on <html data-scale> 478ms
- ✓ src/tests/smoke/no-neon-green.test.ts (1 test) 17ms
+ ✓ src/tests/smoke/scale-persist.test.tsx (2 tests) 443ms
+   ✓ text scale persistence > persists scale and reflects it on <html data-scale> 440ms
+ ✓ src/tests/smoke/no-neon-green.test.ts (1 test) 16ms
 stdout | src/tests/smoke/bottom-bar-time.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -42095,8 +42081,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/bottom-bar-time.test.tsx (1 test) 1615ms
-   ✓ bottom bar time rows > clock and elapsed update after a 1s tick 1614ms
+ ✓ src/tests/smoke/bottom-bar-time.test.tsx (1 test) 1633ms
+   ✓ bottom bar time rows > clock and elapsed update after a 1s tick 1631ms
 stdout | src/tests/smoke/sinhala-render.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -42822,9 +42808,9 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/sinhala-render.test.tsx (2 tests) 850ms
-   ✓ sinhala support > sinhalaSample element exists with Sinhala codepoints 448ms
-   ✓ sinhala support > toggling the language store flips html[lang] to si 400ms
+ ✓ src/tests/smoke/sinhala-render.test.tsx (2 tests) 883ms
+   ✓ sinhala support > sinhalaSample element exists with Sinhala codepoints 484ms
+   ✓ sinhala support > toggling the language store flips html[lang] to si 399ms
  ✓ src/tests/smoke/classic-ui-link.test.ts (2 tests) 3ms
 stdout | src/tests/smoke/ids-regression.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
@@ -43459,8 +43445,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/ids-regression.test.tsx (2 tests) 462ms
-   ✓ F38/F39 regression lock (219 ids) > renders every frozen id in the v2 DOM (landing route, native-status settled) 460ms
+ ✓ src/tests/smoke/ids-regression.test.tsx (2 tests) 440ms
+   ✓ F38/F39 regression lock (219 ids) > renders every frozen id in the v2 DOM (landing route, native-status settled) 439ms
 stdout | src/tests/smoke/sidebar-collapse.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -43550,8 +43536,8 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/sidebar-collapse.test.tsx (1 test) 492ms
-   ✓ sidebar collapse > toggle persists and rehydrates 491ms
+ ✓ src/tests/smoke/sidebar-collapse.test.tsx (1 test) 446ms
+   ✓ sidebar collapse > toggle persists and rehydrates 445ms
 stdout | src/tests/smoke/theme-persist.test.tsx
 [F102] Collector rehydrated: 0 actions (empty)
 
@@ -43641,11 +43627,11 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at commitPassiveMountEffects (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
     at flushPassiveEffectsImpl (/home/user/supreme-lamp/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
 
- ✓ src/tests/smoke/theme-persist.test.tsx (1 test) 449ms
-   ✓ theme persistence > persists theme and reflects it on <html data-theme> 448ms
+ ✓ src/tests/smoke/theme-persist.test.tsx (1 test) 512ms
+   ✓ theme persistence > persists theme and reflects it on <html data-theme> 511ms
 
  Test Files  118 passed (118)
       Tests  1535 passed (1535)
-   Start at  14:22:28
-   Duration  157.27s (transform 3.72s, setup 13.72s, collect 22.58s, tests 59.79s, environment 39.73s, prepare 6.69s)
+   Start at  14:42:34
+   Duration  151.66s (transform 3.78s, setup 12.96s, collect 22.01s, tests 58.35s, environment 37.66s, prepare 6.39s)
 

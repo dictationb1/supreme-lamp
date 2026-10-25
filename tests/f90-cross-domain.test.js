@@ -36,9 +36,20 @@ test("F90-b: the cross-domain widening is ONE literal host, opt-in per fetch", (
     "the cross-domain host must be the raw.githubusercontent.com literal",
   );
   // Opt-in: no fetch is widened just because the script grew a new host.
+  // [LAB-INSPECT-2026-10-25] The fetcher gained a SECOND, per-source parameter
+  // (`-AllowedHosts`, literal hosts only, empty by default). The original opt-in
+  // switch must still be exactly that: an opt-in that defaults to off.
   assert.ok(
-    SERVER.includes("param([string]$Url, [string]$ExpectedHost, [int]$MaxBytes, [int]$TimeoutSec, [switch]$AllowCrossDomain)"),
+    SERVER.includes("param([string]$Url, [string]$ExpectedHost, [int]$MaxBytes, [int]$TimeoutSec, [switch]$AllowCrossDomain, [string[]]$AllowedHosts = @())"),
     "Invoke-F78SecureFetch must take -AllowCrossDomain as an opt-in switch",
+  );
+  assert.ok(
+    SERVER.includes("[string[]]$AllowedHosts = @()"),
+    "the per-source host set must default to empty (no widening by default)",
+  );
+  assert.ok(
+    !SERVER.includes("[string[]]$AllowedHosts = @('*')") && !SERVER.includes("AllowedHosts -contains '*'"),
+    "the per-source host set must never become a wildcard",
   );
   assert.ok(
     SERVER.includes("if ($AllowCrossDomain -and $f78A -eq $script:F78CrossDomainHost) { return $true }"),
@@ -110,14 +121,25 @@ test("F90-e: resolved hosts are registered per source, after a PROVEN fetch", ()
 });
 
 test("F90-f: a later /api/lab/inspect on that source accepts the resolved hosts", () => {
+  // [LAB-INSPECT-2026-10-25] The gate was rewritten as ONE per-source literal
+  // set, but the two rules it encodes are unchanged and both are asserted here.
   assert.ok(
-    SERVER.includes("if (-not $f78HostAllowed -and $f78Host -and $script:F88CrossDomainHosts.ContainsKey($f78Host.ToLowerInvariant())) { $f78HostAllowed = $true }"),
+    SERVER.includes("if ($script:F88CrossDomainHosts.ContainsKey(($f78Host -replace '^www\\.', ''))) {"),
     "/api/lab/inspect must accept hosts this source already proved",
   );
-  // The original fence is untouched for every other source.
   assert.ok(
-    SERVER.includes("if ($f78Host -and $script:F78AllowHosts.ContainsKey($f78Host)) { $f78HostAllowed = $true }"),
+    SERVER.includes("$f78AllowedHosts += ([string]$f78ProvenHost).Trim().ToLowerInvariant()"),
+    "proved hosts must be added to the per-source set (never to a global list)",
+  );
+  // The operator-added allow-list is still the primary, non-optional gate.
+  assert.ok(
+    SERVER.includes("if (-not $f78Host -or -not $script:F78AllowHosts.ContainsKey($f78Host)) {"),
     "the operator-added allow-list must still be the primary gate",
+  );
+  // ...and neither rule writes to the global allow-list.
+  assert.ok(
+    !SERVER.includes("$script:F78AllowHosts[($f78Src.redirectHostname)] = $true"),
+    "an observed redirect host must not be promoted into the global allow-list",
   );
 });
 

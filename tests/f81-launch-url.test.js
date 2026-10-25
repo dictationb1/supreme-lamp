@@ -134,7 +134,11 @@ test('F81-PRESERVED-F78: the F78 fences survive untouched', () => {
     // [F84 §2.2] the strict href fence was replaced by the www-tolerant
     // Test-F78SameHost compare; the cross-domain refusal is asserted by
     // tests/f84-same-host.test.js (openculture.com vs youtube.com stays false).
-    'Test-F78SameHost -Allowed $f78Host -Actual $f78LinkHost',
+    // [LAB-INSPECT-2026-10-25] the href fence moved into the shared F86
+    // extractor; the tolerant compare and the served-host fence are asserted
+    // here so the move cannot silently become a widening.
+    'Test-F78SameHost -Allowed $f78Host -Actual $f86LinkHost',
+    'if ($f78ServedHost) { $f78FenceHost = $f78ServedHost }',
     "$f78Hits.Count -ge 10",
   ]) {
     assert.ok(SERVER.includes(tok), 'F78 fence regressed: ' + tok);
