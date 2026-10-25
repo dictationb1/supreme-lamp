@@ -15,8 +15,7 @@
 //   2. ARTIFACT: when `ui/dist/index.html` exists (built by `npm run build`), it
 //      contains no fixture sentinel and no "sample data" note strings.
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { globSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isDevMode } from "@/lib/devMode";
 import { shouldStreamDevFixture } from "@/lib/domain/devSearchFixture";
 
@@ -24,12 +23,22 @@ import { shouldStreamDevFixture } from "@/lib/domain/devSearchFixture";
 // the translation catalog; the ROWS must not be there.
 const FIXTURE_SENTINELS = ["fx-snap-01", "fx-snap-13", "Pride and Prejudice", "Jane Austen"];
 
+/** Recursive .ts/.tsx walk (no glob dependency: CI runs Node 20, which has no
+ *  `fs.globSync`, and this suite must not need a build-time helper). */
+function walk(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) walk(full, out);
+    else if (/\.tsx?$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
 function productionSources(): string[] {
-  return globSync("src/**/*.{ts,tsx}", { cwd: process.cwd() })
+  return walk("src")
     .filter((f) => !f.startsWith("src/tests/"))
     .filter((f) => !f.includes("devFixture"))
-    .filter((f) => !f.startsWith("src/pages/search/fixture"))
-    .map((f) => f.replace(/\\/g, "/"));
+    .filter((f) => !f.startsWith("src/pages/search/fixture"));
 }
 
 describe("[PROD-HONESTY] demo rows are not part of the shipped artifact", () => {
