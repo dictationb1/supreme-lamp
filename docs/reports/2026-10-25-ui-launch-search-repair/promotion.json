@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-25T14:25:55Z",
+  "generatedAt": "2026-10-25T15:12:02Z",
   "repository": "dictationb1/supreme-lamp",
   "branch": "arena/046926e8-supreme-lamp",
   "baseRevision": "ae360351eb3fea434f482af1b9e9db48025936a7",
@@ -29,12 +29,21 @@
     "glassContrast": "pass"
   },
   "promotion": {
-    "pr": null,
-    "prUrl": null,
-    "headSha": null,
-    "mergeCommitSha": null,
-    "mergeState": "PENDING",
-    "note": "Values are written only after the operation actually happened. A null here means it did not happen yet - it is never a placeholder for a guess."
+    "pr": 88,
+    "prUrl": "https://github.com/dictationb1/supreme-lamp/pull/88",
+    "headSha": "f06017fe598fbff0408ee963f2e6c21c815f216a",
+    "mergeCommitSha": "5f175a6db83cdd57132f8ee36cc220e21b506f6c",
+    "mergeState": "MERGED",
+    "note": "Squash-merged after every check passed. The SHA is the merge commit GitHub reported.",
+    "mergedAt": "2026-10-25T15:11:18Z",
+    "checks": {
+      "gates": "pass",
+      "e2e-ui": "pass",
+      "windows-native": "pass",
+      "Lab Profile - Static Contracts & Unit Tests": "pass",
+      "proof": "pass",
+      "build-ui-prebuilt": "pass"
+    }
   },
   "deployment": {
     "workflow": ".github/workflows/main.yml",
@@ -42,8 +51,19 @@
     "runnerTarget": "windows-latest",
     "runId": null,
     "runUrl": null,
-    "status": "PENDING",
-    "note": "Dispatch happens after the merge; a deterministic 403 is reported once, without a retry loop."
+    "status": "BLOCKED-403",
+    "note": "No deployment is claimed. The dashboard URL produced by that run is the acceptance surface for USER_VM_ACCEPTANCE.",
+    "attemptedAt": "2026-10-25T15:12:02Z",
+    "command": "gh workflow run main.yml --ref main -f mode=rdp -f runner_target=windows-latest",
+    "error": "HTTP 403: Resource not accessible by integration (actions/workflows/385695353/dispatches)",
+    "interpretation": "The workflow token used by this session may not create workflow_dispatch events. This is deterministic, so it was attempted ONCE and not retried.",
+    "operatorAction": [
+      "Open https://github.com/dictationb1/supreme-lamp/actions/workflows/main.yml",
+      "Click 'Run workflow' (right side)",
+      "Branch: main | mode: rdp | runner_target: windows-latest | leave the other inputs at their defaults",
+      "Click the green 'Run workflow' button",
+      "The new run's head SHA must start with 5f175a6 (the merge commit); any other SHA is an older revision"
+    ]
   },
   "userVmAcceptance": {
     "status": "PENDING",

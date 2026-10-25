@@ -1,6 +1,6 @@
 {
   "artifact": "mission-control-current-handoff",
-  "generatedAt": "2026-10-25T14:25:55Z",
+  "generatedAt": "2026-10-25T15:12:02Z",
   "goal": "Repair single-dispatch launch/cancel, Search result-URL inspection, native-prompt classification, attempt correlation, status honesty, repository links; verify honestly; promote.",
   "repository": "dictationb1/supreme-lamp",
   "branch": "arena/046926e8-supreme-lamp",
@@ -110,9 +110,36 @@
     "buildSha256": "9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff"
   },
   "nextSteps": [
-    "open the PR from arena/046926e8-supreme-lamp, wait for launch-gates + e2e-ui, then merge",
-    "dispatch main.yml with mode=rdp, runner_target=windows-latest; record the run id (report a 403 once, do not retry)",
-    "run USER_VM_ACCEPTANCE steps on rdp-lab-client",
-    "keep replay-viewer red until the docs/ publish target is added"
-  ]
+    "operator triggers main.yml from the Actions UI (403 blocks the API path) with mode=rdp and runner_target=windows-latest",
+    "run the USER_VM_ACCEPTANCE steps against the dashboard URL that run publishes",
+    "keep replay-viewer red until the docs/ publish target exists"
+  ],
+  "promotion": {
+    "repository": "dictationb1/supreme-lamp",
+    "pr": 88,
+    "prUrl": "https://github.com/dictationb1/supreme-lamp/pull/88",
+    "headSha": "f06017fe598fbff0408ee963f2e6c21c815f216a",
+    "mergeCommitSha": "5f175a6db83cdd57132f8ee36cc220e21b506f6c",
+    "mergedAt": "2026-10-25T15:11:18Z",
+    "state": "MERGED",
+    "checks": {
+      "gates": "pass",
+      "e2e-ui": "pass",
+      "windows-native": "pass",
+      "lab-static-contracts": "pass",
+      "proof": "pass",
+      "build-ui-prebuilt": "pass"
+    },
+    "deployment": {
+      "status": "BLOCKED-403",
+      "workflow": ".github/workflows/main.yml",
+      "mode": "rdp",
+      "runnerTarget": "windows-latest",
+      "runId": null,
+      "attempts": 1,
+      "error": "HTTP 403: Resource not accessible by integration",
+      "operatorAction": "GitHub UI -> Actions -> 'Windows RDP - Tailscale Mission Control (6h ephemeral)' -> Run workflow -> branch main, mode rdp, runner_target windows-latest; the head SHA must be 5f175a6."
+    }
+  },
+  "verifiedAgainst": "main @ 5f175a6db83cdd57132f8ee36cc220e21b506f6c (squash merge of PR #88)"
 }
