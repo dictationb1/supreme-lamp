@@ -179,3 +179,70 @@ test("V4-PS-12 the client-side contract can read every field this publishes", ()
     assert.match(fnReduce, new RegExp("\\b" + key + "\\s*="), "backend never publishes " + key);
   }
 });
+
+test("V4-PS-13 machine-wide counts are taken BEFORE the correlation gate", () => {
+  // REGRESSION (caught on Windows, autologin-lab run 40144661716, stage
+  // `scan-corr-counts`): the counters used to be incremented inside the 4624 /
+  // 4625 branches, i.e. AFTER the correlation gate had already `continue`d for a
+  // foreign event. `count4624`/`count4625` therefore described "events that
+  // matched this client" while claiming to be machine-wide, which is exactly the
+  // inflated-history defect the repair set out to remove. The fix moves the
+  // counting above the gate; this test pins the ORDER structurally so a future
+  // edit cannot quietly move it back.
+  const countAt = fnReduce.indexOf("$c4625++");
+  const gateAt = fnReduce.indexOf("$excludedUser++; if ($srcMatch -eq 'mismatch')");
+  assert.ok(countAt > -1, "the 4625 counter disappeared");
+  assert.ok(gateAt > -1, "the correlation gate disappeared");
+  assert.ok(
+    countAt < gateAt,
+    "the machine-wide count is taken AFTER the correlation gate, so an excluded " +
+      "event vanishes from count4625 and the history is no longer machine-wide"
+  );
+  // The counting line must not be nested inside the id branch that follows.
+  const countLine = fnReduce.slice(fnReduce.lastIndexOf("\n", countAt) + 1, fnReduce.indexOf("\n", countAt));
+  assert.match(countLine, /\$c4624\+\+.*\$c4625\+\+/, "both counts belong in the same pre-gate statement");
+  assert.ok(
+    !/\$c4624\+\+/.test(fnReduce.slice(gateAt)),
+    "a stray $c4624++ survived after the gate"
+  );
+});
+
+test("V4-PS-14 the lab's server-wiring contract still matches the shipped server", () => {
+  // REGRESSION (D9): the Windows lab step asserts literal tokens against
+  // ghrdp-server.ps1 ("the 30s scan lives in the server process, not in the
+  // keep-alive workflow step"). When the R1 collector-spreading refactor
+  // (f56b4ffec) replaced `if (((Get-Date) - $lastLogonScan)...)` with a
+  // `$iterNow` + `$dueLogon` due-flag, the product stayed correct and the lab
+  // assertion went stale - so a green product kept a red cell for a whole
+  // promotion. The same drift had already happened once before this suite
+  // existed. Mirroring the check here costs nothing and fails locally, in
+  // seconds, instead of 11 minutes into a Windows run.
+  const lab = fs.readFileSync(".github/workflows/autologin-lab.yml", "utf8");
+  // Anchor on the failure site, then take the NEAREST preceding token list: a
+  // lazy regex over the whole file can span from an unrelated `foreach` into
+  // this one and "check" tokens that were never in it.
+  const failAt = lab.indexOf("V-Fail 'server-wiring'");
+  assert.ok(failAt > -1, "the lab's server-wiring check moved or vanished; update this lock");
+  const startAt = lab.lastIndexOf("foreach ($tok in @(", failAt);
+  assert.ok(startAt > -1, "the server-wiring token list is gone");
+  const seg = lab.slice(startAt, failAt);
+  const marker = "foreach ($tok";
+  assert.equal(
+    seg.indexOf(marker),
+    seg.lastIndexOf(marker),
+    "a second token list was swallowed into the slice; the anchor needs tightening"
+  );
+  const tokens = [...seg.matchAll(/'([^']*)'/g)].map((x) => x[1]);
+  assert.ok(tokens.length >= 6, "the server-wiring list lost most of its tokens");
+  for (const tok of tokens) {
+    assert.ok(
+      server.includes(tok),
+      "the lab asserts a wiring token the server no longer has (stale lab): " + tok
+    );
+  }
+  // The reduced due-flag form must still be a TIMER: it has to advance its own
+  // last-run stamp and keep the documented interval.
+  assert.match(server, /if \(\$dueLogon\) \{\s*\r?\n\s*\$lastLogonScan = \$iterNow/,
+    "the due logon tick never advances $lastLogonScan");
+  assert.match(server, /\$script:F28IntervalSec = 30\b/, "the 30s logon scan interval is gone");
+});

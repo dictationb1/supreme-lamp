@@ -70,3 +70,26 @@ and it is why the baseline showed 9 failures rather than 7.
 | Search / Files / Settings / Health live operations | **NOT_RUN** | independent of this PR's changes; requires a live backend. |
 | Native RDP re-test on the user's VM | **NOT_RUN** | deliberately not attempted (would end the user's working session). No code path touched. |
 | `main.yml` deployment (mode=rdp, runner_target=windows-latest) | **NOT_RUN** | must run on the **merged** revision, not on this branch. |
+
+---
+
+# Addendum — verification after the merge (lab feedback loop)
+
+The merge itself is not evidence. This section records what the *merged* code did.
+
+| Item | Value | Status |
+|---|---|---|
+| `autologin-lab` run `40144661716` (head `ae5ae2c1`) | job `proof`, step "V: F28 logon-result loop + one-click recovery + fallback gap" | **FAILED** |
+| Failing assertion | `[V] stage=scan-corr-counts :: … got excluded=1 count4625=0` | real defect **D8** |
+| `e2e-ui` / `launch-gates` / `F59 build-ui` (same push) | — | not read in this addendum |
+| Fix commit | `ae9e64e93bc4f00fb856f7bb90be9e7ed568180c` | pushed to the session branch, PR `#80` |
+| Local gates on the fix | `node --test tests/*.test.js` → **930 pass / 0 fail / 26 skipped** (was 929; +`V4-PS-13`) | PASS |
+| Windows re-execution of `scan-corr-counts` | requires a lab run on `ae9e64e93bc4f00fb856f7bb90be9e7ed568180c` | **PENDING** (not claimed) |
+
+D8 is described in `defects-and-reproductions.md` (Addendum). The two other red
+cells in that run (`x` F30, `y` F31c, both `0x8009030D` runner key-ACL failures)
+are reproduced identically in pre-merge run `40122884082` and are **not**
+regressions of this repair.
+
+Standing honesty note, unchanged: no deployed SHA exists. `main.yml` was never
+dispatched, so nothing in this bundle describes a running instance.
