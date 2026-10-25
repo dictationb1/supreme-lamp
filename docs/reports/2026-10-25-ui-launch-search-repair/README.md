@@ -17,12 +17,11 @@ Branch: `arena/046926e8-supreme-lamp` · base `ae36035` (cut from `main` `e067bc
 ## Immutable links
 
 These files are addressed by commit, not by branch, so they stay valid after
-`main` moves. `promotion.json` records the merge commit; use it as the `<sha>`
-placeholder below once merged:
+`main` moves. The revision below is the real squash-merge commit of PR #88:
 
 ```
-https://github.com/dictationb1/supreme-lamp/blob/<sha>/docs/reports/2026-10-25-ui-launch-search-repair/REPORT-si.md
-https://github.com/dictationb1/supreme-lamp/raw/<sha>/docs/reports/2026-10-25-ui-launch-search-repair/REPORT-si.md
+https://github.com/dictationb1/supreme-lamp/blob/5f175a6db83cdd57132f8ee36cc220e21b506f6c/docs/reports/2026-10-25-ui-launch-search-repair/REPORT-si.md
+https://github.com/dictationb1/supreme-lamp/raw/5f175a6db83cdd57132f8ee36cc220e21b506f6c/docs/reports/2026-10-25-ui-launch-search-repair/REPORT-si.md
 ```
 
 Nothing in this bundle is a mock-up: every table row either names a command that

@@ -3,6 +3,7 @@
 **දිනය:** 2026-10-25
 **පරීක්ෂා කළ යෙදුම් සංස්කරණය (revision):** `ae360351eb3fea434f482af1b9e9db48025936a7`
 **ශාඛාව:** `arena/046926e8-supreme-lamp` (පදනම: `main` @ `e067bcef5ff97287bbc79345fa6a55cd8f3fcf31`)
+**PR:** [#88](https://github.com/dictationb1/supreme-lamp/pull/88) · **merge commit:** `5f175a6db83cdd57132f8ee36cc220e21b506f6c`
 **ගොඩනැගූ single-file bundle sha256:** `9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff`
 
 මෙම වාර්තාව විස්තර කරන්නේ **සත්‍ය වශයෙන් කොහේද වැරැද්ද තිබුණේ** සහ **මේ ශාඛාවේ කුමක් වෙනස් වුණාද** යන්නයි.
@@ -115,14 +116,30 @@ documentation ගොනු checkout එකේ ඇත්දැයි test එක�
 
 ## 6. APPLICATION_DEPLOYMENT
 
-* PR සහ merge තත්ත්වය මෙම ෆයිල් එකේ **පහළින්** `promotion.json` එකේ සහ
-  `docs/reports/mission-control-current-handoff.json` හි සටහන් වේ (merge SHA එකක් නිර්මාණය නොකර, සත්‍ය
-  අගය පමණක්).
-* main.yml නැවත dispatch කිරීම `mode=rdp`, `runner_target=windows-latest` සමඟ උත්සාහ කෙරේ;
-  platform එකෙන් deterministic 403 එකක් ලැබුණහොත් එය එක් වරක් වාර්තා කර, නැවත නොකෙරේ.
-* **කිසිදු deployment සාර්ථක බවක් මෙහි පූර්වයෙන් ප්‍රකාශ නොකෙරේ.**
+| පියවර | සත්‍ය අගය | තත්ත්වය |
+| --- | --- | --- |
+| PR | [#88](https://github.com/dictationb1/supreme-lamp/pull/88) | opened |
+| head commit | `f06017fe598fbff0408ee963f2e6c21c815f216a` | checks all pass |
+| CI checks | gates pass · e2e-ui pass · windows-native pass · Lab static contracts pass · proof pass · build-ui-prebuilt pass | **PASS** |
+| merge | squash merge → `5f175a6db83cdd57132f8ee36cc220e21b506f6c` (2026-10-25T15:11:18Z) | **MERGED** |
+| deploy dispatch | `gh workflow run main.yml --ref main -f mode=rdp -f runner_target=windows-latest` → **HTTP 403 Resource not accessible by integration** | **BLOCKED (403)** |
+| deploy run id | — (dispatch API එකෙන් ධාවනයක් සෑදුනේ නැත) | **NOT RUN** |
 
----
+403 එක **එක් වරක්** පමණක් උත්සාහ කර, එක් වරක් පමණක් වාර්තා කර ඇත. නැවත නැවත උත්සාහ නොකෙරේ —
+එය deterministic අවසර දෝෂයකි. **මෙයින් පසු කළ යුතු මෙහෙයුම්කරුගේ නිශ්චිත ක්‍රියාව:**
+
+1. https://github.com/dictationb1/supreme-lamp/actions/workflows/main.yml විවෘත කරන්න
+2. දකුණු පස **Run workflow** ඔබන්න
+3. Branch: **main** · mode: **rdp** · runner_target: **windows-latest** (අනෙක් inputs default ලෙසම තබන්න)
+4. **Run workflow** ඔබන්න
+5. ධාවනයේ head SHA **`5f175a6`** න් ආරම්භ විය යුතුය — වෙනත් SHA එකක් නම් එය පැරණි revision එකකි
+
+Dashboard URL එක ලැබුණු පසු §7 හි පියවර අනුගමනය කරන්න. එතෙක් **deployment සාර්ථක යැයි නොකියමු**;
+රහස්‍ය/token අගයන් මෙම වාර්තාවට හෝ Git එකට නොලියවේ.
+
+**Rollback:** `main` හි පෙර ස්ථාවරය `e067bcef5ff97287bbc79345fa6a55cd8f3fcf31` යි. අවශ්‍ය නම්
+`git revert 5f175a6` (force-push නොකර) සහ නැවත main.yml dispatch කිරීම ප්‍රමාණවත්ය; launcher/server
+artifact පැරණි ගොනු සමඟ නැවත නිපදවේ.
 
 ## 7. USER_VM_ACCEPTANCE (පරිශීලක VM පිළිගැනීම) — **PENDING**
 
