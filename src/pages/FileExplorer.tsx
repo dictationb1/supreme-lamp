@@ -33,7 +33,7 @@ import { useExplorerQueueStore } from "@/lib/explorer/queueStore";
 import { useToastStore } from "@/stores/toastStore";
 import { copyText } from "@/lib/clipboard";
 import { PageHeader } from "@/components/primitives/PageHeader";
-import { isDevMode } from "@/pages/search/devFixture";
+import { isDevMode } from "@/lib/devMode";
 import { hasDashToken } from "@/lib/dashToken";
 import { useListing } from "@/lib/explorer/useListing";
 import { ExplorerListingState } from "./file-explorer/ExplorerListingState";

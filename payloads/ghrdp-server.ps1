@@ -5203,9 +5203,15 @@ function Invoke-ClientRequest {
             # The hardened fetch: https only, same-host (www-tolerant), 10s, 2MB,
             # no cookies / no auth headers, same-host redirects only (max 3 hops).
             function Invoke-F78SecureFetch {
-                param([string]$Url, [string]$ExpectedHost, [int]$MaxBytes, [int]$TimeoutSec, [switch]$AllowCrossDomain)
+                # [LAB-INSPECT-2026-10-25] -AllowedHosts is the PER-SOURCE set of
+                # literal hosts this ONE inspection may follow a redirect to. It
+                # never replaces the exact-host fence: the fence is still checked
+                # first, and every redirect hop is re-checked against the same
+                # set. No wildcard, no suffix match, no global allowlist.
+                param([string]$Url, [string]$ExpectedHost, [int]$MaxBytes, [int]$TimeoutSec, [switch]$AllowCrossDomain, [string[]]$AllowedHosts = @())
                 try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch { }
                 $f78Cur = $Url
+                $f78Hops = @()
                 for ($f78Hop = 0; $f78Hop -lt 3; $f78Hop++) {
                     $f78Uri = $null
                     try { $f78Uri = [System.Uri]$f78Cur } catch { $f78Uri = $null }
@@ -5216,7 +5222,14 @@ function Invoke-ClientRequest {
                     # PROVED it resolves to. Re-checked on every redirect hop.
                     $f78HostOk = Test-F78SameHost -Allowed $ExpectedHost -Actual $f78Uri.Host
                     if (-not $f78HostOk) { $f78HostOk = Test-F78AllowedHost -ExpectedHost $ExpectedHost -ActualHost $f78Uri.Host -AllowCrossDomain ([bool]$AllowCrossDomain) }
-                    if (-not $f78HostOk) { return @{ ok = $false; code = 'HOSTNAME_MISMATCH'; httpStatus = 403 } }
+                    if (-not $f78HostOk) {
+                        foreach ($f78AllowedLiteral in @($AllowedHosts)) {
+                            if ($f78AllowedLiteral -and (Test-F78SameHost -Allowed ([string]$f78AllowedLiteral) -Actual $f78Uri.Host)) { $f78HostOk = $true; break }
+                        }
+                    }
+                    if (-not $f78HostOk) {
+                        return @{ ok = $false; code = 'HOSTNAME_MISMATCH'; httpStatus = 403; host = ([string]$f78Uri.Host.ToLowerInvariant()); url = [string]$f78Cur; redirects = @($f78Hops) }
+                    }
                     $f78Req = $null
                     $f78Resp = $null
                     try {
@@ -5242,8 +5255,9 @@ function Invoke-ClientRequest {
                     try { $f78Loc = [string]$f78Resp.Headers['Location'] } catch { $f78Loc = '' }
                     if ($f78Code -ge 300 -and $f78Code -lt 400) {
                         try { $f78Resp.Close() } catch { }
-                        if (-not $f78Loc) { return @{ ok = $false; code = 'REDIRECT_REFUSED'; httpStatus = 502 } }
-                        try { $f78Cur = ([System.Uri]::new($f78Uri, $f78Loc)).AbsoluteUri } catch { return @{ ok = $false; code = 'REDIRECT_REFUSED'; httpStatus = 502 } }
+                        if (-not $f78Loc) { return @{ ok = $false; code = 'REDIRECT_REFUSED'; httpStatus = 502; host = ([string]$f78Uri.Host.ToLowerInvariant()); url = [string]$f78Cur } }
+                        try { $f78Cur = ([System.Uri]::new($f78Uri, $f78Loc)).AbsoluteUri } catch { return @{ ok = $false; code = 'REDIRECT_REFUSED'; httpStatus = 502; host = ([string]$f78Uri.Host.ToLowerInvariant()); url = [string]$f78Cur } }
+                        $f78Hops += [string]$f78Uri.Host.ToLowerInvariant()
                         continue
                     }
                     if ($f78Code -ne 200) {
@@ -5267,7 +5281,7 @@ function Invoke-ClientRequest {
                             $f78Ms.Write($f78Buf, 0, $f78Read)
                         }
                         $f78Bytes = $f78Ms.ToArray()
-                        return @{ ok = $true; code = 'OK'; httpStatus = 200; text = [System.Text.Encoding]::UTF8.GetString($f78Bytes); bytes = $f78Bytes.Length; host = $f78Uri.Host.ToLowerInvariant() }
+                        return @{ ok = $true; code = 'OK'; httpStatus = 200; text = [System.Text.Encoding]::UTF8.GetString($f78Bytes); bytes = $f78Bytes.Length; host = $f78Uri.Host.ToLowerInvariant(); url = [string]$f78Cur; redirects = @($f78Hops) }
                     } catch {
                         return @{ ok = $false; code = 'TRANSPORT_UNAVAILABLE'; httpStatus = 502 }
                     } finally {
@@ -5589,7 +5603,7 @@ function Invoke-ClientRequest {
             # is about to be fetched passes the same Test-F78SameHost fence the
             # F81 sitemap branch used for its rows.
             function Expand-F86SitemapXml {
-                param([string]$Xml, [string]$SourceUrl, [string]$f78Host)
+                param([string]$Xml, [string]$SourceUrl, [string]$f78Host, [string[]]$AllowedHosts = @())
                 $f86R = [ordered]@{ urls = @(); mode = 'urlset'; fetched = 0; subSitemaps = 0; capHit = $false }
                 $f86Locs = New-Object System.Collections.ArrayList
                 $f86Xml = [string]$Xml
@@ -5609,10 +5623,16 @@ function Invoke-ClientRequest {
                         $f78SLink = $null
                         try { $f78SLink = [System.Uri]$f86Sub } catch { $f78SLink = $null }
                         if (-not $f78SLink -or $f78SLink.Scheme -ne 'https') { continue }
-                        if (-not (Test-F78SameHost -Allowed $f78Host -Actual $f78SLink.Host)) { continue }
+                        $f86SubHostOk = Test-F78SameHost -Allowed $f78Host -Actual $f78SLink.Host
+                        if (-not $f86SubHostOk) {
+                            foreach ($f86AllowedLiteral in @($AllowedHosts)) {
+                                if ($f86AllowedLiteral -and (Test-F78SameHost -Allowed ([string]$f86AllowedLiteral) -Actual $f78SLink.Host)) { $f86SubHostOk = $true; break }
+                            }
+                        }
+                        if (-not $f86SubHostOk) { continue }
                         $f86Taken++
                         $f86R.subSitemaps++
-                        $f86SubFetch = Invoke-F78SecureFetch -Url ([string]$f78SLink.AbsoluteUri) -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8
+                        $f86SubFetch = Invoke-F78SecureFetch -Url ([string]$f78SLink.AbsoluteUri) -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8 -AllowedHosts $AllowedHosts
                         if (-not $f86SubFetch.ok) { continue }
                         $f86R.fetched++
                         foreach ($f86M in [regex]::Matches([string]$f86SubFetch.text, '(?is)<loc>\s*([^<]+?)\s*</loc>')) {
@@ -5634,11 +5654,11 @@ function Invoke-ClientRequest {
             }
 
             function Invoke-F86SitemapFetch {
-                param([string]$Url, [string]$f78Host)
+                param([string]$Url, [string]$f78Host, [string[]]$AllowedHosts = @())
                 $f86R = [ordered]@{ urls = @(); mode = ''; fetched = 0; subSitemaps = 0; capHit = $false; ok = $false }
-                $f86First = Invoke-F78SecureFetch -Url $Url -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8
+                $f86First = Invoke-F78SecureFetch -Url $Url -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8 -AllowedHosts $AllowedHosts
                 if (-not $f86First.ok) { return $f86R }
-                $f86Expanded = Expand-F86SitemapXml -Xml ([string]$f86First.text) -SourceUrl $Url -f78Host $f78Host
+                $f86Expanded = Expand-F86SitemapXml -Xml ([string]$f86First.text) -SourceUrl $Url -f78Host $f78Host -AllowedHosts $AllowedHosts
                 $f86R.urls = @($f86Expanded.urls)
                 $f86R.mode = [string]$f86Expanded.mode
                 $f86R.fetched = [int]$f86Expanded.fetched + 1
@@ -5890,6 +5910,16 @@ function Invoke-ClientRequest {
                 $f78ProbeReason = 'no-response'
                 $f78ProbeDetail = ''
                 $f78CanonicalHost = ''
+                # [LAB-INSPECT-2026-10-25] THE FACT THAT WAS BEING THROWN AWAY.
+                # awesome.re is a redirect service: its probe answers from
+                # github.com. Test-F78SameHost correctly refuses to call that the
+                # same site, so canonicalHostname stayed empty and every later
+                # /api/lab/inspect on the source hit HOSTNAME_MISMATCH on the
+                # redirect hop. The probe DID observe the target - it just never
+                # recorded it. It is recorded now, as `redirectHostname`: one
+                # literal host, https-verified by the probe, scoped to this one
+                # source row and never added to the global host allowlist.
+                $f78RedirectHost = ''
                 try {
                     $f78ProbeUri = [System.Uri]$f78Base
                     $f78ProbeReq = [System.Net.HttpWebRequest]::Create($f78ProbeUri)
@@ -5927,6 +5957,7 @@ function Invoke-ClientRequest {
                                 if ($f78FinalUri -and $f78FinalUri.Host) {
                                     $f78FinalHost = $f78FinalUri.Host.ToLowerInvariant()
                                     if ($f78FinalHost -and (Test-F78SameHost -Allowed $f78ProbeUri.Host -Actual $f78FinalHost)) { $f78CanonicalHost = $f78FinalHost }
+                                    elseif ($f78FinalHost) { $f78RedirectHost = $f78FinalHost }
                                 }
                             } catch { }
                         } else {
@@ -5967,6 +5998,7 @@ function Invoke-ClientRequest {
                     baseUrl = $f78Origin
                     hostname = $f78Host
                     canonicalHostname = $f78CanonicalHost
+                    redirectHostname = $f78RedirectHost
                     labMode = $true
                     category = 'software'
                     allowedDomains = @($f78Host)
@@ -7079,146 +7111,43 @@ function Invoke-ClientRequest {
                 $f78SourceUrl = $f78SourceUrl.Trim()
                 if ($f78SourceUrl.Length -gt 2048) { $f78SourceUrl = $f78SourceUrl.Substring(0, 2048) }
                 $f78Query = $f78Query.Trim()
-                if (-not $f78SourceId) {
-                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
-                    return
-                }
-                if (-not $script:F78Sources.ContainsKey($f78SourceId)) {
-                    Send-ClientResponse -Stream $stream -Code 404 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'NOT_FOUND' -MessageKey 'lab.notFound' -RetryAfter 0))
-                    return
-                }
-                $f78Src = $script:F78Sources[$f78SourceId]
-                if ($f78Src.labMode -ne $true) {
-                    Send-ClientResponse -Stream $stream -Code 403 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'FORBIDDEN' -MessageKey 'lab.notFound' -RetryAfter 0))
-                    return
-                }
-                $f78Host = [string]$f78Src.hostname
-                # [F90 §B.1] same fence as before, plus the hosts THIS source
-                # already proved it resolves to (registered only after a
-                # successful cross-domain markdown-section fetch). Scoped to the
-                # source's own hostname, so it never widens another site.
-                $f78HostAllowed = $false
-                if ($f78Host -and $script:F78AllowHosts.ContainsKey($f78Host)) { $f78HostAllowed = $true }
-                if (-not $f78HostAllowed -and $f78Host -and $script:F88CrossDomainHosts.ContainsKey($f78Host.ToLowerInvariant())) { $f78HostAllowed = $true }
-                if (-not $f78HostAllowed) {
-                    Send-ClientResponse -Stream $stream -Code 403 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'HOSTNAME_MISMATCH' -MessageKey 'lab.hostnameMismatch' -RetryAfter 0))
-                    return
-                }
-                # 10 fetches/minute per sourceId (the route's whole budget).
-                $f78Now = (Get-Date).ToUniversalTime()
-                $f78Hits = @()
-                if ($script:F78LabInspectRateLimiter.ContainsKey($f78SourceId)) { $f78Hits = @($script:F78LabInspectRateLimiter[$f78SourceId]) }
-                $f78Hits = @($f78Hits | Where-Object { ($f78Now - $_).TotalSeconds -lt 60 })
-                if ($f78Hits.Count -ge 10) {
-                    $f78Retry = [int][Math]::Ceiling(60 - ($f78Now - $f78Hits[0]).TotalSeconds)
-                    if ($f78Retry -lt 1) { $f78Retry = 1 }
-                    Send-ClientResponse -Stream $stream -Code 429 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'RATE_LIMITED' -MessageKey 'lab.rateLimited' -RetryAfter $f78Retry))
-                    Write-ClientAudit ('f78 lab rate-limited id=' + $f78SourceId)
-                    return
-                }
-                $f78Hits += $f78Now
-                $script:F78LabInspectRateLimiter[$f78SourceId] = $f78Hits
-                # [F81 §3.1/Q4] Sitemap-first deep content. The sitemap fetch is
-                # a second GET (counts toward the same per-source 10/min
-                # budget). When sitemap is missing or invalid the route
-                # transparently falls back to homepage link extraction (the
-                # F78 behaviour); the response now exposes which path served
-                # the data via `source` and `adapterStatus.phase`.
-                $f78Phase = 'homepage-fallback'
-                $f78SourceLabel = 'homepage'
-                $f78SourceUrls = 0
-                $f78LinksOut = @()
-                $f78LinkCount = 0
-                $f78MatchCount = 0
-                $f78Html = ''
-                $f78Title = ''
-                $f78BaseUri = $null
-                try { $f78BaseUri = [System.Uri]([string]$f78Src.baseUrl) } catch { $f78BaseUri = $null }
-                $f78Needle = ''
-                if ($f78Query) {
-                    $f78Needle = $f78Query
-                    try { $f78Needle = [System.Uri]::UnescapeDataString($f78Query) } catch { $f78Needle = $f78Query }
-                    $f78Needle = $f78Needle.ToLowerInvariant()
-                }
-                $f81Sitemap = Invoke-F78SecureFetch -Url ($f78Src.baseUrl.TrimEnd('/') + '/sitemap.xml') -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8
-                if ($f81Sitemap.ok) {
-                    $f78Phase = 'sitemap-ok'
-                    $f78SourceLabel = 'sitemap.xml'
-                    $f78SitemapXml = [string]$f81Sitemap.text
-                    foreach ($f78Sm in [regex]::Matches($f78SitemapXml, '(?is)<loc>\s*([^<]+?)\s*</loc>')) {
-                        if ($f78LinksOut.Count -ge 500) { break }
-                        $f78Loc = [string]$f78Sm.Groups[1].Value.Trim()
-                        if (-not $f78Loc) { continue }
-                        $f78SLink = $null
-                        try { $f78SLink = [System.Uri]$f78Loc } catch { $f78SLink = $null }
-                        if (-not $f78SLink -or $f78SLink.Scheme -ne 'https') { continue }
-                        if (-not (Test-F78SameHost -Allowed $f78Host -Actual $f78SLink.Host)) { continue }
-                        $f78UrlPath = ''
-                        try { $f78UrlPath = [string]$f78SLink.AbsolutePath } catch { $f78UrlPath = '' }
-                        $f78Text = if ($f78UrlPath.Length -gt 0) { $f78UrlPath } else { [string]$f78SLink.AbsoluteUri }
-                        $f78UrlPathLower = $f78UrlPath.ToLowerInvariant()
-                        $f78IsMatch = $false
-                        if ($f78Needle) {
-                            if ($f78UrlPathLower.Contains($f78Needle) -or ([string]$f78SLink.AbsoluteUri).ToLowerInvariant().Contains($f78Needle)) { $f78IsMatch = $true }
-                        }
-                        $f78LinkCount++
-                        if ($f78IsMatch) { $f78MatchCount++ }
-                        $f78LinksOut += [ordered]@{ text = $f78Text; href = ([string]$f78SLink.AbsoluteUri); matches = $f78IsMatch }
-                    }
-                    $f78SourceUrls = $f78LinkCount
-                } else {
-                    $f78Phase = 'homepage-fallback'
-                    $f78SourceLabel = 'homepage'
-                    $f78Fetch = Invoke-F78SecureFetch -Url ([string]$f78Src.baseUrl) -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10
-                    if (-not $f78Fetch.ok) {
-                        $f78ErrKey = 'lab.timeout'
-                        if ($f78Fetch.code -eq 'SIZE_LIMIT') { $f78ErrKey = 'lab.sizeLimit' }
-                        elseif ($f78Fetch.code -eq 'HOSTNAME_MISMATCH') { $f78ErrKey = 'lab.hostnameMismatch' }
-                        Send-ClientResponse -Stream $stream -Code ([int]$f78Fetch.httpStatus) -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code ([string]$f78Fetch.code) -MessageKey $f78ErrKey -RetryAfter 0))
-                        Write-ClientAudit ('f78 lab fetch failed id=' + $f78SourceId + ' code=' + [string]$f78Fetch.code)
-                        return
-                    }
-                    $f78Html = [string]$f78Fetch.text
-                    foreach ($f78Match in [regex]::Matches($f78Html, '(?is)<a\b[^>]*href\s*=\s*["'']([^"'']+)["''][^>]*>(.*?)</a>')) {
-                        if ($f78LinksOut.Count -ge 500) { break }
-                        $f78HrefRaw = [string]$f78Match.Groups[1].Value
-                        $f78Text = ConvertTo-F78PlainText $f78Match.Groups[2].Value
-                        if (-not $f78HrefRaw) { continue }
-                        if ($f78HrefRaw.StartsWith('#')) { continue }
-                        if ($f78HrefRaw -match '^(?i)(mailto:|javascript:|data:|tel:)') { continue }
-                        $f78Abs = ''
-                        try {
-                            if ($f78HrefRaw -match '^(?i)https?://') { $f78Abs = ([System.Uri]$f78HrefRaw).AbsoluteUri }
-                            elseif ($f78BaseUri) { $f78Abs = ([System.Uri]::new($f78BaseUri, $f78HrefRaw)).AbsoluteUri }
-                            else { $f78Abs = '' }
-                        } catch { $f78Abs = '' }
-                        if (-not $f78Abs) { continue }
-                        if (-not $f78Abs.StartsWith('https://')) { continue }
-                        $f78LinkHost = ''
-                        try { $f78LinkHost = ([System.Uri]$f78Abs).Host.ToLowerInvariant() } catch { continue }
-                        if (-not (Test-F78SameHost -Allowed $f78Host -Actual $f78LinkHost)) { continue }
-                        $f78LinkCount++
-                        $f78IsMatch = $false
-                        if ($f78Needle) {
-                            $f78Hay = $f78Text + ' ' + $f78Abs
-                            try { $f78Hay = [System.Uri]::UnescapeDataString($f78Hay) } catch { }
-                            if ($f78Hay.ToLowerInvariant().Contains($f78Needle)) { $f78IsMatch = $true }
-                        }
-                        if ($f78IsMatch) { $f78MatchCount++ }
-                        $f78LinksOut += [ordered]@{ text = $f78Text; href = $f78Abs; matches = $f78IsMatch }
-                    }
-                    $f78SourceUrls = $f78LinkCount
-                }
-                try {
-                    $f78TitleMatch = [regex]::Match($f78Html, '(?is)<title[^>]*>(.*?)</title>')
-                    if ($f78TitleMatch.Success) { $f78Title = ConvertTo-F78PlainText $f78TitleMatch.Groups[1].Value }
-                } catch { $f78Title = '' }
-                if (-not $f78SourceId -and -not $f78SourceUrl) {
-                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
-                    return
-                }
+                # =================================================================
+                # [LAB-INSPECT-2026-10-25] MODE FIRST, THEN VALIDATE THAT MODE.
+                #
+                # Two reproduced defects lived in this one route:
+                #   A. a stored source (awesome.re) answered HOSTNAME_MISMATCH,
+                #      because the save probe refuses to call github.com "the
+                #      same site" (correctly) and the route had no other way to
+                #      learn which host that source legitimately redirects to;
+                #   B. deep inspection of a RESULT answered one generic error,
+                #      because the route validated `sourceId` BEFORE it looked at
+                #      `sourceUrl` - so the result-view mode further down could
+                #      never execute at all. Every {sourceUrl, query} POST was
+                #      rejected by the "missing sourceId" 400 at the top.
+                # The route also carried two entire pipelines and charged the
+                # 10-fetches/minute budget twice for a single inspection.
+                #
+                # The contract now, in this order:
+                #   1. SELECT the mode (stored source | result URL); 400 ONLY
+                #      when neither identity is present.
+                #   2. VALIDATE that one mode completely (404/403 for a source,
+                #      https + no-userinfo + <=2048 for a result URL).
+                #   3. CHARGE the budget exactly once, keyed by the inspected
+                #      identity (sourceId, or url:<host>).
+                #   4. RUN the one pipeline below, then write ONE response.
+                # =================================================================
                 $f78ResultMode = $false
-                if ($f78SourceId) {
+                $f78RateKey = ''
+                $f78AllowedHosts = @()
+                $f78ServedHost = ''
+                $f78RedirectChain = @()
+                $f78Mode = ''
+                if ($f78SourceId) { $f78Mode = 'source' } elseif ($f78SourceUrl) { $f78Mode = 'result' }
+                if (-not $f78Mode) {
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
+                    return
+                }
+                if ($f78Mode -eq 'source') {
                     if (-not $script:F78Sources.ContainsKey($f78SourceId)) {
                         Send-ClientResponse -Stream $stream -Code 404 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'NOT_FOUND' -MessageKey 'lab.notFound' -RetryAfter 0))
                         return
@@ -7228,21 +7157,52 @@ function Invoke-ClientRequest {
                         Send-ClientResponse -Stream $stream -Code 403 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'FORBIDDEN' -MessageKey 'lab.notFound' -RetryAfter 0))
                         return
                     }
-                    $f78Host = [string]$f78Src.hostname
+                    $f78Host = ([string]$f78Src.hostname).Trim().ToLowerInvariant()
+                    # The save-time host fence is still the gate for a stored
+                    # source: only a host that was registered when the source was
+                    # added (or hydrated from the persisted store) may be looked
+                    # at. Everything below only ADDS the hosts this one source
+                    # demonstrably resolves to; it never widens the fence for
+                    # another site.
                     if (-not $f78Host -or -not $script:F78AllowHosts.ContainsKey($f78Host)) {
                         Send-ClientResponse -Stream $stream -Code 403 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'HOSTNAME_MISMATCH' -MessageKey 'lab.hostnameMismatch' -RetryAfter 0))
                         return
                     }
+                    $f78AllowedHosts += $f78Host
+                    # (a) the host the save probe actually answered from, when it
+                    #     was the same site (www-tolerant) - F84 behaviour;
+                    # (b) the host a cross-site probe redirect landed on, now
+                    #     recorded as `redirectHostname` at save time. Both are
+                    #     literal hosts observed by this application, per source.
+                    try { if ($f78Src.canonicalHostname) { $f78AllowedHosts += ([string]$f78Src.canonicalHostname).Trim().ToLowerInvariant() } } catch { }
+                    try { if ($f78Src.redirectHostname) { $f78AllowedHosts += ([string]$f78Src.redirectHostname).Trim().ToLowerInvariant() } } catch { }
+                    # (c) the hosts a bundled site hint declares for THIS host
+                    #     (readme/search endpoints are frequently on the CDN host
+                    #     that serves the site's own content). Hints are shipped
+                    #     data, not operator input, and each entry is one literal
+                    #     host - never a pattern.
+                    $f78HintHosts = Get-F86SiteHint -HostName $f78Host
+                    if ($f78HintHosts) {
+                        foreach ($f78HintField in @('readmeUrl', 'redirectTo', 'searchEndpoint')) {
+                            $f78HintHost = ''
+                            try { $f78HintHost = ([System.Uri]([string]$f78HintHosts.$f78HintField)).Host.ToLowerInvariant() } catch { $f78HintHost = '' }
+                            if ($f78HintHost) { $f78AllowedHosts += $f78HintHost }
+                        }
+                    }
+                    # (d) the hosts this source already PROVED it resolves to
+                    #     (registered only after a successful cross-domain fetch).
+                    if ($script:F88CrossDomainHosts.ContainsKey(($f78Host -replace '^www\.', ''))) {
+                        foreach ($f78ProvenHost in @($script:F88CrossDomainHosts[($f78Host -replace '^www\.', '')])) { $f78AllowedHosts += ([string]$f78ProvenHost).Trim().ToLowerInvariant() }
+                    }
+                    $f78AllowedHosts = @($f78AllowedHosts | Where-Object { $_ } | Select-Object -Unique)
+                    $f78RateKey = $f78SourceId
                 } else {
-                    # [F86 §B.2] RESULT-VIEW mode. The Lab opened on a RESULT id
-                    # (not a stored site), so the client sends the result's own
-                    # sourceUrl and the server inspects THAT page: same transport
-                    # as /api/preview (https only, no userinfo, <=2048, 2MB cap,
-                    # ExpectedHost is the URL's own host), same same-host href
-                    # fence, same 500-row payload cap. No sitemap crawl runs here
-                    # - the target is one page, not a site root - and the
-                    # 10-fetches/minute limiter keys on the host instead of a
-                    # sourceId.
+                    # [F86 §B.2] RESULT-VIEW mode: the Lab opened on a RESULT, so
+                    # the result's own sourceUrl is the inspected target. Same
+                    # transport fences as /api/preview: https only, no userinfo,
+                    # <=2048, 2MB cap, ExpectedHost is the URL's own host, href
+                    # extraction stays same-host. No sitemap crawl runs here - the
+                    # target is one page, not a site root.
                     if (-not $f78SourceUrl.StartsWith('https://')) {
                         Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{ code = 'VALIDATION_ERROR'; messageKey = 'newSiteHttpsRequired' }))
                         return
@@ -7253,12 +7213,16 @@ function Invoke-ClientRequest {
                         Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{ code = 'VALIDATION_ERROR'; messageKey = 'newSiteAuthNotAllowed' }))
                         return
                     }
-                    $f78Host = [string]$f78ResultUri.Host.ToLowerInvariant()
+                    $f78Host = ([string]$f78ResultUri.Host).Trim().ToLowerInvariant()
                     if (-not $f78Host) {
                         Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
                         return
                     }
                     $f78ResultMode = $true
+                    # A result URL may follow a redirect only to its OWN host,
+                    # www-tolerant: no cross-site hop is allowed from a result id,
+                    # so an operator-supplied URL cannot be used as an SSRF hop.
+                    $f78AllowedHosts = @($f78Host)
                     $f78Src = [ordered]@{
                         id = ('f86-result-' + $f78Host)
                         name = $f78Host
@@ -7267,11 +7231,12 @@ function Invoke-ClientRequest {
                         labMode = $true
                         resultMode = $true
                     }
+                    $f78RateKey = 'url:' + $f78Host
                 }
-                # 10 fetches/minute per inspected key (the route's whole budget):
-                # the stored sourceId, or the host for a result-view inspection.
-                $f78RateKey = $f78SourceId
-                if (-not $f78RateKey) { $f78RateKey = 'url:' + $f78Host }
+                # ONE budget charge per inspection (10 fetches/minute). The two
+                # previous implementations charged the same budget twice for one
+                # request, so an operator retry could be refused by budget the
+                # request had itself consumed.
                 $f78Now = (Get-Date).ToUniversalTime()
                 $f78Hits = @()
                 if ($script:F78LabInspectRateLimiter.ContainsKey($f78RateKey)) { $f78Hits = @($script:F78LabInspectRateLimiter[$f78RateKey]) }
@@ -7345,9 +7310,9 @@ function Invoke-ClientRequest {
                     if (-not $f88Primary) {
                     # The F81 default fetch, unchanged in form: the root sitemap
                     # is always tried first.
-                    $f81Sitemap = Invoke-F78SecureFetch -Url ($f78Src.baseUrl.TrimEnd('/') + '/sitemap.xml') -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8
+                    $f81Sitemap = Invoke-F78SecureFetch -Url ($f78Src.baseUrl.TrimEnd('/') + '/sitemap.xml') -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 8 -AllowedHosts $f78AllowedHosts
                     if ($f81Sitemap.ok) {
-                        $f78Expanded = Expand-F86SitemapXml -Xml ([string]$f81Sitemap.text) -SourceUrl ($f78Src.baseUrl.TrimEnd('/') + '/sitemap.xml') -f78Host $f78Host
+                        $f78Expanded = Expand-F86SitemapXml -Xml ([string]$f81Sitemap.text) -SourceUrl ($f78Src.baseUrl.TrimEnd('/') + '/sitemap.xml') -f78Host $f78Host -AllowedHosts $f78AllowedHosts
                         $f78CandidateUrls = @($f78Expanded.urls)
                         $f78Phase = 'sitemap-ok'
                         $f78SourceLabel = 'sitemap.xml'
@@ -7360,7 +7325,7 @@ function Invoke-ClientRequest {
                         if ($f78SmPath -eq '/sitemap.xml') { continue }
                         $f78SmUrl = ''
                         try { $f78SmUrl = ([System.Uri]::new($f78BaseUri, $f78SmPath)).AbsoluteUri } catch { $f78SmUrl = $f78Src.baseUrl.TrimEnd('/') + $f78SmPath }
-                        $f78Crawl = Invoke-F86SitemapFetch -Url $f78SmUrl -f78Host $f78Host
+                        $f78Crawl = Invoke-F86SitemapFetch -Url $f78SmUrl -f78Host $f78Host -AllowedHosts $f78AllowedHosts
                         if ($f78Crawl.urls.Count -gt 0) {
                             $f78CandidateUrls = @($f78CandidateUrls) + @($f78Crawl.urls)
                             if ($f78Phase -ne 'sitemap-ok') { $f78Phase = 'sitemap-ok' }
@@ -7379,11 +7344,18 @@ function Invoke-ClientRequest {
                         $f78SpRel = Expand-F86HintPath -Template $f78Sp -Query $f78Query
                         $f78SpUrl = ''
                         try { $f78SpUrl = ([System.Uri]::new($f78BaseUri, $f78SpRel)).AbsoluteUri } catch { $f78SpUrl = $f78Src.baseUrl.TrimEnd('/') + $f78SpRel }
-                        $f78SpFetch = Invoke-F78SecureFetch -Url $f78SpUrl -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10
+                        $f78SpFetch = Invoke-F78SecureFetch -Url $f78SpUrl -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10 -AllowedHosts $f78AllowedHosts
                         if (-not $f78SpFetch.ok) { continue }
                         $f78SpBase = $null
                         try { $f78SpBase = [System.Uri]$f78SpUrl } catch { $f78SpBase = $f78BaseUri }
-                        foreach ($f78Row in @(Get-F86AnchorLinks -Html ([string]$f78SpFetch.text) -BaseUri $f78SpBase -f78Host $f78Host)) { $f78CandidateUrls += [string]$f78Row.href }
+                        # Fence on the host that actually served the page, not on
+                        # the typed hostname: when a source legitimately redirects
+                        # (awesome.re -> github.com) the page's own links belong to
+                        # the served host, and fencing them against the typed host
+                        # silently returned zero rows.
+                        $f78SpFence = $f78Host
+                        if ($f78SpFetch.host) { $f78SpFence = [string]$f78SpFetch.host }
+                        foreach ($f78Row in @(Get-F86AnchorLinks -Html ([string]$f78SpFetch.text) -BaseUri $f78SpBase -f78Host $f78SpFence)) { $f78CandidateUrls += [string]$f78Row.href }
                         if ($f78SourceLabel -eq 'homepage') { $f78SourceLabel = 'search' }
                         if ($f78Phase -ne 'sitemap-ok') { $f78Phase = 'hint-search' }
                     }
@@ -7395,11 +7367,13 @@ function Invoke-ClientRequest {
                         $f78CpRel = Expand-F86HintPath -Template $f78Cp -Query $f78Query
                         $f78CpUrl = ''
                         try { $f78CpUrl = ([System.Uri]::new($f78BaseUri, $f78CpRel)).AbsoluteUri } catch { $f78CpUrl = $f78Src.baseUrl.TrimEnd('/') + $f78CpRel }
-                        $f78CpFetch = Invoke-F78SecureFetch -Url $f78CpUrl -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10
+                        $f78CpFetch = Invoke-F78SecureFetch -Url $f78CpUrl -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10 -AllowedHosts $f78AllowedHosts
                         if (-not $f78CpFetch.ok) { continue }
                         $f78CpBase = $null
                         try { $f78CpBase = [System.Uri]$f78CpUrl } catch { $f78CpBase = $f78BaseUri }
-                        foreach ($f78Row in @(Get-F86AnchorLinks -Html ([string]$f78CpFetch.text) -BaseUri $f78CpBase -f78Host $f78Host)) { $f78CandidateUrls += [string]$f78Row.href }
+                        $f78CpFence = $f78Host
+                        if ($f78CpFetch.host) { $f78CpFence = [string]$f78CpFetch.host }
+                        foreach ($f78Row in @(Get-F86AnchorLinks -Html ([string]$f78CpFetch.text) -BaseUri $f78CpBase -f78Host $f78CpFence)) { $f78CandidateUrls += [string]$f78Row.href }
                         if ($f78SourceLabel -eq 'homepage' -or $f78SourceLabel -eq 'search') { $f78SourceLabel = 'catalog' }
                         if ($f78Phase -ne 'sitemap-ok') { $f78Phase = 'hint-catalog' }
                     }
@@ -7410,7 +7384,13 @@ function Invoke-ClientRequest {
                         $f78CUri = $null
                         try { $f78CUri = [System.Uri]([string]$f78Cu) } catch { $f78CUri = $null }
                         if (-not $f78CUri -or $f78CUri.Scheme -ne 'https') { continue }
-                        if (-not (Test-F78SameHost -Allowed $f78Host -Actual $f78CUri.Host)) { continue }
+                        $f78CandHostOk = Test-F78SameHost -Allowed $f78Host -Actual $f78CUri.Host
+                        if (-not $f78CandHostOk) {
+                            foreach ($f78CandAllowed in @($f78AllowedHosts)) {
+                                if ($f78CandAllowed -and (Test-F78SameHost -Allowed ([string]$f78CandAllowed) -Actual $f78CUri.Host)) { $f78CandHostOk = $true; break }
+                            }
+                        }
+                        if (-not $f78CandHostOk) { continue }
                         $f78CuPath = ''
                         try { $f78CuPath = [string]$f78CUri.AbsolutePath } catch { $f78CuPath = '' }
                         $f78CuText = if ($f78CuPath.Length -gt 0) { $f78CuPath } else { [string]$f78CUri.AbsoluteUri }
@@ -7428,23 +7408,36 @@ function Invoke-ClientRequest {
                 # sourceUrl.
                 if ($f78LinksOut.Count -eq 0) {
                     $f78Phase = 'homepage-fallback'
-                    $f78Fetch = Invoke-F78SecureFetch -Url ([string]$f78Src.baseUrl) -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10
+                    $f78Fetch = Invoke-F78SecureFetch -Url ([string]$f78Src.baseUrl) -ExpectedHost $f78Host -MaxBytes 2097152 -TimeoutSec 10 -AllowedHosts $f78AllowedHosts
                     if (-not $f78Fetch.ok) {
                         $f78ErrKey = 'lab.timeout'
                         if ($f78Fetch.code -eq 'SIZE_LIMIT') { $f78ErrKey = 'lab.sizeLimit' }
                         elseif ($f78Fetch.code -eq 'HOSTNAME_MISMATCH') { $f78ErrKey = 'lab.hostnameMismatch' }
-                        Send-ClientResponse -Stream $stream -Code ([int]$f78Fetch.httpStatus) -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code ([string]$f78Fetch.code) -MessageKey $f78ErrKey -RetryAfter 0))
-                        Write-ClientAudit ('f78 lab fetch failed id=' + $f78RateKey + ' code=' + [string]$f78Fetch.code)
+                        $f78ErrDetail = [ordered]@{}
+                        if ($f78Fetch.host) { $f78ErrDetail['offHost'] = [string]$f78Fetch.host }
+                        if ($f78Fetch.url) { $f78ErrDetail['url'] = [string]$f78Fetch.url }
+                        # One error schema: the SAME envelope the rest of the route
+                        # uses, plus the host/URL the refusal was about so the Lab
+                        # can say WHICH redirect was refused instead of "something
+                        # went wrong".
+                        $f78ErrPayload = [ordered]@{ code = [string]$f78Fetch.code; messageKey = $f78ErrKey; retryAfterSeconds = 0 }
+                        if ($f78ErrDetail.Count -gt 0) { $f78ErrPayload['details'] = $f78ErrDetail }
+                        Send-ClientResponse -Stream $stream -Code ([int]$f78Fetch.httpStatus) -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $f78ErrPayload)
+                        Write-ClientAudit ('f78 lab fetch failed id=' + $f78RateKey + ' code=' + [string]$f78Fetch.code + ' host=' + [string]$f78Fetch.host)
                         return
                     }
                     $f78Html = [string]$f78Fetch.text
-                    $f78AnchorRows = @(Get-F86AnchorLinks -Html $f78Html -BaseUri $f78BaseUri -f78Host $f78Host)
+                    if ($f78Fetch.host) { $f78ServedHost = [string]$f78Fetch.host }
+                    if ($f78Fetch.redirects) { $f78RedirectChain = @($f78Fetch.redirects) }
+                    $f78FenceHost = $f78Host
+                    if ($f78ServedHost) { $f78FenceHost = $f78ServedHost }
+                    $f78AnchorRows = @(Get-F86AnchorLinks -Html $f78Html -BaseUri $f78BaseUri -f78Host $f78FenceHost)
                     # [F86 §C.3] A thin homepage (or any result page) gets ONE
                     # level of "obvious index" links followed - browse / catalog /
                     # all / index / archive / search, at most 3, same host only -
                     # and their anchors are unioned in before the row cap applies.
                     if ($f78AnchorRows.Count -lt 50) {
-                        $f78AnchorRows += @(Expand-F86IndexLinks -Html $f78Html -BaseUri $f78BaseUri -f78Host $f78Host)
+                        $f78AnchorRows += @(Expand-F86IndexLinks -Html $f78Html -BaseUri $f78BaseUri -f78Host $f78FenceHost)
                     }
                     $f78Merged = Merge-F86LinkRows -Rows $f78AnchorRows -f78Needle $f78Needle
                     $f78LinksOut = @($f78Merged.links)
@@ -7484,8 +7477,29 @@ function Invoke-ClientRequest {
                     $f88SetM = Merge-F86LinkRows -Rows (@($f88Search.rows)) -f78Needle $f78Needle
                     $f88SourceSets = @([ordered]@{ key = 'search-endpoint'; label = $(if ($f88Search.label) { [string]$f88Search.label } else { 'Search endpoint' }); strategy = [string]$f88Search.strategy; count = [int]$f88SetM.count; links = @($f88SetM.links) }) + @($f88SourceSets)
                 }
+                # [LAB-INSPECT-2026-10-25] KIND + PROVENANCE. The Lab used to
+                # receive a link list with no statement about WHAT was inspected,
+                # so a repository page with no Releases section, a file view and a
+                # failed fetch all rendered as the same shrug. `resultKind` is
+                # derived from the provider's own URL shape (never invented), and
+                # `finalHostname`/`redirectChain` record where the bytes actually
+                # came from when a source redirected.
+                $f78ResultKind = 'page'
+                if ($f78ResultMode) {
+                    $f78KindPath = ''
+                    try { $f78KindPath = [string]$f78ResultUri.AbsolutePath } catch { $f78KindPath = '' }
+                    if ($f78Host -eq 'github.com' -or $f78Host -eq 'www.github.com') {
+                        if ($f78KindPath -match '^/[^/]+/[^/]+/releases') { $f78ResultKind = 'releases' }
+                        elseif ($f78KindPath -match '^/[^/]+/[^/]+/(blob|tree)/') { $f78ResultKind = 'repository-file' }
+                        elseif ($f78KindPath -match '^/[^/]+/[^/]+/?$') { $f78ResultKind = 'repository' }
+                        elseif ($f78KindPath -match '^/[^/]+/?$') { $f78ResultKind = 'repository-owner' }
+                    }
+                }
                 $f78Payload = [ordered]@{
                     hostname = $f78Host
+                    finalHostname = $f78ServedHost
+                    redirectChain = @($f78RedirectChain)
+                    resultKind = $f78ResultKind
                     title = $f78Title
                     links = $f78LinksOut
                     fetchedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')

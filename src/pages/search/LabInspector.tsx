@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, ExternalLink, FlaskConical, RefreshCw } from "lucide-react";
-import { inspectResultUrl, inspectSource, type CustomSourceRow, type LabError, type LabInspectResult } from "@/api/lab";
+import { actionableErrorKey, inspectResultUrl, inspectSource, type CustomSourceRow, type LabError, type LabInspectResult } from "@/api/lab";
 // [F91 §B.2/§C.2] mirror open + the "Open in RDP File Explorer" toast action.
 import { dirnameWindows, openMirrored, queueLauncherJob } from "@/lib/launchUrl";
 import { requestFetch } from "@/lib/fetchStub";
@@ -70,16 +70,28 @@ export function LabInspector(props: LabInspectorProps) {
   const [activeSet, setActiveSet] = useState(0); // [F88 §A.3] source tab
   const [cooldown, setCooldown] = useState(0);
   const alive = useRef(true);
+  // [LAB-INSPECT-2026-10-25] An inspection is EXPENSIVE (the server spends its
+  // 10-fetches/minute budget on it). One key per (target, query) so a duplicate
+  // mount, a StrictMode double-effect or an impatient Refetch cannot run two
+  // pipelines for the same target and burn the budget twice.
+  const inflightKey = useRef<string>("");
+  const lastKey = useRef<string>("");
 
   const q = String(query || "").trim();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { force?: boolean }) => {
+    const key = (source ? "src:" + source.id : "url:" + (result ? result.sourceUrl : "")) + "|" + q;
+    if (inflightKey.current === key) return; // already inspecting this exact target
+    if (!opts?.force && lastKey.current === key && (data || error)) return; // already inspected it
+    inflightKey.current = key;
+    lastKey.current = key;
     setLoading(true);
     setError(null);
     // [F86 §B.2] result-id -> the result's sourceUrl IS the inspected target.
     const res = source
       ? await inspectSource(source.id, q)
       : await inspectResultUrl(result ? result.sourceUrl : "", q);
+    inflightKey.current = "";
     if (!alive.current) return;
     setLoading(false);
     if (res.ok) {
@@ -89,7 +101,7 @@ export function LabInspector(props: LabInspectorProps) {
     }
     setError(res.error);
     if (res.error.code === "RATE_LIMITED") setCooldown(Math.max(1, res.error.retryAfterSeconds ?? 60));
-  }, [source ? source.id : "", result ? result.sourceUrl : "", q]);
+  }, [source ? source.id : "", result ? result.sourceUrl : "", q, data, error]);
 
   useEffect(() => {
     alive.current = true;
@@ -117,7 +129,16 @@ export function LabInspector(props: LabInspectorProps) {
   // homepage stays behind the collapsed "All N links" section. OFF = the whole
   // homepage in server order.
   const visible = matchesFirst ? matches : links;
-  const errorKey = error ? ERROR_KEYS[error.code] || "search.errors.generic" : null;
+  // [LAB-INSPECT-2026-10-25] The error line names the CODE, the server's key and
+  // the sanitized detail. "Something went wrong" is no longer reachable while a
+  // specific, safe code exists.
+  const errorKey = error ? ERROR_KEYS[error.code] || actionableErrorKey(error.code) : null;
+  const errorDetail =
+    error && error.details
+      ? [error.details.offHost ? "off-site host: " + error.details.offHost : "", error.details.url ? "refused url: " + error.details.url : ""]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
 
   return (
     <section id="f78.lab.root" data-testid="lab-inspector" className="w-full max-w-4xl mx-auto p-4 flex flex-col gap-3">
@@ -145,7 +166,7 @@ export function LabInspector(props: LabInspectorProps) {
           data-testid="lab-refetch"
           type="button"
           disabled={loading || cooldown > 0}
-          onClick={() => void load()}
+          onClick={() => void load({ force: true })}
           className="ml-auto h-11 px-3 rounded-md border border-default text-xs text-secondary hover:bg-raised disabled:opacity-50 inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <RefreshCw className={"size-3.5" + (loading ? " animate-spin" : "")} aria-hidden />
@@ -172,6 +193,16 @@ export function LabInspector(props: LabInspectorProps) {
           </span>
         ) : null}
         {/* [F88 §A.3] the visible Source line: strategy + results + timing. */}
+        {data && data.resultKind ? (
+          <span id="f78.lab.resultKind" data-testid="lab-result-kind" data-kind={data.resultKind} className="ml-2 text-tertiary">
+            {t("lab.resultKind", { kind: data.resultKind })}
+          </span>
+        ) : null}
+        {data && data.finalHostname && data.finalHostname !== data.hostname ? (
+          <span id="f78.lab.provenance" data-testid="lab-provenance" data-final-host={data.finalHostname} className="ml-2 text-tertiary">
+            {t("lab.provenance", { finalHost: data.finalHostname, host: data.hostname })}
+          </span>
+        ) : null}
         {data && (data as any).sourceDisplay ? (
           <span id="f78.lab.sourceLine" data-testid="lab-source-line" className="ml-2 text-tertiary">
             {t("lab.sourceLine", {
@@ -240,10 +271,30 @@ export function LabInspector(props: LabInspectorProps) {
         </p>
       ) : null}
 
-      {errorKey ? (
-        <p id="f78.lab.error" data-testid="lab-error" role="alert" className="text-sm text-danger bg-danger/10 rounded p-3">
-          {t(errorKey, { seconds: cooldown })}
-        </p>
+      {errorKey && error ? (
+        <div
+          id="f78.lab.error"
+          data-testid="lab-error"
+          data-code={error.code}
+          data-off-host={error.details?.offHost || ""}
+          role="alert"
+          className="text-sm text-danger bg-danger/10 rounded p-3 flex flex-col gap-1"
+        >
+          <span data-testid="lab-error-message">{t(errorKey, { seconds: cooldown })}</span>
+          <span className="text-xs font-mono text-tertiary" data-testid="lab-error-code">
+            {t("lab.errorCode", { message: error.code, code: error.code })}
+            {errorDetail ? " — " + errorDetail : ""}
+          </span>
+          <button
+            type="button"
+            data-testid="lab-error-retry"
+            disabled={loading || cooldown > 0}
+            onClick={() => void load({ force: true })}
+            className="h-9 w-fit px-2.5 rounded-md border border-default text-xs text-secondary hover:bg-raised disabled:opacity-50"
+          >
+            {t("lab.refetch")}
+          </button>
+        </div>
       ) : null}
 
       {data ? (
@@ -258,6 +309,19 @@ export function LabInspector(props: LabInspectorProps) {
             />
             {t("lab.matchesFirst")}
           </label>
+
+          {visible.length === 0 ? (
+            <p
+              id="f78.lab.empty"
+              data-testid="lab-empty"
+              data-empty-kind={data.linkCount === 0 ? "no-links" : "no-matches"}
+              className="text-xs text-secondary bg-sunken rounded p-3"
+            >
+              {data.linkCount === 0
+                ? t("lab.emptyNoLinks", { host: data.finalHostname || data.hostname })
+                : t("lab.emptyNoMatches", { total: data.linkCount, host: data.finalHostname || data.hostname, query: q })}
+            </p>
+          ) : null}
 
           <ul id="f78.lab.list" data-testid="lab-link-list" className="flex flex-col divide-y divide-default">
             {visible.map((l, i) => (

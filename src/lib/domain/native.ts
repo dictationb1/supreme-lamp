@@ -3,6 +3,7 @@
 // recovery correlator, webdesk guidance, launch gating). PURE: no DOM, no
 // fetch. React components consume these and render.
 import { parseTsUtc, FQDN_RE, CGNAT_RE, USER_RE } from "../format";
+import { actionsUrl, secretsUrl } from "../repoIdentity";
 import { asList } from "./telescope";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,8 +19,13 @@ export const REASON_TEXT: Record<string, string> = {
 };
 
 export const MAGIC_DNS_ADMIN_URL = "https://login.tailscale.com/admin/dns";
-export const SECRETS_URL = "https://github.com/dekarita/supreme-lamp/settings/secrets/actions";
-export const ACTIONS_URL = "https://github.com/dekarita/supreme-lamp/actions";
+// [REPO-IDENTITY-2026-10-25] Both links used to hard-code the OLD owner
+// (`dekarita/supreme-lamp`) while the deployed repository is
+// `dictationb1/supreme-lamp`, so the header's "secrets" / "actions" links landed on
+// a 404 whose URL still carried the wrong owner. They resolve through the one
+// repository-identity module now (build configuration, never a URL parameter).
+export const SECRETS_URL = secretsUrl();
+export const ACTIONS_URL = actionsUrl();
 
 // [F28 §4] credsspVerdict: the SINGLE source both the CREDSSP row and the RDP
 // LISTENER credssp mark render. Live probe first, then the F21 config stamp
@@ -250,30 +256,185 @@ export function logonRowText(authLast: Any, collector: Any, _nowMs?: number): {
   };
 }
 
-// [F28 §2] recoveryDecision: PURE correlator - recovery offered ONLY when the
-// host refused the password (4625 0xC000006A) within 120s of the last
-// mstsc-started beacon.
-export function recoveryDecision(authLast: Any, chain: Any, _nowMs?: number): {
+// [F28 §2] recoveryDecision - PURE correlator: is the FIX & RECONNECT offer
+// allowed to describe the CURRENT attempt?
+//
+// WHAT WAS WRONG. The shipped predicate was: "a 4625 with sub-status
+// 0xC000006A happened within 120 s of the last mstsc-started beacon". The
+// operator's screenshot is that predicate talking: "Password rejected by the
+// host ... 38s BEFORE the last mstsc launch", i.e. the UI attributed an older
+// failure to a newer cancelled attempt, using temporal proximity alone.
+//
+// WHY PROXIMITY IS NOT ATTRIBUTION. A runner keeps a whole window of Security
+// events; another account, another client, an earlier attempt and an automatic
+// retry all land in the same minute. Correlating on the clock alone means:
+//   * an old failure can be presented as this attempt's,
+//   * a cancelled attempt can be turned into a wrong-password claim,
+//   * a genuinely connected session can be shown as failed.
+//
+// WHAT IS REQUIRED NOW (all of it, or the offer is withheld):
+//   1. the deciding event is a FAILED logon whose sub-status is 0xC000006A;
+//   2. it has a REAL event timestamp - the collector's scan time is NOT a
+//      substitute for a missing event time (that substitution is exactly how a
+//      stale incident looked fresh on every poll);
+//   3. identity correlation: the server reports `userMatched === true` (unknown
+//      is NOT a match) and no source mismatch;
+//   4. correlation completeness is `complete` or `partial` - never `none` or
+//      `unavailable`, and `partial` must still have the account match from (3);
+//   5. the attempt correlation: the event must fall inside THIS attempt's window,
+//      anchored on the launcher beacon the client itself triggered - the event
+//      cannot predate the launch, and the launch must be recent enough to be the
+//      attempt being described;
+//   6. no active, correlated Terminal Services session that outlived the failure:
+//      an active session can coexist with a failed new attempt, and in that case
+//      the honest reading is "the session is up, this attempt did not replace it",
+//      not "your password is wrong".
+//
+// `show` is therefore a much stronger statement than it used to be, and every
+// refusing branch says WHICH correlation is missing.
+export interface RecoveryDecision {
   show: boolean;
   why: string;
   dtSec?: number;
   sub?: string;
   beaconTs?: string;
-} {
+  /** Event time the decision used (never the scan time). */
+  eventTs?: string;
+  /** Correlation the server published for the deciding event. */
+  correlation?: string;
+  /** The attempt (trace/rid) the failure is attributed to, when known. */
+  attemptTrace?: string;
+  /** True when the offer depends on a MANUAL password prompt (labelled in the UI). */
+  manualFallback?: boolean;
+}
+
+/** How old a launch may be and still be "the attempt we are describing". */
+export const RECOVERY_ATTEMPT_MAX_AGE_MS = 15 * 60 * 1000;
+/** Allowed clock skew between the runner's event time and the client's beacon. */
+export const RECOVERY_SKEW_MS = 10 * 1000;
+
+export function recoveryDecision(authLast: Any, chain: Any, nowMs?: number): RecoveryDecision {
   if (!authLast || String(authLast.result) !== "failed") return { show: false, why: "no-failed-logon" };
-  if (String(authLast.sub || "").toUpperCase() !== "0XC000006A") return { show: false, why: "sub-not-wrong-password", sub: String(authLast.sub || "") };
+  const sub = String(authLast.sub || "").toUpperCase();
+  if (sub !== "0XC000006A") return { show: false, why: "sub-not-wrong-password", sub };
+
+  // (2) A real event time. `scanTs` is when the collector LOOKED, not when the
+  // event happened; using it made an old failure age zero on every poll.
+  const eventTsRaw = String(authLast.eventTs || "");
+  const eventMs = Date.parse(eventTsRaw);
+  if (!eventTsRaw || !isFinite(eventMs)) return { show: false, why: "no-event-time", sub, eventTs: eventTsRaw };
+
+  // (3) Identity. `userMatched` absent/null means "could not decide" and must not
+  // become a match. A reported source mismatch disqualifies outright.
+  const correlation = String(authLast.correlation || "");
+  const userMatched = authLast.userMatched;
+  const sourceMatch = String(authLast.sourceMatch || "");
+  if (userMatched === false) return { show: false, why: "other-account", correlation, eventTs: eventTsRaw };
+  if (sourceMatch === "mismatch") return { show: false, why: "other-source", correlation, eventTs: eventTsRaw };
+  if (!correlation) return { show: false, why: "correlation-not-reported", eventTs: eventTsRaw };
+  if (correlation === "none") return { show: false, why: "no-correlated-event", correlation, eventTs: eventTsRaw };
+  if (correlation === "unavailable") return { show: false, why: "correlation-unavailable", correlation, eventTs: eventTsRaw };
+  if (userMatched !== true) return { show: false, why: "identity-unknown", correlation, eventTs: eventTsRaw };
+
+  // (6) A live, correlated remote session outlived this failure.
+  const session = authLast.session || null;
+  const sessionActive = !!(session && session.active === true);
+  const sessionRemote = String(session && session.name ? session.name : "").toLowerCase().indexOf("rdp-tcp") >= 0;
+  if (sessionActive && sessionRemote) return { show: false, why: "session-already-active", correlation, eventTs: eventTsRaw };
+
+  // (5) Attempt correlation. The chain is newest-last; take the newest
+  // mstsc-started beacon, and prefer the one whose trace matches the attempt the
+  // client recorded (when the server publishes traces).
   let beacon: Any = null;
   (chain || []).forEach((e: Any) => {
     if (e && /^mstsc-started/.test(String(e.details || ""))) beacon = e;
   });
-  if (!beacon) return { show: false, why: "no-mstsc-started-beacon" };
-  const beaconMs = Date.parse(beacon.ts);
-  const logonMs = Date.parse(authLast.eventTs || authLast.scanTs || "");
-  if (!isFinite(beaconMs) || !isFinite(logonMs)) return { show: false, why: "timestamp-unparsable" };
-  const dtSec = (logonMs - beaconMs) / 1000;
-  if (dtSec < -120) return { show: false, why: "failure-predates-the-launch", dtSec: Math.round(dtSec) };
-  if (dtSec > 120) return { show: false, why: "failure-more-than-120s-after-the-launch", dtSec: Math.round(dtSec) };
-  return { show: true, why: "password-rejected-by-host", dtSec: Math.round(dtSec), beaconTs: String(beacon.ts || "") };
+  if (!beacon) return { show: false, why: "no-mstsc-started-beacon", correlation, eventTs: eventTsRaw };
+  const beaconMs = Date.parse(String(beacon.ts || ""));
+  if (!isFinite(beaconMs)) return { show: false, why: "beacon-time-unparsable", correlation, eventTs: eventTsRaw };
+
+  const attemptTrace = String(authLast.attemptTrace || authLast.trace || "") || undefined;
+  const beaconTrace = String(beacon.trace || beacon.traceId || "") || undefined;
+  if (attemptTrace && beaconTrace && attemptTrace !== beaconTrace) {
+    return { show: false, why: "beacon-belongs-to-another-attempt", correlation, eventTs: eventTsRaw, beaconTs: String(beacon.ts) };
+  }
+
+  const now = typeof nowMs === "number" && isFinite(nowMs) ? nowMs : Date.now();
+  if (now - beaconMs > RECOVERY_ATTEMPT_MAX_AGE_MS) {
+    return { show: false, why: "launch-too-old", correlation, eventTs: eventTsRaw, beaconTs: String(beacon.ts) };
+  }
+
+  const dtSec = Math.round((eventMs - beaconMs) / 1000);
+  if (eventMs < beaconMs - RECOVERY_SKEW_MS) {
+    // The event PREDATES this launch: it is history, not this attempt. This is
+    // the exact case the old code reported as "38s before the last mstsc launch".
+    return { show: false, why: "failure-predates-the-launch", dtSec, correlation, eventTs: eventTsRaw, beaconTs: String(beacon.ts) };
+  }
+  if (eventMs > beaconMs + 120_000) {
+    return { show: false, why: "failure-more-than-120s-after-the-launch", dtSec, correlation, eventTs: eventTsRaw, beaconTs: String(beacon.ts) };
+  }
+
+  return {
+    show: true,
+    why: "password-rejected-by-host",
+    dtSec,
+    sub,
+    beaconTs: String(beacon.ts || ""),
+    eventTs: eventTsRaw,
+    correlation,
+    attemptTrace,
+  };
+}
+
+// ===========================================================================
+// [ATTEMPT-LIFECYCLE-2026-10-25] The honest stage vocabulary for a launch.
+//
+// The dashboard used to collapse everything into "dispatched" or "failed", which
+// meant a pending browser consent prompt, a cancelled native dialog, a missing
+// beacon and a rejected credential all looked the same. They are not the same
+// observation, and only some of them are observations at all.
+//
+// `lifecycleStage()` maps what the browser + server CAN see. Anything the page
+// cannot see ends in `unconfirmed`/`awaiting-handoff` - never in `cancelled`
+// (a lost focus event or a closed popup is not a cancellation) and never in
+// `failed` (silence is not a rejection).
+// ===========================================================================
+export type LifecycleStage =
+  | "idle"
+  | "preparing"
+  | "awaiting-handoff"
+  | "handler-observed"
+  | "auth-confirmed"
+  | "connected"
+  | "cancelled"
+  | "failed"
+  | "expired"
+  | "unconfirmed";
+
+export interface LifecycleInput {
+  /** The browser-side attempt stage (src/lib/domain/dispatch.ts). */
+  attemptStage?: string;
+  /** Launcher beacon observed for THIS attempt. */
+  handlerObserved?: boolean;
+  /** Server: a correlated interactive logon exists for this run/attempt. */
+  authConfirmed?: boolean;
+  /** Server: an active inbound RDP session exists. */
+  sessionActive?: boolean;
+  /** The operator positively cancelled (the ONLY way to reach "cancelled"). */
+  cancelledByUser?: boolean;
+}
+
+export function lifecycleStage(i: LifecycleInput): { stage: LifecycleStage; source: string } {
+  if (i.cancelledByUser) return { stage: "cancelled", source: "operator" };
+  if (i.attemptStage === "failed") return { stage: "failed", source: "dispatch" };
+  if (i.attemptStage === "expired") return { stage: "expired", source: "ticket" };
+  if (i.sessionActive && i.authConfirmed) return { stage: "connected", source: "server:correlated-logon+session" };
+  if (i.authConfirmed) return { stage: "auth-confirmed", source: "server:correlated-logon" };
+  if (i.handlerObserved) return { stage: "handler-observed", source: "launcher:beacon" };
+  if (i.attemptStage === "dispatched") return { stage: "awaiting-handoff", source: "browser:dispatched-once" };
+  if (i.attemptStage === "preparing" || i.attemptStage === "ticket-issued") return { stage: "preparing", source: "browser:ticket" };
+  if (i.attemptStage === "unconfirmed") return { stage: "unconfirmed", source: "browser:no-callback" };
+  return { stage: "idle", source: "none" };
 }
 
 // [F24 §3] AUTH-REJECT DISCRIMINATOR branches.

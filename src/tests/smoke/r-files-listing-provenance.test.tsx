@@ -1,4 +1,6 @@
-import * as devFixture from "@/pages/search/devFixture";
+// [search-prod-honesty-2026-10-25] the DEV predicate moved to a data-free module
+// so the fixture rows stay out of the production bundle; the spy must follow it.
+import * as devMode from "@/lib/devMode";
 // [R-FILES / #217 / #225] FILES DATA PROVENANCE — through the REAL routed page.
 //
 // The existing src/tests/smoke/r-files-explorer-scale.test.tsx mounts
@@ -344,7 +346,7 @@ describe("Files provenance — live index through the routed page", () => {
   });
 
   it("without a dashboard key the page does not fallback to demo mode, it stays empty", async () => {
-    vi.spyOn(devFixture, "isDevMode").mockReturnValue(false);
+    vi.spyOn(devMode, "isDevMode").mockReturnValue(false);
     clearDashToken();
     window.history.replaceState({}, "", "/");
     const calls = installFetch(() => ({ status: 200, body: indexOf([]) }));

@@ -1,0 +1,11 @@
+revision: ae360351eb3fea434f482af1b9e9db48025936a7
+branch: arena/046926e8-supreme-lamp
+main-at-branch: e067bcef5ff97287bbc79345fa6a55cd8f3fcf31
+node: v22.22.3
+npm: 10.9.8
+vitest: vitest/2.1.9 linux-x64 node-v22.22.3
+build hash: 9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff
+build bytes: 1312534
+ src/stores/sessionStore.ts                    | 377 +++++++++++++++++++++-----
+ src/tests/smoke/ghrdp-handler-gesture.test.ts |  65 -----
+ 17 files changed, 1206 insertions(+), 503 deletions(-)

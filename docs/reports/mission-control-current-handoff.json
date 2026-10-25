@@ -1,0 +1,118 @@
+{
+  "artifact": "mission-control-current-handoff",
+  "generatedAt": "2026-10-25T14:25:55Z",
+  "goal": "Repair single-dispatch launch/cancel, Search result-URL inspection, native-prompt classification, attempt correlation, status honesty, repository links; verify honestly; promote.",
+  "repository": "dictationb1/supreme-lamp",
+  "branch": "arena/046926e8-supreme-lamp",
+  "baseRevision": "ae360351eb3fea434f482af1b9e9db48025936a7",
+  "baseMainRevision": "e067bcef5ff97287bbc79345fa6a55cd8f3fcf31",
+  "build": {
+    "artifact": "ui/dist/index.html",
+    "sha256": "9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff",
+    "bytes": 1312534
+  },
+  "evidenceDir": "docs/reports/2026-10-25-ui-launch-search-repair",
+  "repairs": [
+    {
+      "id": "D1",
+      "title": "one dispatch per intent",
+      "files": [
+        "src/lib/domain/dispatch.ts",
+        "src/lib/api.ts",
+        "src/stores/sessionStore.ts"
+      ],
+      "tests": "dispatch-single-attempt(19), launch-store-single-dispatch(11)",
+      "state": "done"
+    },
+    {
+      "id": "D2",
+      "title": "cancellation/recovery correlation",
+      "files": [
+        "src/lib/domain/native.ts",
+        "src/components/domain/PrimaryActions.tsx"
+      ],
+      "tests": "rdp-recovery-correlation(18)",
+      "state": "done"
+    },
+    {
+      "id": "D3",
+      "title": "native publisher warning vs cmdkey prompt (replay guard)",
+      "files": [
+        "payloads/ghrdp-rdp-launcher.cs",
+        "src/components/domain/PrimaryActions.tsx"
+      ],
+      "tests": "launcher-replay-contract(4)",
+      "state": "done-source; runtime pending"
+    },
+    {
+      "id": "D4",
+      "title": "awesome.re per-source redirect allowlist",
+      "files": [
+        "payloads/ghrdp-server.ps1"
+      ],
+      "tests": "lab-inspect-endpoint(16)",
+      "state": "done-source"
+    },
+    {
+      "id": "D5",
+      "title": "/api/lab/inspect mode-first, one budget, one pipeline",
+      "files": [
+        "payloads/ghrdp-server.ps1",
+        "src/api/lab/index.ts",
+        "src/pages/search/LabInspector.tsx"
+      ],
+      "tests": "lab-inspect-endpoint(16), lab-inspector(8)",
+      "state": "done-source + client verified"
+    },
+    {
+      "id": "D6",
+      "title": "single repository identity for all links",
+      "files": [
+        "src/lib/repoIdentity.ts",
+        "src/pages/Search.tsx",
+        "src/lib/domain/native.ts",
+        "src/components/domain/DashTokenGate.tsx",
+        "src/components/domain/F92VersionGate.tsx",
+        "src/components/domain/WebDesktopCard.tsx",
+        "src/pages/Collector.tsx"
+      ],
+      "tests": "repo-identity-links(6)",
+      "state": "done"
+    },
+    {
+      "id": "D7",
+      "title": "occurred/observed/resolved timestamps",
+      "files": [
+        "src/lib/overview/issues.ts"
+      ],
+      "tests": "v4 incident suites",
+      "state": "done"
+    },
+    {
+      "id": "D8",
+      "title": "production bundle carries no demo rows",
+      "files": [
+        "src/lib/devMode.ts",
+        "src/lib/domain/devSearchFixture.ts",
+        "src/pages/search/devFixture.ts",
+        "src/pages/Search.tsx",
+        "src/pages/FileExplorer.tsx"
+      ],
+      "tests": "production-bundle-no-demo(4)",
+      "state": "done, artifact measured"
+    }
+  ],
+  "verification": {
+    "command": "npx vitest run",
+    "files": 118,
+    "tests": 1535,
+    "failed": 0,
+    "buildSha256": "9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff"
+  },
+  "nextSteps": [
+    "open the PR from arena/046926e8-supreme-lamp, wait for launch-gates + e2e-ui, then merge",
+    "dispatch main.yml with mode=rdp, runner_target=windows-latest; record the run id (report a 403 once, do not retry)",
+    "run USER_VM_ACCEPTANCE steps on rdp-lab-client",
+    "keep replay-viewer red until the docs/ publish target is added"
+  ]
+}

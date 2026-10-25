@@ -46,6 +46,15 @@ export interface LabLink {
 
 export interface LabInspectResult {
   hostname: string;
+  /** [LAB-INSPECT-2026-10-25] Where the bytes actually came from when the
+   *  inspected URL redirected (awesome.re -> github.com), so the Lab can name the
+   *  real source instead of the typed hostname. */
+  finalHostname?: string;
+  redirectChain?: string[];
+  /** Provider-derived page kind for result inspection: repository | releases |
+   *  repository-file | repository-owner | page. Never an assumption about the
+   *  provider's features (a repository is NOT assumed to have Releases). */
+  resultKind?: string;
   title: string;
   links: LabLink[];
   fetchedAt: string;
@@ -82,6 +91,8 @@ export interface LabError {
   code: string;
   messageKey: string;
   retryAfterSeconds?: number;
+  /** Sanitized, already-public detail about the refusal (which host, which URL). */
+  details?: { offHost?: string; url?: string };
   /** [F93 §1.3] Per-field errors as the server sent them (errors.name /
    *  errors.url). The modal renders each under its own input; the generic
    *  messageKey line is only used when this object is absent/empty. */
@@ -269,102 +280,163 @@ export async function deleteCustomSource(sourceId: string): Promise<LabResult<{ 
   }
 }
 
-export async function inspectSource(sourceId: string, query: string): Promise<LabResult<LabInspectResult>> {
-  try {
-    const r = await fetch(apiBase() + LAB_INSPECT_PATH, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", ...dashHeaders() },
-      body: JSON.stringify({ sourceId: String(sourceId), query: String(query || "") }),
-    });
-    const body = (await r.json().catch(() => null)) as unknown;
-    if (!r.ok) {
-      const env = (body || {}) as { code?: string; messageKey?: string; retryAfterSeconds?: number };
-      return {
-        ok: false,
-        error: {
-          code: String(env.code || (r.status === 429 ? "RATE_LIMITED" : "INTERNAL_ERROR")),
-          messageKey: String(env.messageKey || (r.status === 429 ? "lab.rateLimited" : "search.errors.generic")),
-          retryAfterSeconds: typeof env.retryAfterSeconds === "number" ? env.retryAfterSeconds : r.status === 429 ? 60 : undefined,
-        },
-      };
-    }
-    const d = (body || {}) as Partial<LabInspectResult>;
-    const links = Array.isArray(d.links) ? d.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) })) : [];
+/**
+ * [LAB-INSPECT-2026-10-25] ONE response parser for BOTH inspect modes.
+ *
+ * Why: the two call sites had byte-identical parsers, and both collapsed every
+ * non-2xx into `{code, messageKey}` - the server's `details` (which host a
+ * redirect was refused on, which URL was refused) was dropped on the floor, so
+ * the Lab could only ever render "Something went wrong".
+ *
+ * The server now answers ONE schema for both modes (`New-F78Error` /
+ * `{ok:true, ...}`), and this parser keeps every safe field: the code, the
+ * server's messageKey when it sent one, the retry hint, and the sanitized
+ * details. No header, cookie, token or body content is carried - only the
+ * already-public host/URL the refusal was about.
+ */
+function parseInspect(status: number, body: unknown): LabResult<LabInspectResult> {
+  if (status < 200 || status >= 300) {
+    const env = (body || {}) as {
+      code?: string;
+      messageKey?: string;
+      retryAfterSeconds?: number;
+      details?: { offHost?: string; url?: string };
+    };
+    const code = String(env.code || (status === 429 ? "RATE_LIMITED" : "HTTP_" + status));
+    const details = env.details && typeof env.details === "object" ? env.details : undefined;
     return {
-      ok: true,
-      data: {
-        hostname: String(d.hostname ?? ""),
-        title: String(d.title ?? ""),
-        links,
-        fetchedAt: String(d.fetchedAt ?? ""),
-        linkCount: typeof d.linkCount === "number" ? d.linkCount : links.length,
-        matchCount: typeof d.matchCount === "number" ? d.matchCount : links.filter((l) => l.matches).length,
-        source: typeof d.source === "string" ? d.source : undefined,
-        sourceUrls: typeof d.sourceUrls === "number" ? d.sourceUrls : undefined,
-        adapterStatus: d.adapterStatus && typeof d.adapterStatus === "object" ? (d.adapterStatus as { phase: string; sourceLabel: string }) : undefined,
-        sourceDisplay: typeof d.sourceDisplay === "string" ? d.sourceDisplay : undefined,
-        sourceStrategy: typeof d.sourceStrategy === "string" ? d.sourceStrategy : undefined,
-        tookMs: typeof d.tookMs === "number" ? d.tookMs : undefined,
-        sourceSets: Array.isArray(d.sourceSets) ? d.sourceSets.filter((s) => s && typeof s.key === "string" && Array.isArray(s.links)).map((s) => ({ key: String(s.key), label: String(s.label ?? ""), strategy: String(s.strategy ?? ""), count: typeof s.count === "number" ? s.count : s.links.length, links: s.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) })) })) : undefined,
+      ok: false,
+      error: {
+        code,
+        // The server's own key wins; otherwise a code -> key map that can say
+        // something specific, and only then the generic line.
+        messageKey: String(env.messageKey || actionableErrorKey(code)),
+        retryAfterSeconds:
+          typeof env.retryAfterSeconds === "number" ? env.retryAfterSeconds : status === 429 ? 60 : undefined,
+        ...(details && (details.offHost || details.url)
+          ? { details: { offHost: details.offHost ? String(details.offHost) : undefined, url: details.url ? String(details.url) : undefined } }
+          : {}),
       },
     };
-  } catch {
-    return offline("TIMEOUT", "lab.timeout");
   }
+  const d = (body || {}) as Partial<LabInspectResult> & {
+    finalHostname?: string;
+    redirectChain?: string[];
+    resultKind?: string;
+  };
+  const links = Array.isArray(d.links)
+    ? d.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) }))
+    : [];
+  const sets = Array.isArray(d.sourceSets)
+    ? d.sourceSets
+        .filter((s) => s && typeof s.key === "string" && Array.isArray(s.links))
+        .map((s) => ({
+          key: String(s.key),
+          label: String(s.label ?? ""),
+          strategy: String(s.strategy ?? ""),
+          count: typeof s.count === "number" ? s.count : s.links.length,
+          links: s.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) })),
+        }))
+    : undefined;
+  return {
+    ok: true,
+    data: {
+      hostname: String(d.hostname ?? ""),
+      finalHostname: typeof d.finalHostname === "string" && d.finalHostname ? d.finalHostname : undefined,
+      redirectChain: Array.isArray(d.redirectChain) ? d.redirectChain.map(String) : undefined,
+      resultKind: typeof d.resultKind === "string" && d.resultKind ? d.resultKind : undefined,
+      title: String(d.title ?? ""),
+      links,
+      fetchedAt: String(d.fetchedAt ?? ""),
+      linkCount: typeof d.linkCount === "number" ? d.linkCount : links.length,
+      matchCount: typeof d.matchCount === "number" ? d.matchCount : links.filter((l) => l.matches).length,
+      source: typeof d.source === "string" ? d.source : undefined,
+      sourceUrls: typeof d.sourceUrls === "number" ? d.sourceUrls : undefined,
+      adapterStatus: d.adapterStatus && typeof d.adapterStatus === "object" ? (d.adapterStatus as { phase: string; sourceLabel: string }) : undefined,
+      sourceDisplay: typeof d.sourceDisplay === "string" ? d.sourceDisplay : undefined,
+      sourceStrategy: typeof d.sourceStrategy === "string" ? d.sourceStrategy : undefined,
+      sourceRepo: typeof d.sourceRepo === "string" ? d.sourceRepo : undefined,
+      sourceItemCount: typeof d.sourceItemCount === "number" ? d.sourceItemCount : undefined,
+      tookMs: typeof d.tookMs === "number" ? d.tookMs : undefined,
+      sourceSets: sets,
+    },
+  };
 }
 
 /**
- * [F86 §B.2] Result-view inspection. The Lab opens on a RESULT id (not a stored
- * site), so there is no sourceId to send: the result's own `sourceUrl` travels
- * as the payload instead and the server inspects THAT page (same transport
- * fences as /api/preview: https only, no userinfo, <=2048, 2MB cap, same-host
- * hrefs only). The response shape is byte-identical to inspectSource()'s, which
- * is exactly what lets both Lab surfaces render the same deep inspector.
+ * A code -> message key map that is worth reading. The generic key is the LAST
+ * resort, not the default: a refused off-site redirect, an oversized page, a
+ * rate limit and a dead route each have a concrete remedy.
  */
-export async function inspectResultUrl(sourceUrl: string, query: string): Promise<LabResult<LabInspectResult>> {
-  const url = String(sourceUrl || "").trim();
-  if (!/^https:\/\//i.test(url) || url.length > 2048) return { ok: false, error: { code: "VALIDATION_ERROR", messageKey: "search.errors.validation" } };
+export function actionableErrorKey(code: string): string {
+  switch (String(code || "").toUpperCase()) {
+    case "RATE_LIMITED":
+      return "lab.rateLimited";
+    case "HOSTNAME_MISMATCH":
+      return "lab.hostnameMismatchRedirect";
+    case "REDIRECT_REFUSED":
+      return "lab.redirectRefused";
+    case "NOT_FOUND":
+      return "lab.notFound";
+    case "SIZE_LIMIT":
+      return "lab.sizeLimit";
+    case "TIMEOUT":
+      return "lab.timeout";
+    case "TRANSPORT_UNAVAILABLE":
+      return "lab.unreachable";
+    case "VALIDATION_ERROR":
+      return "search.errors.validation";
+    case "FORBIDDEN":
+      return "lab.forbidden";
+    default: {
+      // A bare HTTP status is still specific: a 5xx is the server failing, a 4xx
+      // is the request/route failing. Only a genuinely unknown code is generic.
+      const upper = String(code || "").toUpperCase();
+      if (/^HTTP_5\d\d$/.test(upper)) return "lab.serverError";
+      if (/^HTTP_4\d\d$/.test(upper)) return "lab.httpError";
+      return "search.errors.generic";
+    }
+  }
+}
+
+async function postInspect(payload: Record<string, unknown>): Promise<LabResult<LabInspectResult>> {
   try {
     const r = await fetch(apiBase() + LAB_INSPECT_PATH, {
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json", ...dashHeaders() },
-      body: JSON.stringify({ sourceUrl: url, query: String(query || "") }),
+      body: JSON.stringify(payload),
     });
-    const body = (await r.json().catch(() => null)) as unknown;
-    if (!r.ok) {
-      const env = (body || {}) as { code?: string; messageKey?: string; retryAfterSeconds?: number };
-      return {
-        ok: false,
-        error: {
-          code: String(env.code || (r.status === 429 ? "RATE_LIMITED" : "INTERNAL_ERROR")),
-          messageKey: String(env.messageKey || (r.status === 429 ? "lab.rateLimited" : "search.errors.generic")),
-          retryAfterSeconds: typeof env.retryAfterSeconds === "number" ? env.retryAfterSeconds : r.status === 429 ? 60 : undefined,
-        },
-      };
-    }
-    const d = (body || {}) as Partial<LabInspectResult>;
-    const links = Array.isArray(d.links) ? d.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) })) : [];
-    return {
-      ok: true,
-      data: {
-        hostname: String(d.hostname ?? ""),
-        title: String(d.title ?? ""),
-        links,
-        fetchedAt: String(d.fetchedAt ?? ""),
-        linkCount: typeof d.linkCount === "number" ? d.linkCount : links.length,
-        matchCount: typeof d.matchCount === "number" ? d.matchCount : links.filter((l) => l.matches).length,
-        source: typeof d.source === "string" ? d.source : undefined,
-        sourceUrls: typeof d.sourceUrls === "number" ? d.sourceUrls : undefined,
-        adapterStatus: d.adapterStatus && typeof d.adapterStatus === "object" ? (d.adapterStatus as { phase: string; sourceLabel: string }) : undefined,
-        sourceDisplay: typeof d.sourceDisplay === "string" ? d.sourceDisplay : undefined,
-        sourceStrategy: typeof d.sourceStrategy === "string" ? d.sourceStrategy : undefined,
-        tookMs: typeof d.tookMs === "number" ? d.tookMs : undefined,
-        sourceSets: Array.isArray(d.sourceSets) ? d.sourceSets.filter((s) => s && typeof s.key === "string" && Array.isArray(s.links)).map((s) => ({ key: String(s.key), label: String(s.label ?? ""), strategy: String(s.strategy ?? ""), count: typeof s.count === "number" ? s.count : s.links.length, links: s.links.filter((l) => l && typeof l.href === "string").map((l) => ({ text: String(l.text ?? ""), href: String(l.href), matches: Boolean(l.matches) })) })) : undefined,
-      },
-    };
+    const body = await r.json().catch(() => null);
+    return parseInspect(r.status, body);
   } catch {
-    return offline("TIMEOUT", "lab.timeout");
+    // No response at all: name the token gate when there is no token (the only
+    // in-page remedy), otherwise say the server is unreachable.
+    return offline("TRANSPORT_UNAVAILABLE", hasDashToken() ? "lab.unreachable" : "addSite.authMissing");
   }
+}
+
+/** Stored-source mode. `sourceId` is the ONLY identity sent. */
+export async function inspectSource(sourceId: string, query: string): Promise<LabResult<LabInspectResult>> {
+  const id = String(sourceId || "").trim();
+  if (!id) return offline("VALIDATION_ERROR", "search.errors.validation");
+  return postInspect({ sourceId: id, query: String(query || "") });
+}
+
+/**
+ * [F86 §B.2] Result-view inspection. The Lab opened on a RESULT id (not a stored
+ * site), so there is no sourceId to send: the result's own `sourceUrl` travels as
+ * the payload instead and the server inspects THAT page (same transport fences as
+ * /api/preview: https only, no userinfo, <=2048, 2MB cap, same-host hrefs only).
+ *
+ * [LAB-INSPECT-2026-10-25] This used to be unreachable server-side: the route
+ * validated `sourceId` first and answered 400 for every {sourceUrl, query} POST,
+ * which the Lab then rendered as one generic error. The server selects the mode
+ * before validating it now, and this function keeps the selected result's real
+ * URL, query and provenance.
+ */
+export async function inspectResultUrl(sourceUrl: string, query: string): Promise<LabResult<LabInspectResult>> {
+  const url = String(sourceUrl || "").trim();
+  if (!/^https:\/\//i.test(url) || url.length > 2048) return offline("VALIDATION_ERROR", "search.errors.validation");
+  return postInspect({ sourceUrl: url, query: String(query || "") });
 }

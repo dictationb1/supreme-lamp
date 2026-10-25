@@ -195,7 +195,11 @@ function connFailedIssue(input: IssueInput): Issue {
     },
     source: "server logon collector (4625)" + (input.authRecordId ? " · record " + input.authRecordId : ""),
     occurredAtMs,
-    firstObservedAtMs: occurredAtMs,
+    // [V4-1b] `firstObservedAtMs` is when THIS BROWSER first saw the incident,
+    // and the incident reducer owns it. Pre-filling it with the event time made
+    // the two fields indistinguishable, so an event that happened five hours ago
+    // could read as "first observed five hours ago" by a page opened a second ago.
+    firstObservedAtMs: null,
     lastObservedAtMs: input.serverNowMs,
     resolvedAt: null,
     observedAtMs: occurredAtMs,

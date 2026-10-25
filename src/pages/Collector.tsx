@@ -8,6 +8,7 @@
 // from the persisted zustand store, so they survive a refresh (issue #159).
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { issuesUrl } from "@/lib/repoIdentity";
 import { useTranslation } from "react-i18next";
 import { ClipboardList } from "lucide-react";
 import { apiBase, getDashToken } from "@/lib/api";
@@ -498,7 +499,7 @@ export default function Collector() {
                                       {a.verdict.relatedIssue ? (
                                         <div className="mt-1 text-[11px]">
                                           Related issue:{" "}
-                                          <a className="text-accent underline" href={"https://github.com/dekarita/supreme-lamp/issues/" + a.verdict.relatedIssue.replace("#", "")} target="_blank" rel="noreferrer">
+                                          <a className="text-accent underline" href={issuesUrl(a.verdict.relatedIssue)} target="_blank" rel="noreferrer">
                                             {a.verdict.relatedIssue}
                                           </a>
                                         </div>

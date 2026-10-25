@@ -4,12 +4,20 @@
 // state (the v1 closure equivalent) and are never rendered unmasked; the
 // masked field shows bullets and the copy action pulls from here.
 import { create } from "zustand";
-import { postRdpToken, launchProto, mintTraceId, fetchPurgeCommand } from "@/lib/api";
+import { postRdpToken, dispatchProtocolOnce, mintTraceId, fetchPurgeCommand } from "@/lib/api";
 import { hasDashToken } from "@/lib/dashToken";
 import { FQDN_RE, CGNAT_RE, parseTsUtc } from "@/lib/format";
 import { ghrdpRdpUrl, ghrdpRecredUrl, beaconModel, authDiscriminator, type AuthDiscriminator } from "@/lib/domain/native";
 import { telescopeTimeline, type TelTimeline } from "@/lib/domain/telescope";
 import { liveDispatchStatus, type LiveDispatchResult } from "@/lib/domain/liveDispatch";
+import {
+  LaunchDispatcher,
+  TICKET_TTL_MS,
+  type AttemptStage,
+  type DispatchAttempt,
+  type DispatchResult,
+  type LaunchIntent,
+} from "@/lib/domain/dispatch";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -57,6 +65,18 @@ interface SessionState {
   helloWatchSeen: boolean;
   helloWatchArmedAt: number;
   autoLogin: AutoLoginState;
+  /**
+   * [SINGLE-DISPATCH-2026-10-25] The current launch attempt, exactly as the
+   * dispatcher observed it. `null` = nothing was launched from this page. The UI
+   * renders the stage verbatim; it must never claim an outcome the page cannot
+   * see (a dispatched protocol navigation is NOT proof the handler ran).
+   */
+  launchAttempt: DispatchAttempt | null;
+  /** Stage mirror for cheap selectors/renders. */
+  launchStage: AttemptStage;
+  /** True when a single-use ticket is already minted and can be sent with the
+   *  next click without an await (keeps Chrome's transient activation). */
+  launchTicketWarm: boolean;
   recoveryDispatchedAt: number;
   purgeCmd: string;
   beaconInvokedAt: number | null;
@@ -84,6 +104,12 @@ interface SessionState {
   fireRunDiag: () => void;
   fireAutoLoginNative: () => Promise<void>;
   armHelloWatch: () => void;
+  /** Mint ONE single-use ticket ahead of the click (or refresh a stale one). */
+  warmLaunchTicket: () => Promise<void>;
+  /** Operator-initiated cancel of the CURRENT attempt (a positive observation). */
+  cancelLaunch: () => void;
+  /** Explicit retry: only from a terminal attempt, and always with a fresh ticket. */
+  retryLaunch: () => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -104,6 +130,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   helloWatchSeen: false,
   helloWatchArmedAt: 0,
   autoLogin: { note: "", staleRegistration: false, installNotice: false, helloSeen: false },
+  launchAttempt: null,
+  launchStage: "idle",
+  launchTicketWarm: false,
   recoveryDispatchedAt: 0,
   purgeCmd: "",
   beaconInvokedAt: null,
@@ -157,6 +186,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const hts = parseTsUtc(lastHandlerTs);
       if (!isNaN(hts) && hts >= get().helloWatchArmedAt - 10000) {
         helloSeen = true;
+        // [SINGLE-DISPATCH-2026-10-25] Tell the attempt registry: a beacon that
+        // belongs to THIS attempt (post-dispatch, trace-matched when the beacon
+        // carries one) is the only evidence that the native handler ran.
+        try { getDispatcher().observeHandler(hts, lastHandlerVerbTrace(s)); } catch { }
         set({ autoLogin: { ...get().autoLogin, note: "launcher beacon received - mstsc should be opening fullscreen", helloSeen: true } });
       }
     }
@@ -245,120 +278,318 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   armHelloWatch: () => set({ helloWatchArmed: true, helloWatchSeen: false, helloWatchArmedAt: Date.now() }),
 
+  // =========================================================================
+  // [SINGLE-DISPATCH-2026-10-25] LAUNCH PATHS - ONE INTENT, ONE DISPATCH
+  //
+  // What was here: `fireAutoLogin` opened a blank popup, awaited a ticket,
+  // assigned `ghrdp://` to that popup AND ALSO called launchProto() - which
+  // appended a hidden iframe with the same URL and, 150 ms later, clicked a
+  // synthetic anchor with the same URL again. `fireFixReconnect` had the same
+  // duplicate shape. So one operator click could reach the external-protocol
+  // handler three times, and every dispatch after the first carried a ticket the
+  // launcher had already redeemed - the exact condition that makes Windows show
+  // its own credential prompt.
+  //
+  // What replaced it: every launch goes through ONE LaunchDispatcher
+  // (src/lib/domain/dispatch.ts). The dispatcher owns the attempt identity, the
+  // single ticket, the single navigation and the lifecycle. This file only
+  // supplies the ticket transport, the URL builder and the honest operator note.
+  //
+  // No timers here: nothing closes a window on a four-second deadline, nothing
+  // dispatches a "second chance" navigation, and no callback from an old attempt
+  // can overwrite a newer one (the dispatcher keys everything by attempt id).
+  // =========================================================================
+
+  // A ticket minted ahead of the click. Single-use: consumed by the next
+  // attempt, then gone. `at` is the issue time so staleness is provable.
+  warmLaunchTicket: async () => {
+    if (!hasDashToken()) {
+      set({ launchTicketWarm: false });
+      return;
+    }
+    if (warmTicket && Date.now() - warmTicket.at < TICKET_TTL_MS - WARM_MARGIN_MS) {
+      set({ launchTicketWarm: true });
+      return;
+    }
+    warmTicket = null;
+    const t = await postRdpToken();
+    if (t.ok) {
+      warmTicket = { rid: t.rid, at: Date.now() };
+      set({ launchTicketWarm: true });
+    } else {
+      set({ launchTicketWarm: false });
+    }
+  },
+
+  cancelLaunch: () => {
+    const d = getDispatcher();
+    d.cancel("cancelled by the operator - no further dispatch will be attempted for this attempt");
+    warmTicket = null;
+    set({ launchTicketWarm: false });
+  },
+
+  retryLaunch: async () => {
+    const d = getDispatcher();
+    if (!d.retryAllowed) {
+      get().setAutoLoginNote(
+        "RETRY withheld: the current attempt is still awaiting handoff. Cancel it first so a second ticket is not minted against an attempt that may still be in flight.",
+      );
+      return;
+    }
+    // Retry re-runs the SAME intent with a FRESH ticket. It is offered only from
+    // a terminal attempt (failed / expired / cancelled / unconfirmed).
+    warmTicket = null;
+    set({ launchTicketWarm: false });
+    switch (lastIntent) {
+      case "fix-reconnect":
+        await get().fireFixReconnect();
+        return;
+      case "run-check":
+        get().fireRunCheck();
+        return;
+      case "run-diag":
+        get().fireRunDiag();
+        return;
+      case "native-connect":
+        await get().fireAutoLoginNative();
+        return;
+      default:
+        await get().fireAutoLogin();
+    }
+  },
+
   // [F27 §1.3] WINDOWS AUTO-LOGIN: POST /api/rdp-token -> ghrdp://rdp?server&user[&ip]&t.
   fireAutoLogin: async () => {
+    lastIntent = "auto-login";
     const st = get();
     const fqdn = st.fqdn;
     const user = st.user || "rdpuser";
-    // [F94 §3.3] This used to be a bare `return`: the operator clicked
-    // WINDOWS AUTO-LOGIN and NOTHING happened - no note, no toast, no log. A
-    // guard that can refuse must always SAY SO, so every exit path below
-    // writes a visible reason into #winAutoNote.
+    // [F94 §3.3] A guard that can refuse must always SAY SO. Every exit path
+    // below writes a visible reason into #winAutoNote.
     if (!FQDN_RE.test(fqdn)) {
       st.setAutoLoginNote("AUTO-LOGIN refused: the runner FQDN is missing or malformed - reload /api/native-status or re-dispatch the deploy workflow");
       return;
     }
-    // Preserve transient activation: open a synchronous placeholder so the
-    // subsequent async ticket fetch does not lose the user gesture. Chrome's
-    // external-protocol prompt is gated on a user activation; a fetch-then-navigate
-    // without a placeholder is often classified as not user-initiated.
-    let protoWin: Window | null = null;
-    try {
-      protoWin = window.open('', '_blank');
-      if (protoWin) {
-        try { protoWin.document.title = 'Launching mstsc…'; } catch {}
-      }
-    } catch {}
-    const ticket = await postRdpToken();
-    if (!ticket.ok) {
-      try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {}
-      // [F94 §3.1] No dashboard token is the single most likely cause, and it
-      // is recoverable in one click - say which one it is instead of the old
-      // catch-all "check dashboard authorization".
-      const noToken = !hasDashToken();
+    if (!hasDashToken()) {
+      // No token = no ticket. Name the one-click remedy instead of pretending to
+      // dispatch: the token gate on this page accepts the key from the main.yml log.
       st.setAutoLoginNote(
-        noToken
-          ? "AUTO-LOGIN refused: no dashboard token (?key=) - the token gate on this page lets you paste the key from the main.yml run log"
-          : "ticket-issue failed - check dashboard authorization and direct tailnet access",
+        "AUTO-LOGIN refused: no dashboard token (?key=) - the token gate on this page lets you paste the key from the main.yml run log",
       );
+      set({ launchStage: "idle" });
       return;
     }
-    const trace = mintTraceId("client");
-    set({ lastTrace: trace });
-    // Arm the beacon watch BEFORE dispatch so the very first handler-hello
-    // (which can arrive within 500ms on the lab VM) is not missed.
-    get().armHelloWatch();
-    set({ autoLogin: { ...get().autoLogin, staleRegistration: false, installNotice: false } });
-    const ghrdpUrl = ghrdpRdpUrl(fqdn, user, st.runnerResolvedIP) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid);
-    let winNavOk = false;
-    try {
-      if (protoWin && !protoWin.closed) {
-        protoWin.location.href = ghrdpUrl;
-        winNavOk = true;
-        setTimeout(() => { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} }, 4000);
-      }
-    } catch {}
-    if (!winNavOk) {
-      launchProto(ghrdpUrl);
-    } else {
-      try { launchProto(ghrdpUrl); } catch {}
-    }
-    st.setAutoLoginNote("protocol dispatched \u2014 if your browser shows \u2018Open ghrdp-rdp-launcher?\u2019 click Open, then mstsc will open fullscreen. Waiting for handler beacon\u2026 (check %LOCALAPPDATA%\\GhrdpLauncher\\last.log if no beacon in 8 s)");
-    setTimeout(() => {
-      try {
-        const cur = get();
-        if (cur.helloWatchArmed && !cur.helloWatchSeen) {
-          cur.setAutoLoginNote("No handler beacon yet \u2014 did you click Open in the \u2018Open ghrdp-rdp-launcher?\u2019 browser prompt at the top of the window? If you dismissed it, click WINDOWS AUTO-LOGIN again for a fresh ticket (tickets are single-use, 60 s). Launcher log: %LOCALAPPDATA%\\GhrdpLauncher\\last.log");
-        }
-      } catch {}
-    }, 8000);
+    const warm = !!(warmTicket && Date.now() - warmTicket.at < TICKET_TTL_MS - WARM_MARGIN_MS);
+    const d = getDispatcher();
+    const res = await d.dispatch("auto-login", (rid, trace) =>
+      ghrdpRdpUrl(fqdn, user, st.runnerResolvedIP) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(rid),
+    );
+    set({ lastTrace: res.attempt.trace, launchTicketWarm: false });
+    applyLaunchResult(res, warm);
   },
 
   // [F28 §2] FIX & RECONNECT: fresh ticket -> ghrdp://recred?server&user&t.
   fireFixReconnect: async () => {
+    lastIntent = "fix-reconnect";
     const st = get();
     const fqdn = st.fqdn;
     const user = st.user || "rdpuser";
-    if (!FQDN_RE.test(fqdn)) return;
-    let protoWin: Window | null = null;
-    try { protoWin = window.open('', '_blank'); } catch {}
-    const ticket = await postRdpToken();
-    if (!ticket.ok) { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} return; }
-    const trace = mintTraceId("client");
-    set({ lastTrace: trace, recoveryDispatchedAt: Date.now() });
-    const recredUrl = ghrdpRecredUrl(fqdn, user) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(ticket.rid);
-    let winNavOk = false;
-    try { if (protoWin && !protoWin.closed) { protoWin.location.href = recredUrl; winNavOk = true; setTimeout(() => { try { if (protoWin && !protoWin.closed) protoWin.close(); } catch {} }, 4000); } } catch {}
-    if (!winNavOk) launchProto(recredUrl); else try { launchProto(recredUrl); } catch {}
+    if (!FQDN_RE.test(fqdn)) {
+      st.setAutoLoginNote("FIX & RECONNECT refused: the runner FQDN is missing or malformed - reload /api/native-status");
+      return;
+    }
+    if (!hasDashToken()) {
+      st.setAutoLoginNote(
+        "FIX & RECONNECT refused: no dashboard token (?key=) - the token gate on this page lets you paste the key from the main.yml run log",
+      );
+      return;
+    }
+    const warm = !!(warmTicket && Date.now() - warmTicket.at < TICKET_TTL_MS - WARM_MARGIN_MS);
+    const d = getDispatcher();
+    const res = await d.dispatch("fix-reconnect", (rid, trace) =>
+      ghrdpRecredUrl(fqdn, user) + "&trace=" + encodeURIComponent(trace) + "&t=" + encodeURIComponent(rid),
+    );
+    set({ lastTrace: res.attempt.trace, recoveryDispatchedAt: Date.now(), launchTicketWarm: false });
+    applyLaunchResult(res, warm);
   },
 
-  // [F15 §3] RUN CHECK: ghrdp://check - MessageBox on the operator PC.
+  // [F15 §3] RUN CHECK: ghrdp://check - MessageBox on the operator PC. No ticket,
+  // but the same one-attempt/one-navigation rule.
   fireRunCheck: () => {
+    lastIntent = "run-check";
     const fqdn = get().fqdn;
-    launchProto("ghrdp://check" + (FQDN_RE.test(fqdn) ? "?server=" + encodeURIComponent(fqdn) : ""));
+    const url = "ghrdp://check" + (FQDN_RE.test(fqdn) ? "?server=" + encodeURIComponent(fqdn) : "");
+    const res = getDispatcher().dispatchWithoutTicket("run-check", url);
+    applyLaunchResult(res, false);
   },
 
   // [F37 §3] RUN DIAG: ghrdp://diag read-only client telescope.
   fireRunDiag: () => {
+    lastIntent = "run-diag";
     const st = get();
     const fqdn = st.fqdn;
     const user = st.user || "rdpuser";
-    if (!FQDN_RE.test(fqdn)) return;
+    if (!FQDN_RE.test(fqdn)) {
+      st.setAutoLoginNote("RUN DIAG refused: the runner FQDN is missing or malformed - reload /api/native-status");
+      return;
+    }
     const trace = mintTraceId("client");
     let url = "ghrdp://diag?server=" + encodeURIComponent(fqdn) + "&user=" + encodeURIComponent(user);
     if (CGNAT_RE.test(st.runnerResolvedIP)) url += "&ip=" + encodeURIComponent(st.runnerResolvedIP);
     url += "&trace=" + encodeURIComponent(trace);
     set({ lastTrace: trace });
-    launchProto(url);
+    const res = getDispatcher().dispatchWithoutTicket("run-diag", url);
+    applyLaunchResult(res, false);
   },
 
   // VPS-only native flow: dashboard bearer -> rid -> ghrdp:connect?rid=<rid>.
   fireAutoLoginNative: async () => {
-    const ticket = await postRdpToken();
-    if (!ticket.ok) return;
-    launchProto("ghrdp:connect?rid=" + ticket.rid);
+    lastIntent = "native-connect";
+    if (!hasDashToken()) {
+      get().setAutoLoginNote("NATIVE CONNECT refused: no dashboard token (?key=) - paste the key from the main.yml run log");
+      return;
+    }
+    const d = getDispatcher();
+    const res = await d.dispatch("native-connect", (rid) => "ghrdp:connect?rid=" + encodeURIComponent(rid));
+    set({ lastTrace: res.attempt.trace });
+    applyLaunchResult(res, false);
   },
 }));
+
+// ===========================================================================
+// Dispatch plumbing (module scope so the store object stays serialisable-ish).
+// ===========================================================================
+
+/** Kept out of the click path so a warm ticket survives a render. */
+let warmTicket: { rid: string; at: number } | null = null;
+/** A ticket older than this is not usable: the browser needs activation time. */
+const WARM_MARGIN_MS = 12_000;
+/** The intent of the last launch, so retryLaunch knows what to re-run. */
+let lastIntent: LaunchIntent = "auto-login";
+let dispatcher: LaunchDispatcher | null = null;
+
+function getDispatcher(): LaunchDispatcher {
+  if (dispatcher) return dispatcher;
+  dispatcher = new LaunchDispatcher({
+    now: () => Date.now(),
+    mintId: () => "att-" + Date.now().toString(36) + "-" + Math.random().toString(16).slice(2, 8),
+    mintTrace: () => mintTraceId("client"),
+    requestTicket: async () => {
+      // A warmed ticket is consumed here and NOT re-requested: one ticket per
+      // attempt, and the click keeps its transient activation because no network
+      // round trip happens between the click and the navigation.
+      const w = warmTicket;
+      warmTicket = null;
+      if (w && Date.now() - w.at < TICKET_TTL_MS - WARM_MARGIN_MS) {
+        return { ok: true, rid: w.rid };
+      }
+      const t = await postRdpToken();
+      return t.ok ? { ok: true, rid: t.rid } : { ok: false, error: t.error };
+    },
+    navigate: (url) => dispatchProtocolOnce(url),
+    onChange: (attempt) => {
+      const note = launchNote(attempt);
+      useSessionStore.setState({
+        launchAttempt: attempt,
+        launchStage: attempt.stage,
+        autoLogin: { ...useSessionStore.getState().autoLogin, note },
+      });
+      if (attempt.stage === "handler-observed") {
+        useSessionStore.setState({ helloWatchSeen: true });
+      }
+    },
+  });
+  return dispatcher;
+}
+
+/** Operator-facing sentence for an attempt stage. Never claims an unseen outcome. */
+export function launchNote(a: DispatchAttempt): string {
+  switch (a.stage) {
+    case "preparing":
+      return "requesting a single-use ticket for this attempt - one dispatch will follow";
+    case "ticket-issued":
+      return "ticket issued for this attempt - handing the protocol URL to the browser once";
+    case "dispatched":
+      return "protocol dispatched ONCE - if the browser shows ‘Open ghrdp-rdp-launcher?’ click Open. Waiting for the launcher beacon (…); assigning the URL does not prove mstsc opened";
+    case "handler-observed":
+      return "launcher beacon received - the native handler ran; waiting for a correlated logon before calling the session connected";
+    case "connected":
+      return "correlated interactive logon observed by the server - the remote session is up";
+    case "cancelled":
+      return "attempt cancelled - nothing further will be dispatched for it";
+    case "expired":
+      return "the ticket expired before dispatch - click again for a fresh ticket";
+    case "failed":
+      return a.failure && a.failure.code === "ticket-refused"
+        ? "ticket refused: " + a.failure.detail + " - nothing was dispatched"
+        : "the browser refused the protocol navigation - nothing was launched; retry for a fresh ticket";
+    case "unconfirmed":
+      return "the browser was asked once and no handler beacon arrived within the watch window - the outcome is UNKNOWN (the OS/browser exposes no completion callback). Check %LOCALAPPDATA%\\GhrdpLauncher\\last.log before retrying";
+    default:
+      return "";
+  }
+}
+
+/** Write the dispatch outcome where the UI (and the tests) read it. */
+function applyLaunchResult(res: DispatchResult, warm: boolean): void {
+  const st = useSessionStore.getState();
+  setStageFromResult(res);
+  if (res.status === "dispatched") {
+    st.armHelloWatch();
+    const extra = warm
+      ? ""
+      : " (the ticket had to be fetched after your click; if the browser suppressed its consent prompt, use Retry - it sends a fresh ticket)";
+    st.setAutoLoginNote(launchNote(res.attempt) + extra);
+    return;
+  }
+  if (res.status === "duplicate-suppressed") {
+    st.setAutoLoginNote(
+      res.code === "already-preparing"
+        ? "already preparing an attempt - the second click was ignored so no second ticket is minted. Wait for it to finish."
+        : "an attempt is already awaiting handoff - the second click was ignored on purpose (one dispatch per intent). Wait for the beacon, or Cancel and retry with a fresh ticket.",
+    );
+    return;
+  }
+  if (res.status === "cancelled") {
+    st.setAutoLoginNote("attempt cancelled before it was dispatched - the late ticket was dropped");
+    return;
+  }
+  // failed
+  if (res.code === "ticket-refused") {
+    const noToken = !hasDashToken();
+    st.setAutoLoginNote(
+      noToken
+        ? "AUTO-LOGIN refused: no dashboard token (?key=) - the token gate on this page lets you paste the key from the main.yml run log"
+        : "ticket-issue failed (" + (res.attempt.failure ? res.attempt.failure.detail : "unknown") + ") - nothing was dispatched; fix authorization and retry",
+    );
+    return;
+  }
+  st.setAutoLoginNote("no navigation reached the browser - nothing was launched. Retry sends a fresh ticket.");
+}
+
+function setStageFromResult(res: DispatchResult): void {
+  useSessionStore.setState({ launchAttempt: res.attempt, launchStage: res.attempt.stage });
+}
+
+/** Test seam: drop the singleton so a suite can drive fresh attempts in isolation. */
+export function resetLaunchDispatcherForTests(): void {
+  dispatcher = null;
+  warmTicket = null;
+  lastIntent = "auto-login";
+}
+
+export { getDispatcher as _getLaunchDispatcherForTests };
+
+/** The trace a launcher beacon carries, when the server publishes one. */
+function lastHandlerVerbTrace(s: Any): string {
+  try {
+    const lhv = s && s.lastHandlerVerb ? s.lastHandlerVerb : null;
+    if (!lhv) return "";
+    return String(lhv.trace || lhv.traceId || "");
+  } catch {
+    return "";
+  }
+}
 
 function listenerOkOf(s: Any): boolean {
   const rl = s && s.rdpListener;
