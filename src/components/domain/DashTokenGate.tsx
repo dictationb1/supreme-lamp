@@ -23,8 +23,9 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { clearDashToken, dashTokenDebug, hasDashToken, shouldGate, storeDashToken } from "@/lib/dashToken";
+import { actionsUrl } from "@/lib/repoIdentity";
 
-const ACTIONS_URL = "https://github.com/dekarita/supreme-lamp/actions/workflows/main.yml";
+const ACTIONS_URL = actionsUrl("main.yml");
 
 export interface DashTokenGateProps {
   /** `true`/`false` force the gate on/off; `undefined` = auto (see

@@ -1,0 +1,16 @@
+src/lib/domain/dispatch.ts                    157    export class LaunchDispatcher
+src/lib/domain/dispatch.ts                    478    export function dispatchProtocolOnce
+src/lib/api.ts                                160    export function launchProto
+src/stores/sessionStore.ts                    362    fireAutoLogin: async
+src/stores/sessionStore.ts                    305    warmLaunchTicket: async
+src/lib/domain/native.ts                      316    export function recoveryDecision
+src/lib/domain/native.ts                      427    export function lifecycleStage
+src/lib/repoIdentity.ts                       38     export function repoSlug
+src/pages/search/LabInspector.tsx             82     const load = useCallback
+src/api/lab/index.ts                          297    function parseInspect
+src/lib/overview/issues.ts                    202    firstObservedAtMs: null
+payloads/ghrdp-server.ps1                     7091   if ($path -eq '/api/lab/inspect')
+payloads/ghrdp-server.ps1                     5205   function Invoke-F78SecureFetch
+payloads/ghrdp-server.ps1                     6001   redirectHostname = 
+payloads/ghrdp-rdp-launcher.cs                1034   private static int ReplayStep
+payloads/ghrdp-rdp-launcher.cs                990    private static bool IsTicketReplay

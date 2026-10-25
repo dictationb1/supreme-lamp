@@ -20,7 +20,7 @@
 // §3.3 rule that a disabled button must name the gate that disabled it.
 // A closed <details> keeps its children in the DOM, so the 219-id lock
 // (src/tests/smoke/ids-regression.test.tsx) still sees every one of them.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronRight, ExternalLink, Globe, Monitor, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSessionStore } from "@/stores/sessionStore";
@@ -33,7 +33,8 @@ import { cn } from "@/lib/cn";
 import { FQDN_RE } from "@/lib/format";
 import { remainingTime } from "@/lib/domain/metrics";
 import { SESSION_WINDOW_MS } from "@/lib/format";
-import { credsspChip, recoveryDecision, validFqdnUser, validWebdeskUrl } from "@/lib/domain/native";
+import { credsspChip, lifecycleStage, recoveryDecision, validFqdnUser, validWebdeskUrl } from "@/lib/domain/native";
+import type { AttemptStage } from "@/lib/domain/dispatch";
 import { openWebDesktop } from "@/lib/openWebDesktop";
 import { readManualWebDesktop, setManualWebDesktop } from "@/lib/launchUrl";
 import { useConnectionVerdict } from "@/hooks/useConnectionVerdict";
@@ -62,6 +63,14 @@ export function PrimaryActions({
   const autoLogin = useSessionStore((s) => s.autoLogin);
   const fireAutoLogin = useSessionStore((s) => s.fireAutoLogin);
   const fireFixReconnect = useSessionStore((s) => s.fireFixReconnect);
+  const launchAttempt = useSessionStore((s) => s.launchAttempt);
+  const launchStage = useSessionStore((s) => s.launchStage);
+  const launchTicketWarm = useSessionStore((s) => s.launchTicketWarm);
+  const warmLaunchTicket = useSessionStore((s) => s.warmLaunchTicket);
+  const cancelLaunch = useSessionStore((s) => s.cancelLaunch);
+  const retryLaunch = useSessionStore((s) => s.retryLaunch);
+  const helloWatchSeen = useSessionStore((s) => s.helloWatchSeen);
+  const authLast = useSessionStore((s) => ((s.native && s.native.rdpListener && s.native.rdpListener.authLast) || null));
   const progress = useTelemetryStore((s) => s.progress);
   const runStartedAtMs = useTelemetryStore((s) => s.runStartedAtMs);
   const sessionEndMs = useTelemetryStore((s) => s.sessionEndMs);
@@ -148,7 +157,47 @@ export function PrimaryActions({
     if (expired !== sessionExpired) setSessionExpired(expired);
   }
 
-  const rec = recoveryDecision((rl && rl.authLast) || null, s.handlerChain || [], Date.now());
+  // [SINGLE-DISPATCH-2026-10-25] Warm ONE single-use ticket while the button is
+  // eligible. The click then reaches the browser without an intervening network
+  // round trip, which is what preserves Chrome's transient activation - and no
+  // helper window has to be opened (and therefore nothing has to be closed on a
+  // timer while a consent prompt may still be pending).
+  //
+  // Never warmed while an attempt is in flight: that would mint a second ticket
+  // for an intent the operator already issued.
+  const attemptBusy = launchStage === "preparing" || launchStage === "ticket-issued" || launchStage === "dispatched";
+  useEffect(() => {
+    if (!autoOk || attemptBusy) return;
+    if (launchTicketWarm) return;
+    void warmLaunchTicket();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOk, attemptBusy, launchTicketWarm]);
+
+  // The honest stage line: what was OBSERVED, by whom, and how long ago.
+  const life = lifecycleStage({
+    attemptStage: launchStage,
+    handlerObserved: helloWatchSeen || launchStage === "handler-observed" || launchStage === "connected",
+    authConfirmed: !!(authLast && authLast.result === "success" && authLast.remoteInteractive !== false),
+    sessionActive: !!(authLast && authLast.session && authLast.session.active === true),
+    cancelledByUser: launchStage === "cancelled",
+  });
+  const stageLabel: Record<AttemptStage, string> = {
+    idle: "idle - nothing has been launched from this page",
+    preparing: "preparing - ticket requested once",
+    "ticket-issued": "ticket issued - about to hand the protocol to the browser once",
+    dispatched: "awaiting handoff - the browser was asked once; no handler beacon yet",
+    "handler-observed": "handler observed - the launcher beacon came back (not a connection)",
+    connected: "connected - a correlated interactive logon was observed",
+    cancelled: "cancelled - by the operator; nothing further was dispatched",
+    failed: "failed - " + ((launchAttempt && launchAttempt.failure && launchAttempt.failure.code) || "no dispatch"),
+    expired: "expired - the single-use ticket timed out before dispatch",
+    unconfirmed: "unconfirmed - the browser was asked once and the OS exposed no outcome",
+  };
+  const stageAge = launchAttempt ? Math.max(0, Math.round((Date.now() - launchAttempt.updatedAt) / 1000)) : 0;
+  const canCancel = !!launchAttempt && (launchStage === "preparing" || launchStage === "ticket-issued" || launchStage === "dispatched" || launchStage === "unconfirmed");
+  const canRetry = !!launchAttempt && (launchStage === "failed" || launchStage === "expired" || launchStage === "unconfirmed" || launchStage === "cancelled");
+
+  const rec = recoveryDecision(authLast, s.handlerChain || [], Date.now());
   const fixVisible = rec.show;
   const fixEnabled = validFqdnUser(fqdn, user);
   const egressIp = s.runnerEgressIp || progress?.runnerEgressIp || "";
@@ -178,6 +227,8 @@ export function PrimaryActions({
             aria-disabled={!autoOk}
             icon={<Monitor className="size-4" aria-hidden />}
             onClick={() => void fireAutoLogin()}
+            onMouseEnter={() => { if (!launchTicketWarm && autoOk) void warmLaunchTicket(); }}
+            onFocus={() => { if (!launchTicketWarm && autoOk) void warmLaunchTicket(); }}
             title={autoTitle}
             data-why={autoWhy || undefined}
           >
@@ -185,6 +236,42 @@ export function PrimaryActions({
           </Button>
           <span id="winAutoNote" data-testid="overview-auto-login-note" className="text-xs text-tertiary">
             {autoLogin.note || (autoOk ? t("overview.connect.autoHelp") : t("autoLoginBlocked.title") + " " + autoWhy)}
+          </span>
+          {/* [SINGLE-DISPATCH-2026-10-25] The attempt, as OBSERVED. One ticket, one
+              dispatch, one identity - and an explicit cancel/retry instead of a
+              silent second navigation. */}
+          <span className="flex flex-wrap items-center gap-2 text-[11px] text-tertiary">
+            <span data-testid="overview-launch-stage" data-stage={launchStage} data-lifecycle={life.stage} data-source={life.source} id="launchStageLine">
+              launch: {stageLabel[launchStage] || launchStage}
+              {launchAttempt ? " (" + stageAge + "s ago, source: " + life.source + ")" : ""}
+            </span>
+            {launchAttempt ? (
+              <span data-testid="overview-launch-counts" className="font-mono">
+                tickets={launchAttempt.ticketRequests} dispatches={launchAttempt.dispatches}
+              </span>
+            ) : null}
+            {canCancel ? (
+              <button
+                type="button"
+                data-testid="overview-launch-cancel"
+                id="btnLaunchCancel"
+                className="rounded border border-default px-2 py-0.5 text-[11px] hover:border-danger hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={() => cancelLaunch()}
+              >
+                {t("actions.cancel", { defaultValue: "Cancel" })}
+              </button>
+            ) : null}
+            {canRetry ? (
+              <button
+                type="button"
+                data-testid="overview-launch-retry"
+                id="btnLaunchRetry"
+                className="rounded border border-default px-2 py-0.5 text-[11px] hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={() => void retryLaunch()}
+              >
+                {t("actions.retry", { defaultValue: "Retry" })}
+              </button>
+            ) : null}
           </span>
         </div>
 
@@ -328,17 +415,24 @@ export function PrimaryActions({
         style={fixVisible ? { display: "flex" } : undefined}
       >
         <span className="text-sm font-semibold text-danger">{t("banners.recoveryTitle")}</span>
-        <span id="recoveryText" className="text-xs text-secondary">
+        <span id="recoveryText" className="text-xs text-secondary" data-testid="overview-recovery-text" data-why={rec.why} data-correlation={rec.correlation || ""}>
           {fixVisible
-            ? "Password rejected by the host (wrong-password sub-status 0xC000006A, " +
-              (rec.dtSec !== undefined && rec.dtSec >= 0
-                ? rec.dtSec + "s after the last mstsc launch"
-                : rec.dtSec !== undefined
-                  ? Math.abs(rec.dtSec) + "s before the last mstsc launch"
-                  : "") +
-              "). One click re-issues a fresh ticket and overwrites the stored credential - no typing, no clipboard."
+            ? "Wrong-password event (0xC000006A) at " +
+              (rec.eventTs || "an unknown time") +
+              ", correlated to the intended account (correlation: " +
+              (rec.correlation || "unknown") +
+              ")" +
+              (rec.dtSec !== undefined ? " and to this attempt's launch (" + rec.dtSec + "s after it)" : "") +
+              ". FIX & RECONNECT mints a fresh ticket and asks the launcher to write the credential with the Windows credential API (CredWrite) - that path types nothing. If the launcher reports a fallback/GUI prompt, THAT prompt is the MANUAL path: paste the current password from KEYS there."
             : ""}
         </span>
+        {!fixVisible && rec.why !== "no-failed-logon" ? (
+          <span className="text-[11px] text-tertiary" data-testid="overview-recovery-withheld">
+            Recovery is withheld ({rec.why}
+            {rec.dtSec !== undefined ? ", event " + Math.abs(rec.dtSec) + "s " + (rec.dtSec < 0 ? "before" : "after") + " that launch" : ""}): this attempt is not
+            correlated to that failure, so its cancellation is not a wrong-password claim.
+          </span>
+        ) : null}
         <span id="recoveryNote" className="text-xs text-tertiary">
           {t("banners.recoveryNote")}
         </span>
@@ -419,6 +513,37 @@ export function PrimaryActions({
             {cs.tone === "ok"
               ? ""
               : "BLOCKED: " + (rl && rl.credsspLive === "warn" ? "LIVE PROBE WARN: " + (rl.credsspLiveWhy || "") : rl && rl.credsspWhy ? rl.credsspWhy : "")}
+          </span>
+        </div>
+
+        {/* [SINGLE-DISPATCH-2026-10-25] PROMPT TRIAGE.
+            The operator's screenshot mixed three unrelated dialogs and the page
+            implied they were one failure. They are not, and only one of them is
+            this application's business. Naming them (and what each one means)
+            is the honest fix; dismissing or auto-clicking any of them is not -
+            this launcher never automates a security dialog. */}
+        <div
+          id="launchPromptTriage"
+          data-testid="overview-prompt-triage"
+          className="mt-3 flex flex-col gap-1.5 rounded-md border border-default bg-sunken/60 p-2.5 text-[11px] text-secondary"
+        >
+          <span className="font-medium text-primary">Which prompt did you see? They are three different things.</span>
+          <span data-testid="overview-prompt-browser">
+            <strong>1. Browser: “Open ghrdp-rdp-launcher?”</strong> — Chrome/Edge asking permission to hand the link to the
+            installed native handler. This is the ONLY prompt the dashboard can cause. Answer “Open”; if it never appears,
+            the handler is not registered for your user (see the install note).
+          </span>
+          <span data-testid="overview-prompt-publisher">
+            <strong>2. “Remote Desktop Connection — unknown publisher”.</strong> — Windows warning about the{" "}
+            <em>signature of the generated .rdp file on this PC</em>. It is NOT the RDP server’s TLS certificate and NOT
+            the tailnet certificate: signing is configured per client (rdp-signing.json) and an unsigned .rdp shows this
+            warning. It is never auto-dismissed here, and no certificate is trusted on your behalf.
+          </span>
+          <span data-testid="overview-prompt-credential">
+            <strong>3. A Windows/cmdkey password prompt.</strong> — the MANUAL credential path. It appears when the
+            launcher could not write the stored credential itself. If it appears after a *second* click on an already-used
+            link, that is a replayed single-use ticket, not a wrong password: click WINDOWS AUTO-LOGIN again for a fresh
+            ticket. This launcher never types a password for you.
           </span>
         </div>
       </details>

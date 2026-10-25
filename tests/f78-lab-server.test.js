@@ -108,10 +108,19 @@ test('F78-P7-SAVE: name/URL validation is fail-closed and mirrors the client', (
 
 test('F78-P8-LINKS: hrefs stay inside the added host, text/href matching is case-insensitive', () => {
   assert.ok(BLOCK.includes("'(?is)<a\\b[^>]*href\\s*=\\s*[\"'']([^\"'']+)[\"''][^>]*>(.*?)</a>'"), 'the anchor extraction regex is missing');
-  assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $f78Host -Actual $f78LinkHost'), 'off-host hrefs must be dropped before they are returned');
-  assert.ok(BLOCK.includes('if (-not $f78Abs.StartsWith(\'https://\')) { continue }'), 'non-https hrefs must be dropped');
-  assert.ok(BLOCK.includes('$f78Hay.ToLowerInvariant().Contains($f78Needle)'), 'the match test is not case-insensitive');
-  assert.ok(BLOCK.includes('[System.Uri]::UnescapeDataString($f78Query)'), 'the query must be URL-decoded before matching');
+  // [LAB-INSPECT-2026-10-25] The extraction moved to the shared F86 extractor;
+  // the off-host drop is the same www-tolerant compare, applied to the host that
+  // SERVED the page instead of the hostname the operator typed.
+  assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $f78Host -Actual $f86LinkHost'), 'off-host hrefs must be dropped before they are returned');
+  assert.ok(BLOCK.includes('-f78Host $f78FenceHost'), 'the href fence must be the served host');
+  // [LAB-INSPECT-2026-10-25] same rule, now enforced inside the shared extractor
+  // the route calls (Get-F86AnchorLinks), asserted against the whole script.
+  assert.ok(SERVER.includes("if (-not $f86Abs.StartsWith('https://')) { continue }"), 'non-https hrefs must be dropped');
+  // [LAB-INSPECT-2026-10-25] the match test is the shared helpers (F86) the route
+  // now calls; still case-insensitive and still URL-decoded before matching.
+  assert.ok(SERVER.includes('$f86Hay.ToLowerInvariant().Contains($f78Needle)'), 'the match test is not case-insensitive');
+  assert.ok(SERVER.includes('[System.Uri]::UnescapeDataString($f86Hay)'), 'the haystack must be URL-decoded before matching');
+  assert.ok(SERVER.includes('[System.Uri]::UnescapeDataString($f78Query)'), 'the query must be URL-decoded before matching');
   assert.ok(BLOCK.includes('$f78LinksOut.Count -ge 500'), 'the link payload must stay bounded');
   for (const key of ['hostname', 'title', 'links', 'fetchedAt', 'linkCount', 'matchCount']) {
     assert.ok(BLOCK.includes(key + ' = '), 'the JSON payload is missing ' + key);

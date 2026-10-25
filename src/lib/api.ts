@@ -131,69 +131,34 @@ export async function fetchPurgeCommand(): Promise<string> {
   }
 }
 
-// [F15 §3] protocol verbs: dispatch the custom handler without losing the dashboard.
+// [F15 §3] + [SINGLE-DISPATCH-2026-10-25] protocol verbs: dispatch the custom
+// handler WITHOUT losing the dashboard, and WITHOUT a second dispatch.
 //
-// Original contract used top-level navigation (window.location.href) which navigated
-// the dashboard away on every dispatch — the operator lost the page and its
-// evidence. It also broke transient activation: the POST /api/rdp-token happens
-// async, so the final navigation was no longer in the user-gesture window and
-// Chrome's external-protocol prompt required an extra click without guidance.
+// HISTORY, because it is the defect being repaired. The original contract used a
+// top-level navigation (window.location.href) - the dashboard navigated away and
+// the operator lost the page and its evidence. The replacement tried a hidden
+// iframe and then, 150 ms later, synthesized a click on a temporary anchor so a
+// browser that ignored the iframe would still have "a second chance". That second
+// chance is not harmless: it reaches the external-protocol handler twice, and the
+// second navigation carries an already-redeemed single-use ticket, which is
+// exactly the case that sends Windows into an interactive credential prompt.
 //
-// New contract: try a hidden iframe first (keeps the page, does not require a
-// top-level navigation), fall back to location.href if the iframe cannot be
-// created. The browser still shows its permission prompt — we never bypass it —
-// but the dashboard remains visible and can show the prompt guidance and the
-// beacon watch. The iframe is removed shortly after dispatch.
-export function launchProto(url: string): void {
-  let dispatched = false;
-  try {
-    if (typeof document !== 'undefined' && document.body) {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      // Sandbox the iframe to the minimal privilege needed for protocol dispatch
-      // (no scripts, no same-origin access). The src assignment is what triggers
-      // the external handler; the element is ephemeral.
-      iframe.src = url;
-      document.body.appendChild(iframe);
-      // Remove after a short window so the DOM does not accumulate hidden frames
-      // and so devtools stays honest (one frame per dispatch, never a leak).
-      setTimeout(() => {
-        try { iframe.remove(); } catch {}
-      }, 4000);
-      dispatched = true;
-    }
-  } catch {
-    /* iframe path failed — fall through to location navigation */
-  }
-  if (!dispatched) {
-    try {
-      window.location.href = url;
-    } catch {
-      /* ignore */
-    }
-  } else {
-    // Also arm a fallback navigation for browsers that ignore iframe protocol
-    // dispatches (old EdgeHTML, some WebView hosts). A second dispatch is harmless:
-    // the handler deduplicates by ticket (single-use) and the second 401 is
-    // silently ignored. We keep the location navigation behind a micro-delay so
-    // the iframe gets first credit in the common case.
-    try {
-      setTimeout(() => {
-        try {
-          // Navigating a blank iframe is not observable; as a last resort
-          // create a temporary anchor and synthesize a click — browsers that
-          // block the iframe will still honour a fresh anchor click from the
-          // same task.
-          const a = document.createElement('a');
-          a.href = url;
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => { try { a.remove(); } catch {} }, 1000);
-        } catch {}
-      }, 150);
-    } catch {}
-  }
+// The shipped contract is now:
+//   * `dispatchProtocolOnce()` performs exactly ONE navigation and reports whether
+//     it reached the browser;
+//   * the navigation is a top-level `location.assign` from inside the operator's
+//     click handler, so the page is NOT lost (an unregistered protocol only shows
+//     the browser's consent prompt) and transient activation is intact;
+//   * there is no iframe, no synthetic click, no delayed second attempt;
+//   * a pre-dispatch failure is reported as "failed" so the caller can offer an
+//     explicit retry with a FRESH ticket - never a silent second dispatch.
+import { dispatchProtocolOnce } from "@/lib/domain/dispatch";
+
+export { dispatchProtocolOnce, LaunchDispatcher } from "@/lib/domain/dispatch";
+export type { DispatchAttempt, AttemptStage, DispatchResult } from "@/lib/domain/dispatch";
+
+export function launchProto(url: string): "dispatched" | "failed" {
+  return dispatchProtocolOnce(url);
 }
 
 // [F37 §3] per-click trace id the client beacons carry.

@@ -7,6 +7,7 @@
 // src/lib/search/progressiveLab.ts, and the fetch action in the src/api/fetch
 // stub (F56-d replaces that one module).
 import { useEffect, useRef, useState } from "react";
+import { docUrl } from "@/lib/repoIdentity";
 import { Plus, Search as SearchIcon } from "lucide-react";
 import { PageHeader } from "@/components/primitives/PageHeader";
 import { Chip } from "@/components/primitives/Chip";
@@ -32,7 +33,8 @@ import { F86DiagnosticBanner, F90ViewingModeBadge } from "@/components/search/F8
 import { F87SelfTestPanel } from "@/components/search/F87SelfTestPanel";
 import { F90LaunchChoiceModal } from "@/components/search/F90LaunchChoiceModal";
 import { resolveViewingMode } from "@/lib/launchUrl";
-import { DEV_FIXTURE_ROWS, DEV_FIXTURE_TICK_MS, isDevMode, shouldStreamDevFixture } from "./search/devFixture";
+import { isDevMode } from "@/lib/devMode";
+import { DEV_FIXTURE_TICK_MS, shouldStreamDevFixture } from "@/lib/domain/devSearchFixture";
 
 const POLL_MS = 2000;
 
@@ -82,7 +84,7 @@ function F90TailscaleHint() {
       <p className="flex-1 text-secondary">
         {t("viewingMode.hint.body")}{" "}
         <a
-          href="https://github.com/dekarita/supreme-lamp/blob/main/PROJECT-CONTEXT-v2-CANONICAL.md"
+          href={docUrl("projectContext")}
           target="_blank"
           rel="noopener noreferrer"
           className="underline text-primary"
@@ -147,24 +149,38 @@ export default function Search() {
       })
     )
       return;
+    // [search-prod-honesty-2026-10-25] The sample rows are loaded LAZILY, and
+    // only when the build itself is a DEV build. `import.meta.env.DEV` is
+    // statically false in `npm run build`, so Rollup drops the branch - and with
+    // it the fixture chunk - instead of shipping 13 fake results inside the
+    // single-file artifact that the operator downloads.
+    if (!import.meta.env.DEV) return;
     // Latch first (outside the deps) so the interval survives the re-render.
     ui.setDevFixtureGen(st.queryGeneration);
     let i = 0;
-    const id = window.setInterval(() => {
-      const cur = useSearchStore.getState();
-      if (cur.resultOrder.length !== i) {
-        window.clearInterval(id); // live results (or a new search) arrived
-        return;
-      }
-      const row = DEV_FIXTURE_ROWS[i];
-      if (!row) {
-        window.clearInterval(id);
-        return;
-      }
-      i += 1;
-      cur.ingestResults([row]);
-    }, DEV_FIXTURE_TICK_MS);
-    return () => window.clearInterval(id);
+    let id = 0;
+    let cancelled = false;
+    void import("./search/devFixture").then(({ DEV_FIXTURE_ROWS }) => {
+      if (cancelled) return;
+      id = window.setInterval(() => {
+        const cur = useSearchStore.getState();
+        if (cur.resultOrder.length !== i) {
+          window.clearInterval(id); // live results (or a new search) arrived
+          return;
+        }
+        const row = DEV_FIXTURE_ROWS[i];
+        if (!row) {
+          window.clearInterval(id);
+          return;
+        }
+        i += 1;
+        cur.ingestResults([row]);
+      }, DEV_FIXTURE_TICK_MS);
+    });
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
     // devFixtureGen is deliberately NOT a dep: the latch must never kill the stream.
   }, [phase, queryGeneration, showProgress]);
 

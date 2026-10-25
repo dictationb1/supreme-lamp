@@ -965,6 +965,94 @@ internal static class GhrdpRdpLauncher
             Array.Clear(blob, 0, blob.Length);
         }
     }
+    // ==================================================================
+    // [SINGLE-DISPATCH-2026-10-25] A REPLAYED TICKET IS NOT A CREDENTIAL PROMPT.
+    //
+    // THE DEFECT THIS CLOSES. The dashboard used to dispatch the same protocol
+    // URL up to three times for one click (popup navigation + hidden iframe +
+    // synthetic anchor click). The launcher redeems the single-use ticket on its
+    // FIRST invocation; every later invocation of the SAME link arrives with an
+    // already-consumed ticket, the server answers 401, and the old code treated
+    // that as "redemption error -> interactive fallback" - which is exactly the
+    // visible cmdkey password window in the operator's screenshot, next to a
+    // Remote Desktop Connection "unknown publisher" warning.
+    //
+    // WHAT HAPPENS NOW. A replay is its own outcome:
+    //   * no cmdkey window, no password prompt, no second mstsc;
+    //   * no silent retry of the consumed ticket (single-use stays single-use);
+    //   * if THIS client already launched the same target from the same run
+    //     recently, the launcher exits 0 - the operator's intent was satisfied by
+    //     the first invocation, so the duplicate is a no-op;
+    //   * otherwise it beacons `ticket-replayed` and says so in a MessageBox that
+    //     tells the operator to click the dashboard button again (a FRESH ticket),
+    //     never to type a password.
+    // ==================================================================
+    private static bool IsTicketReplay(string outcome)
+    {
+        return outcome == "ticket-invalid-or-expired" || outcome == "ticket-consumed";
+    }
+
+    private static string LaunchMarkerPath()
+    {
+        string dir;
+        try { dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GhrdpLauncher"); }
+        catch { return ""; }
+        try { Directory.CreateDirectory(dir); } catch { return ""; }
+        return Path.Combine(dir, "last-launch.txt");
+    }
+
+    /** Record a launch that actually reached mstsc (server|user|utc ticks). */
+    private static void MarkLaunched(string server, string user)
+    {
+        try
+        {
+            string p = LaunchMarkerPath();
+            if (p.Length == 0) { return; }
+            File.WriteAllText(p, server + "|" + (user == null ? "" : user) + "|" + DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture));
+        }
+        catch { }
+    }
+
+    /** True when this target was launched successfully in the last 10 minutes. */
+    private static bool LaunchedRecently(string server)
+    {
+        try
+        {
+            string p = LaunchMarkerPath();
+            if (p.Length == 0 || !File.Exists(p)) { return false; }
+            string[] parts = File.ReadAllText(p).Split('|');
+            if (parts.Length < 3) { return false; }
+            if (parts[0] != server) { return false; }
+            long ticks;
+            if (!Int64.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out ticks)) { return false; }
+            TimeSpan age = DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc);
+            return age.TotalMinutes >= 0 && age.TotalMinutes <= 10;
+        }
+        catch { return false; }
+    }
+
+    private static int ReplayStep(string server, string user, string host, int port, string outcome)
+    {
+        bool recent = LaunchedRecently(server);
+        LogJson("rdp", "ticket-replayed", "outcome=" + outcome + " recentLaunch=" + (recent ? "true" : "false") +
+            " - no cmdkey, no password prompt, no second mstsc, no retry of the consumed ticket");
+        try { HelloBounded(host, port, "ticket-replayed", false, "ticket-replayed recent-launch=" + (recent ? "true" : "false")); } catch { }
+        if (recent)
+        {
+            // The first invocation of this same click already launched mstsc.
+            // A duplicate delivery of the link is a NO-OP by design.
+            LogJson("rdp", "ticket-replayed", "this client launched " + server + " for this run already - duplicate link ignored");
+            return 0;
+        }
+        ShowBox("ghrdp: this launch link was already used",
+            "The one-time ticket in this link has already been redeemed, or it has expired." + Environment.NewLine + Environment.NewLine +
+            "Nothing was launched and NO password prompt was opened: a second redemption of the same single-use ticket cannot succeed, " +
+            "and asking you for a password would not fix a consumed ticket." + Environment.NewLine + Environment.NewLine +
+            "Click WINDOWS AUTO-LOGIN (or FIX & CONNECT) in the dashboard again - that mints a FRESH ticket and dispatches it once." + Environment.NewLine + Environment.NewLine +
+            "log: " + LogPath());
+        return 2;
+    }
+
     // Only redemption errors permit interactive fallback. A bad reply or
     // failed CredWrite aborts, rather than using a potentially poisoned entry.
     private static string RedeemAndStore(string uri, string server, string user, string host, int port)
@@ -1020,7 +1108,12 @@ internal static class GhrdpRdpLauncher
             {
                 using (HttpWebResponse response = ex.Response as HttpWebResponse)
                 {
+                    // [SINGLE-DISPATCH-2026-10-25] A 401 here means the ticket was
+                    // already redeemed (or expired). That is a REPLAY, not a
+                    // credential problem, and it is classified as such so the
+                    // caller never opens a password prompt for it.
                     if (response != null && response.StatusCode == HttpStatusCode.Unauthorized) { return "ticket-invalid-or-expired"; }
+                    if (response != null && (response.StatusCode == HttpStatusCode.Forbidden || response.StatusCode == HttpStatusCode.Conflict)) { return "ticket-consumed"; }
                     if (response != null) { throw new InvalidOperationException("redeem-rejected"); }
                 }
                 return "unreachable";
@@ -1434,6 +1527,10 @@ internal static class GhrdpRdpLauncher
             return 4;
         }
         HandoffStep(host, port, "mstsc-started", true);
+        // [SINGLE-DISPATCH-2026-10-25] Proof that THIS client launched THIS target
+        // for this run. A duplicate delivery of the same link then exits 0 instead
+        // of prompting for a credential whose ticket is already consumed.
+        MarkLaunched(server, user);
 
         if (Environment.GetEnvironmentVariable("GHRDP_LAB_KEEP_RDP") != "1")
         {
@@ -1574,6 +1671,9 @@ internal static class GhrdpRdpLauncher
 
         string fallback = RedeemAndStore(uri, server, user, host, port);
         if (fallback == null) { return MstscStep(server, user, host, port); }
+        // A consumed/expired ticket is a REPLAY of a link that was already used:
+        // no password prompt, no cmdkey, no second mstsc.
+        if (IsTicketReplay(fallback)) { return ReplayStep(server, user, host, port, fallback); }
 
         HandoffStep(host, port, FallbackBeacon(fallback), false);
         // A ticket-less link (the legacy interactive path) must not force a
@@ -1622,6 +1722,7 @@ internal static class GhrdpRdpLauncher
         bool ticketPresent = (TicketFromUri(uri).Length > 0);
         string first = RedeemAndStoreStep(uri, server, user, host, port, "recred-redeemed");
         if (first == null) { return MstscStep(server, user, host, port); }
+        if (IsTicketReplay(first)) { return ReplayStep(server, user, host, port, first); }
         HandoffStep(host, port, FallbackBeacon(first), false);
         bool retryOk = false;
         if (ticketPresent)

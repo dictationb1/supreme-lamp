@@ -7,6 +7,7 @@
 // gate is red. Errors from the fetch itself (offline, CORS, dev without the
 // backend) render NOTHING: the gate only speaks when it has evidence.
 import { useEffect, useState } from "react";
+import { actionsUrl as actionsUrlFor } from "@/lib/repoIdentity";
 import { fetchF92Health, F92_FRONTEND_SHA } from "@/lib/f92";
 import { f92First, type F92Health } from "@/pages/Health";
 
@@ -36,7 +37,7 @@ export function VersionGate() {
   const v = f92First(health?.checks?.["version:match"]);
   if (!v || v.status !== "fail" || dismissed) return null;
   const repo = (globalThis as { location?: Location }).location?.host ?? "";
-  const actionsUrl = repo ? `https://github.com/dekarita/supreme-lamp/actions/workflows/main.yml` : "#";
+  const actionsUrl = repo ? actionsUrlFor("main.yml") : "#";
   return (
     <div
       data-testid="f92-version-gate"

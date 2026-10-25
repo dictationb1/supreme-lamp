@@ -4,6 +4,7 @@
 // + VNC auth mode, TS_AUTHKEY halt guidance (F9k), VNC password memory
 // (postMessage shim, F11-2), shortcut copy-lines, ticket audit.
 import React, { useEffect, useMemo, useState } from "react";
+import { commitsApiUrl } from "@/lib/repoIdentity";
 import { Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Card } from "@/components/primitives/Data";
@@ -46,7 +47,7 @@ export function WebDesktopCard() {
       try {
         const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
         const timer = ctl ? window.setTimeout(() => ctl.abort(), 5000) : 0;
-        const r = await fetch("https://api.github.com/repos/dekarita/supreme-lamp/commits/main", { cache: "no-store", credentials: "omit", signal: ctl?.signal });
+        const r = await fetch(commitsApiUrl("main"), { cache: "no-store", credentials: "omit", signal: ctl?.signal });
         if (timer) window.clearTimeout(timer);
         if (!r.ok) return;
         const j = (await r.json()) as { sha?: string };

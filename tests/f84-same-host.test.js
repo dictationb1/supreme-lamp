@@ -44,7 +44,13 @@ test('F84-SAMEHOST: the helper ships with the www-strip compare', () => {
 test('F84-SAMEHOST: all three fences use the tolerant compare', () => {
   assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $ExpectedHost -Actual $f78Uri.Host'), 'SecureFetch host fence not tolerant');
   assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $f78Host -Actual $f78SLink.Host'), 'sitemap <loc> fence not tolerant');
-  assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $f78Host -Actual $f78LinkHost'), 'href fence not tolerant');
+  // [LAB-INSPECT-2026-10-25] The href fence moved into the shared extractor, but
+  // it is the SAME tolerant compare - and it now fences on the host that actually
+  // SERVED the page (a redirect to a per-source allowlisted host must not make the
+  // page's own links look off-host).
+  assert.ok(BLOCK.includes('Test-F78SameHost -Allowed $f78Host -Actual $f86LinkHost'), 'href fence not tolerant');
+  assert.ok(BLOCK.includes('$f78FenceHost = $f78Host'), 'the href fence must default to the requested host');
+  assert.ok(BLOCK.includes('if ($f78ServedHost) { $f78FenceHost = $f78ServedHost }'), 'the href fence must use the served host');
 });
 
 test('F84-SAMEHOST: the strict equality fences are gone', () => {

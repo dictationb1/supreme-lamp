@@ -1,0 +1,98 @@
+{
+  "generatedAt": "2026-10-25T14:25:55Z",
+  "repository": "dictationb1/supreme-lamp",
+  "branch": "arena/046926e8-supreme-lamp",
+  "baseRevision": "ae360351eb3fea434f482af1b9e9db48025936a7",
+  "baseMainRevision": "e067bcef5ff97287bbc79345fa6a55cd8f3fcf31",
+  "testedRevision": "WORKING-TREE-ON-BASE (uncommitted at test time; the commit is recorded in pr.headSha after push)",
+  "build": {
+    "artifact": "ui/dist/index.html",
+    "sha256": "9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff",
+    "bytes": 1312534,
+    "command": "npm run build"
+  },
+  "tests": {
+    "command": "npx vitest run",
+    "files": 118,
+    "tests": 1535,
+    "failed": 0,
+    "log": "evidence/vitest-final.log"
+  },
+  "gates": {
+    "tsc": "pass",
+    "viteBuild": "pass",
+    "regressionIds": "pass (219=219)",
+    "noNeonGreen": "pass",
+    "bottomBar": "pass",
+    "fxIds": "pass",
+    "contrast": "pass",
+    "glassContrast": "pass"
+  },
+  "promotion": {
+    "pr": null,
+    "prUrl": null,
+    "headSha": null,
+    "mergeCommitSha": null,
+    "mergeState": "PENDING",
+    "note": "Values are written only after the operation actually happened. A null here means it did not happen yet - it is never a placeholder for a guess."
+  },
+  "deployment": {
+    "workflow": ".github/workflows/main.yml",
+    "mode": "rdp",
+    "runnerTarget": "windows-latest",
+    "runId": null,
+    "runUrl": null,
+    "status": "PENDING",
+    "note": "Dispatch happens after the merge; a deterministic 403 is reported once, without a retry loop."
+  },
+  "userVmAcceptance": {
+    "status": "PENDING",
+    "target": {
+      "host": "rdp-lab-client",
+      "user": "WIN-NFU1JG4VESE\\User"
+    },
+    "reason": "The user's VM is not reachable from this environment and is not claimed as a test target. No hosted test is reported as a VM test.",
+    "steps": [
+      "main.yml (mode=rdp, runner_target=windows-latest) -> dashboard URL + ?key=",
+      "Overview -> WINDOWS AUTO-LOGIN once -> answer 'Open ghrdp-rdp-launcher?'",
+      "Expect: stage awaiting handoff, one ticket, one dispatch -> launcher beacon -> connected",
+      "Click the same button again -> 'an attempt is already awaiting handoff', no second ticket",
+      "Cancel, then Retry -> new attempt id and a fresh ticket, still one dispatch",
+      "Re-open an already-used link -> 'ticket-replayed' notice, NO cmdkey password prompt",
+      "Search awesome.re -> inspect -> link list (no HOSTNAME_MISMATCH)",
+      "Search result ChessMax/awesome-programming-languages -> deep inspect -> rows or 'no matches' (no generic error)",
+      "Help / actions / secrets links -> dictationb1/supreme-lamp pages"
+    ]
+  },
+  "pending": [
+    {
+      "id": "USER_VM_ACCEPTANCE",
+      "why": "no VM/tailnet from the test environment",
+      "closeWith": "run the steps above on rdp-lab-client"
+    },
+    {
+      "id": "LAUNCHER_RUNTIME",
+      "why": "no C# compiler here; launcher contract is source-asserted only",
+      "closeWith": "PR Windows job builds ghrdp-rdp-launcher.exe, then double-open an old link"
+    },
+    {
+      "id": "POWERSHELL_ROUTE_RUNTIME",
+      "why": "no pwsh here",
+      "closeWith": "main.yml readiness run + one POST /api/lab/inspect per mode"
+    },
+    {
+      "id": "REPLAY_VIEWER_WORKFLOW",
+      "why": "pre-existing failure: docs/ publish target missing; unrelated to this change",
+      "closeWith": "separate change adding the publish target"
+    }
+  ],
+  "reports": {
+    "dir": "docs/reports/2026-10-25-ui-launch-search-repair/",
+    "sinhala": "REPORT-si.md",
+    "defects": "defects-and-reproductions.md",
+    "verification": "verification.md",
+    "coverage": "coverage-audit.md",
+    "operations": "feature-operations.md",
+    "unresolved": "unresolved.md"
+  }
+}
