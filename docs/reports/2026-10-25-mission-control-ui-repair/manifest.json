@@ -19,7 +19,7 @@
   "tests_after": {
     "vitest_files": 111,
     "vitest_tests": 1453,
-    "node_test_pass": 930,
+    "node_test_pass": 931,
     "node_test_fail": 0,
     "node_test_skipped": 26
   },
@@ -150,8 +150,8 @@
     },
     {
       "name": "defects-and-reproductions.md",
-      "sha256": "5c23abca87ef425836a1b33a567c93af325a7cb52e8ffad059f1276b42e46414",
-      "bytes": 12457
+      "sha256": "32805b9192b596ea0733affa08c2621ab72a2fcdea43a02cb0aee6bc472a9b14",
+      "bytes": 15275
     },
     {
       "name": "replay-and-rollback.md",
@@ -193,13 +193,25 @@
       "x": "F30 TLS/cipher purge - runner-schannel 0x8009030D private-key ACL; identical in pre-merge run 40122884082 (head d3f13d48)",
       "y": "F31c token diagnostic - same runner key-ACL cause; identical in 40122884082"
     },
-    "deployed_sha": "none (main.yml never dispatched)"
+    "deployed_sha": "none (main.yml never dispatched)",
+    "defect_2": {
+      "id": "D9",
+      "lab_run": "40145246991",
+      "head": "ae9e64e93bc4f00fb856f7bb90be9e7ed568180c",
+      "annotation": "[V] stage=server-wiring :: ghrdp-server.ps1 lacks: if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)",
+      "meaning": "the preceding stage (scan-corr-counts) PASSED on Windows, so D8 is lab-verified",
+      "defect_summary": "the lab assertion still quoted the pre-R1 inline guard; R1 (f56b4ffec) replaced it with $iterNow + $dueLogon, which is what the server ships",
+      "fix": "narrow the assertion to the current wiring + require the timer to advance $lastLogonScan and $script:F28IntervalSec = 30; server-side-only check unchanged",
+      "regression_lock": "tests/f204-logon-correlation.test.js V4-PS-14 (lab token list mirrored locally)",
+      "windows_reexecution": "PENDING - requires a lab run on the next head; not claimed"
+    }
   },
   "new_test_cases_added_post_merge": [
     {
       "file": "tests/f204-logon-correlation.test.js",
       "added": [
-        "V4-PS-13"
+        "V4-PS-13",
+        "V4-PS-14"
       ]
     }
   ]

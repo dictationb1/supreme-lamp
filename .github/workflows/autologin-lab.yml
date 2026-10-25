@@ -2185,12 +2185,28 @@ jobs:
           if ($nodeOut -notmatch '# fail 0') { V-Fail 'node-matrix' 'the F28 node matrix did not report 0 failures' }
           Write-Host '[V] (c) PASS: shipped page renderer - LAST RDP LOGON result+sub+eventTs+scanTs verbatim, RED collector-dead, recovery card only for 0xC000006A inside 120s of mstsc-started, CREDSSP live probe + stamp, recred URL carries t only'
           # --- (d) the loop is independent of the keep-alive step --------------
+          # [V4/D9] The literal guard asserted here used to be
+          # `if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)`.
+          # The R1 collector-spreading refactor (f56b4ffec) deliberately replaced
+          # it with ONE clock read per accept-loop iteration plus a due-flag, so
+          # three collectors share an iteration instead of stacking their
+          # Get-WinEvent cost. The product kept its 30s tick; only this assertion
+          # was left behind, and it had been failing since that commit. The tokens
+          # below describe the CURRENT wiring and assert the same fact: the logon
+          # scan runs on its own timer inside the server process.
           foreach ($tok in @('$script:ServerStartedUtc = (Get-Date).ToUniversalTime()',
                              'try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }',
-                             'if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)',
+                             '$iterNow = Get-Date',
+                             '$dueLogon = (($iterNow - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)',
+                             'if ($dueLogon) {',
                              '-NotePropertyName authLast', '-NotePropertyName logonCollector', '-NotePropertyName credsspLive')) {
               if (-not $srv.Contains($tok)) { V-Fail 'server-wiring' ('ghrdp-server.ps1 lacks: ' + $tok) }
           }
+          # The due-flag must ADVANCE the timer when it fires, and the interval
+          # must still be 30s - otherwise "due every iteration" or "never due"
+          # would both satisfy the token list above.
+          if ($srv -notmatch 'if \(\$dueLogon\) \{\s*\r?\n\s*\$lastLogonScan = \$iterNow') { V-Fail 'server-wiring' 'the due logon tick never advances $lastLogonScan' }
+          if (-not $srv.Contains('$script:F28IntervalSec = 30')) { V-Fail 'server-wiring' 'the 30s logon scan interval is gone' }
           $wf = [System.IO.File]::ReadAllText((Join-Path $ws '.github\workflows\main.yml'))
           if ($wf.Contains('Update-RdpLogonAuthLast')) { V-Fail 'server-side-only' 'the logon scan leaked into the keep-alive workflow step' }
           foreach ($tok in @('logon collector not running', 'scanned ', '+authLast.scanTs',

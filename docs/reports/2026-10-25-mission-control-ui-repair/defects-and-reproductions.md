@@ -285,3 +285,69 @@ fix commit.
 Therefore D8 is the **only** failure attributable to this repair, and it is fixed
 forward rather than hand-waved. Nothing here is claimed as "green": the lab run
 that would prove the fix must execute on the new commit.
+
+---
+
+# Addendum 2 — D9: a stale lab assertion, not a stale product
+
+**Found by:** `autologin-lab` run **`40145246991`** (head `ae9e64e93`, the D8 fix),
+job `proof`, same §V step — which now fails **later** than before:
+
+```
+[V] stage=server-wiring :: ghrdp-server.ps1 lacks:
+if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)
+```
+
+**This ordering is the useful part.** Reaching `server-wiring` means
+`scan-corr-counts` — the assertion D8 fixed — **passed on Windows**, and the lab
+moved on to its next check. D8 is therefore lab-verified, not merely
+locally-tested.
+
+## D9 — the assertion still quoted the pre-R1 wiring
+
+`payloads/ghrdp-server.ps1` used to hold the logon tick inline:
+
+```powershell
+if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec) {
+```
+
+The R1 collector-spreading refactor (`f56b4ffec`, merged with PR #73 — the work
+this repair is required to preserve) replaced it with **one clock read per
+accept-loop iteration** and a due-flag, so three collectors (logon, conn-log,
+telescope) share an iteration instead of stacking their `Get-WinEvent` cost:
+
+```powershell
+$iterNow = Get-Date
+$dueLogon = (($iterNow - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)
+if ($dueLogon) {
+    $lastLogonScan = $iterNow
+```
+
+The product kept its 30 s tick; the lab kept asserting the old *text*. `v` has
+been red since that commit for this reason, which is why the same
+`server-wiring` failure appears in run `40122884082` (head `d3f13d48`).
+
+**Fix.** The assertion is **narrowed, not deleted** — it now checks the current
+wiring and, additionally, the two facts the token list alone could not
+distinguish:
+
+```powershell
+if ($srv -notmatch 'if \(\$dueLogon\) \{\s*\r?\n\s*\$lastLogonScan = \$iterNow') { V-Fail ... }
+if (-not $srv.Contains('$script:F28IntervalSec = 30')) { V-Fail ... }
+```
+
+Without these, both "due on every iteration" (cost) and "never due" (stale
+verdict) would satisfy a plain substring list. `main.yml` still must not mention
+the scan (`server-side-only` unchanged).
+
+**Locked locally by:** `tests/f204-logon-correlation.test.js` → `V4-PS-14`,
+which reads the lab's token list out of the workflow, anchors on the
+`V-Fail 'server-wiring'` site, and requires **every** token to exist in the
+shipped `.ps1`, plus the timer-advance and interval checks. The first draft of
+this test used a lazy whole-file regex and immediately "found" a token from an
+unrelated list (`id="clientDnsRow"`) — the anchor is part of the test's own
+correctness, so it asserts that it captured exactly one list.
+
+This class of defect (product correct, gate stale) is the one that makes a lab
+look untrustworthy: it trains a reader to ignore red. Failing forward at 11
+minutes per Windows run is too slow, so the check now also runs in 0.1 s.
