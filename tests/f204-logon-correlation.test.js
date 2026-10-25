@@ -179,3 +179,30 @@ test("V4-PS-12 the client-side contract can read every field this publishes", ()
     assert.match(fnReduce, new RegExp("\\b" + key + "\\s*="), "backend never publishes " + key);
   }
 });
+
+test("V4-PS-13 machine-wide counts are taken BEFORE the correlation gate", () => {
+  // REGRESSION (caught on Windows, autologin-lab run 40144661716, stage
+  // `scan-corr-counts`): the counters used to be incremented inside the 4624 /
+  // 4625 branches, i.e. AFTER the correlation gate had already `continue`d for a
+  // foreign event. `count4624`/`count4625` therefore described "events that
+  // matched this client" while claiming to be machine-wide, which is exactly the
+  // inflated-history defect the repair set out to remove. The fix moves the
+  // counting above the gate; this test pins the ORDER structurally so a future
+  // edit cannot quietly move it back.
+  const countAt = fnReduce.indexOf("$c4625++");
+  const gateAt = fnReduce.indexOf("$excludedUser++; if ($srcMatch -eq 'mismatch')");
+  assert.ok(countAt > -1, "the 4625 counter disappeared");
+  assert.ok(gateAt > -1, "the correlation gate disappeared");
+  assert.ok(
+    countAt < gateAt,
+    "the machine-wide count is taken AFTER the correlation gate, so an excluded " +
+      "event vanishes from count4625 and the history is no longer machine-wide"
+  );
+  // The counting line must not be nested inside the id branch that follows.
+  const countLine = fnReduce.slice(fnReduce.lastIndexOf("\n", countAt) + 1, fnReduce.indexOf("\n", countAt));
+  assert.match(countLine, /\$c4624\+\+.*\$c4625\+\+/, "both counts belong in the same pre-gate statement");
+  assert.ok(
+    !/\$c4624\+\+/.test(fnReduce.slice(gateAt)),
+    "a stray $c4624++ survived after the gate"
+  );
+});

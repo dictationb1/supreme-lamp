@@ -1268,7 +1268,8 @@ function Get-RdpLogonAuthLast {
     if ($expUser) {
         $expNorm = $expUser.ToLowerInvariant()
         if ($expNorm.Contains('@')) { $expNorm = $expNorm.Split('@')[0] }
-        if ($expNorm.Contains('\\')) { $expNorm = $expNorm.Substring($expNorm.LastIndexOf('\\') + 1) }
+        # A PowerShell single-quoted '\\' is TWO backslashes; this tests for ONE.
+        if ($expNorm.Contains('\')) { $expNorm = $expNorm.Substring($expNorm.LastIndexOf('\') + 1) }
     }
     $expSrc = ([string]$ExpectedSource).Trim().ToLowerInvariant()
     # [F95 §3.1 / R1] lastLogonType: WHICH of 2/10/11 was seen, so the banner
@@ -1291,16 +1292,29 @@ function Get-RdpLogonAuthLast {
             # by the collector tick.
             if ($when -gt $nowUtc.AddSeconds(120)) { continue }
         }
+        # [V4] MACHINE-WIDE COUNTS ARE TAKEN BEFORE CORRELATION.
+        #
+        # Regression found by the Windows lab (autologin-lab run 40144661716,
+        # stage=scan-corr-counts): the counters used to be incremented INSIDE the
+        # per-event branches, i.e. AFTER the correlation gate had already
+        # `continue`d. An excluded event was then invisible in
+        # count4624/count4625, which silently turned "diagnostic history" into
+        # "history of events that happened to match this client" - the opposite
+        # of the published contract. The counts are the machine's record; the
+        # correlation gate only decides what may drive THIS client's verdict.
+        if ([string]$it.id -eq '4624') { $c4624++ } elseif ([string]$it.id -eq '4625') { $c4625++ }
+
         # --- correlation gate -------------------------------------------------
         # `matched` = 'yes' | 'no' | 'unknown'. Only 'yes' may decide the
-        # verdict; 'no' is excluded but COUNTED; 'unknown' is counted separately
-        # because "the field was absent" is not the same fact as "it differs".
+        # verdict; 'no' is excluded from the VERDICT but still counted above;
+        # 'unknown' is counted separately because "the field was absent" is not
+        # the same fact as "it differs".
         $evUserRaw = ([string]$it.targetUserName).Trim()
         $evNorm = ''
         if ($evUserRaw) {
             $evNorm = $evUserRaw.ToLowerInvariant()
             if ($evNorm.Contains('@')) { $evNorm = $evNorm.Split('@')[0] }
-            if ($evNorm.Contains('\\')) { $evNorm = $evNorm.Substring($evNorm.LastIndexOf('\\') + 1) }
+            if ($evNorm.Contains('\')) { $evNorm = $evNorm.Substring($evNorm.LastIndexOf('\') + 1) }
         }
         $userMatch = 'unknown'
         if ($expNorm -and $evNorm) { if ($evNorm -eq $expNorm) { $userMatch = 'yes' } else { $userMatch = 'no' } }
@@ -1319,8 +1333,8 @@ function Get-RdpLogonAuthLast {
             # Service/batch/network/unlock types are still excluded by
             # Test-GhrdpInteractiveLogonType.
             if (Test-GhrdpInteractiveLogonType -LogonType ([string]$it.logonType)) {
-                $c4624++
                 # The newest CORRELATED interactive logon is the candidate.
+                # (The machine-wide count was already taken above.)
                 if (($null -eq $okWhen) -or ($null -eq $when) -or ($when -ge $okWhen)) {
                     $okWhen = $when; $okTs = [string]$it.timeUtc; $okRec = [string]$it.recordId
                     $lastLogonType = ([string]$it.logonType).Trim()
@@ -1338,7 +1352,6 @@ function Get-RdpLogonAuthLast {
             continue
         }
         if ([string]$it.id -ne '4625') { continue }
-        $c4625++
         if (($null -eq $failWhen) -or ($null -eq $when) -or ($when -ge $failWhen)) {
             $failWhen = $when; $failTs = [string]$it.timeUtc
             $failSub = ([string]$it.subStatus).ToUpperInvariant()

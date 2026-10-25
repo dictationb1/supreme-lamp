@@ -202,3 +202,86 @@ notice. If the session was created **after** the rejection, the rejection stands
   TS UI model, i18n, tests and two workflow files only.
 * R1's accepted logon-type set (`2`, `10`, `11`) is unchanged — the collector
   still *counts* type-2/11 desktops; it just stops calling them remote proof.
+
+---
+
+# Addendum — D8: the Windows lab found a real defect in the V4 fix
+
+This record is dated **after** the merge on purpose. The scenario the repair was
+written for ("a 4625 for another account must not decide this client") had a
+second half that the local tests could not see: the machine-wide counters.
+
+## D8 — an excluded event vanished from `count4624` / `count4625`
+
+**Found by:** `autologin-lab` run **`40144661716`** (head `ae5ae2c1`, the merge
+commit of PR #79), job `proof`, step *"V: F28 logon-result loop + one-click
+recovery + fallback gap"*.
+
+**Observed (runner annotation, not a log scrape):**
+
+```
+[V] stage=scan-corr-counts :: the foreign event must be excluded AND still
+counted machine-wide, got excluded=1 count4625=0
+```
+
+**Cause.** In `Get-RdpLogonAuthLast` the counters were incremented *inside* the
+per-event branches, i.e. **below** the correlation gate. The gate `continue`s for
+an event whose account or source does not match, so an excluded 4625 never
+reached `$c4625++`. The published contract calls these fields *machine-wide
+counts* — "this machine has seen N rejections" — while the code was producing
+"this machine has seen N rejections **that belong to this client**". That is the
+same class of error as D1 (a machine-wide fact presented as a client fact), one
+layer down: the verdict was fixed, the surrounding history was not. A foreign
+rejection would have read as *"nothing else is happening on this machine"*,
+which is exactly the reassurance a user must not be given.
+
+**Fix (commit `{{D8_COMMIT}}`).** Counting is moved above the
+gate and made explicit:
+
+```powershell
+if ([string]$it.id -eq '4624') { $c4624++ } elseif ([string]$it.id -eq '4625') { $c4625++ }
+# --- correlation gate ---
+```
+
+The exclusion counters (`excludedUser`, `excludedSource`, `undecidable`) still
+describe *why an event was set aside*, and the gate still decides what may drive
+the verdict. Nothing else in the reduction changed.
+
+Two details kept intact on purpose:
+
+* `count4624` still counts **interactive-type 4624 only** (2/10/11). The lab
+  asserts this: `scan-console` requires `count4624 = 0` for a type-3 logon. A
+  service/network logon is not a desktop, and inflating the count with them would
+  be a different lie.
+* The machine-wide count is taken **after** the window and future-skew checks, so
+  a pre-window or malformed event is still not counted.
+
+**Locked by:** `tests/f204-logon-correlation.test.js` → `V4-PS-13`, which asserts
+the *order* (count before gate) structurally, so a future edit cannot silently
+move the increment back into the branch. This is the test that would have caught
+D8 in the 23 minutes between the PR checks and the lab run.
+
+**Verified on Windows:** the same step's sibling assertions
+(`scan-counts`, `scan-console`, `scan-corr-foreign`) pass in the pre-merge runs;
+the specific `scan-corr-counts` assertion is re-executed by the lab run on the
+fix commit.
+
+## The other two red cells in that run are not this project's regressions
+
+`[G] lab matrix … v=fail x=fail y=fail` also appeared in run **`40122884082`**
+(head `d3f13d48`, the PR #73 merge, i.e. **before** any of this repair):
+
+```
+[G] lab matrix (autologin-lab fallback) … u=pass v=fail x=fail y=fail z=pass w=pass
+```
+
+* `x` (F30 TLS/cipher purge) and `y` (F31c token diagnostic) fail with
+  `[forensics] runner-schannel … A fatal error occurred when attempting to access
+  the TLS server credential private key … 0x8009030D` — a **key-ACL limitation of
+  the hosted runner**, identical in both runs, unchanged by this work.
+* `v` failed in `40122884082` at `stage=server-wiring` (that revision predates the
+  scan tick wiring), and in `40144661716` at `stage=scan-corr-counts` (D8 above).
+
+Therefore D8 is the **only** failure attributable to this repair, and it is fixed
+forward rather than hand-waved. Nothing here is claimed as "green": the lab run
+that would prove the fix must execute on the new commit.
