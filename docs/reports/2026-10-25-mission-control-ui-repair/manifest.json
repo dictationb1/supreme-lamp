@@ -165,8 +165,8 @@
     },
     {
       "name": "verification-log.md",
-      "sha256": "648ba510ebabf6a63060210b75c551861f2d28dea6dd61c112c301888a7d9484",
-      "bytes": 6856
+      "sha256": "13c24d6619ff7775c7bc5633d06841bbb626f7a3e0cc08f4855f34eb701edebf",
+      "bytes": 8622
     }
   ],
   "post_merge_followup": {
@@ -210,6 +210,24 @@
       "head": "08231502",
       "conclusion": "success",
       "matrix": "k2 l m n o a b_c d_e f h i j p r s t u v x y z w = all pass"
+    },
+    "merge2": {
+      "pull_request": "https://github.com/dictationb1/supreme-lamp/pull/80",
+      "merge_commit": "69de7846e182a061e86c079271f2670067b114af",
+      "merged_at": "2026-10-25T00:30:41Z",
+      "pr_checks": "gates, windows-native, e2e-ui, lab static, summarize = pass",
+      "lab_run_on_main": {
+        "id": "40146979935",
+        "conclusion": "success",
+        "matrix": "all cells pass incl. v"
+      },
+      "deployment": "NOT RUN - workflow dispatch returns HTTP 403 for this token (reproduced twice); operator must dispatch from the UI"
+    },
+    "first_merge_push_runs": {
+      "autologin-lab": "40144661716 failure (D8)",
+      "e2e-ui": "40144661687 success",
+      "launch-gates": "40144661783 success",
+      "F59_build_ui": "40144661692 success"
     }
   },
   "new_test_cases_added_post_merge": [

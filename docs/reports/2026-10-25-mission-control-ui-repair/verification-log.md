@@ -93,3 +93,36 @@ regressions of this repair.
 
 Standing honesty note, unchanged: no deployed SHA exists. `main.yml` was never
 dispatched, so nothing in this bundle describes a running instance.
+
+---
+
+# Merge 2 and the lab run on `main`
+
+| Item | Value | Status |
+|---|---|---|
+| PR | [#80](https://github.com/dictationb1/supreme-lamp/pull/80) | **MERGED** 2026-10-25T00:30:41Z |
+| Merge commit | `69de7846e182a061e86c079271f2670067b114af` | on `main` |
+| PR checks on `08231502` | `gates` 5m57s, `windows-native` 11m24s, `e2e-ui` 8m38s, lab static 8m17s, summarize — all **pass** (two lab profiles `skipping`) | PASS |
+| **`autologin-lab` run `40146979935`** (head `69de7846`, push-triggered on `main`) | job `proof` | **SUCCESS** |
+| Lab matrix on `main` | `a b_c d_e f h i j k2 l m n o p r s t u v w x y z` — **all pass** | PASS |
+
+This is the first run of this repair's §V assertions on `main` that ends green;
+`v` (F28/V4 correlation) is among the passing cells, so the backend correlation
+contract and the count-before-gate fix are verified in the language they ship in.
+
+Two honest caveats, neither of which affects the verdict:
+
+* The lab emits a tolerated `git push failed: remote: HTTP 401: Bad credentials`
+  from its evidence-publish step on push-triggered runs. That step needs a token
+  that a `push` event does not carry; the run still concludes `success`.
+* **No deployment happened.** `gh workflow run main.yml --ref main -f mode=rdp
+  -f runner_target=windows-latest` still returns
+  `HTTP 403: Resource not accessible by integration` — reproduced twice, not
+  retried further. The operator must dispatch it from the UI (see
+  `replay-and-rollback.md`). Everything above describes CI, not a running
+  instance.
+
+Earlier same-push statuses for the first merge, now read (they were pending in
+the previous addendum): `e2e-ui` `40144661687` **success**,
+`F59 build-ui` `40144661692` **success**, `launch-gates` `40144661783` **success**.
+
