@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Open Culture</title>
+    <link>https://www.openculture.com</link>
+    <description>The best free cultural &amp; educational media on the web.</description>
+    <item>
+      <title>Walter Kaufmann&apos;s Lectures on Nietzsche</title>
+      <link>https://www.openculture.com/2019/03/walter_kaufmanns_lectures_on_nietzsche.html</link>
+      <pubDate>Fri, 15 Mar 2019 10:00:00 +0000</pubDate>
+      <category><![CDATA[Philosophy]]></category>
+      <category><![CDATA[Audio]]></category>
+      <description><![CDATA[A free course of lectures, hosted elsewhere. <a href="https://example.edu/nietzsche">External resource</a>.]]></description>
+    </item>
+    <item>
+      <title>How to Bake Better Bread</title>
+      <link>https://www.openculture.com/2021/06/how_to_bake_better_bread.html</link>
+      <pubDate>Wed, 02 Jun 2021 08:30:00 +0000</pubDate>
+      <category><![CDATA[Food]]></category>
+      <description><![CDATA[Nothing to do with the query under test.]]></description>
+    </item>
+  </channel>
+</rss>

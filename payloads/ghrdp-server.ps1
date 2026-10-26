@@ -5039,7 +5039,7 @@ function Invoke-ClientRequest {
         # The condition now admits every route the block houses; the inner
         # handlers still dispatch per-path and return their own status, and
         # any other method hits the same 405 at the block end.
-        if ($path -eq '/api/f58/sources' -or $path -eq '/api/lab/inspect' -or $path -like '/api/f58/sources/*' -or $path -eq '/api/launch-url' -or $path -eq '/api/launch-url/diag' -or $path -eq '/api/f87-selftest' -or $path -eq '/api/preview' -or $path -eq '/api/launcher/queue' -or $path -eq '/api/launcher/health' -or $path -eq '/api/stream' -or $path -eq '/api/f92-selftest') {
+        if ($path -eq '/api/f58/sources' -or $path -eq '/api/lab/inspect' -or $path -like '/api/f58/sources/*' -or $path -eq '/api/providers/relay' -or $path -eq '/api/launch-url' -or $path -eq '/api/launch-url/diag' -or $path -eq '/api/f87-selftest' -or $path -eq '/api/preview' -or $path -eq '/api/launcher/queue' -or $path -eq '/api/launcher/health' -or $path -eq '/api/stream' -or $path -eq '/api/f92-selftest') {
             if ($parts.method -eq 'OPTIONS') {
                 Send-ClientResponse -Stream $stream -Code 204 -CType 'text/plain' -Body ([byte[]]@()) -ExtraHeaders "Access-Control-Allow-Headers: Content-Type, X-Dash-Token`r`nAccess-Control-Max-Age: 600"
                 return
@@ -5047,6 +5047,26 @@ function Invoke-ClientRequest {
             if (-not $script:F78Sources) { $script:F78Sources = @{} }
             if (-not $script:F78AllowHosts) { $script:F78AllowHosts = @{} }
             if (-not $script:F78LabInspectRateLimiter) { $script:F78LabInspectRateLimiter = @{} }
+            # [SEARCH-REPAIR] The built-in provider hosts /api/providers/relay may
+            # reach WITHOUT the operator having added anything. They are the exact
+            # hosts the shipped adapters call (Open Culture, Internet Archive,
+            # Openverse, the GitHub API and the two curated-list hosts), never a
+            # wildcard and never a suffix match: `evil-api.github.com` is not
+            # allowed because the check is an exact dictionary hit on the
+            # lower-cased host. Kept in one place so a new adapter adds one line.
+            if (-not $script:ProviderRelayHosts) {
+                $script:ProviderRelayHosts = @{}
+                foreach ($fRelayBuiltin in @(
+                        'www.openculture.com', 'openculture.com',
+                        'archive.org', 'www.archive.org', 'ia800000.us.archive.org',
+                        'api.openverse.org', 'api.openverse.engineering',
+                        'api.github.com', 'github.com', 'www.github.com', 'awesome.re',
+                        'raw.githubusercontent.com', 'fmhy.net', 'www.fmhy.net',
+                        'rentry.co', 'rentry.org', 'www.rentry.co')) {
+                    $script:ProviderRelayHosts[[string]$fRelayBuiltin] = $true
+                }
+            }
+            if (-not $script:FRelayWindows) { $script:FRelayWindows = @{} }
             function New-F78Error {
                 param([string]$Code, [string]$MessageKey, [int]$RetryAfter)
                 $f78Err = [ordered]@{ requestId = ''; traceId = [guid]::NewGuid().ToString('N').Substring(0,12); code = $Code; messageKey = $MessageKey; retryable = ($RetryAfter -gt 0); details = @{} }
@@ -5867,6 +5887,19 @@ function Invoke-ClientRequest {
                 # new save returns 409 with `code=max-sites` when the cap would
                 # be exceeded.
                 $f78FieldErrors = [ordered]@{}
+                # [SEARCH-REPAIR] OPTIONAL operator metadata, additive and
+                # validated: `notes` says WHAT the operator wants to find on this
+                # site (free text, 280 chars, and the F58 §E "no executable
+                # parser code" rule applied to it as well), `enabled` decides
+                # whether the source takes part in a search. Absent values keep
+                # the previous behaviour exactly (no notes, enabled).
+                $f78Notes = ''
+                try { if ($f78Json.notes) { $f78Notes = [string]$f78Json.notes } } catch { $f78Notes = '' }
+                $f78Notes = $f78Notes.Trim()
+                if ($f78Notes.Length -gt 280) { $f78FieldErrors['notes'] = 'search.sources.notesTooLong' }
+                elseif ($f78Notes -match '(=>|function\s*\(|<\s*script|\beval\s*\(|\brequire\s*\(|\bnew\s+Function\b)') { $f78FieldErrors['notes'] = 'search.sources.notesRejected' }
+                $f78Enabled = $true
+                try { if ($null -ne $f78Json.enabled) { $f78Enabled = [bool]$f78Json.enabled } } catch { $f78Enabled = $true }
                 if (-not $f78Name) { $f78FieldErrors['name'] = 'newSiteNameRequired' }
                 elseif ($f78Name.Length -gt 50) { $f78FieldErrors['name'] = 'newSiteNameTooLong' }
                 if (-not $f78Base.StartsWith('https://')) {
@@ -6005,6 +6038,9 @@ function Invoke-ClientRequest {
                     enableState = 'permanent'
                     addedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                     addedVia = 'f78-quick-add'
+                    # [SEARCH-REPAIR] operator metadata (validated above)
+                    notes = $f78Notes
+                    enabled = $f78Enabled
                 }
                 $script:F78Sources[$f78Id] = $f78Row
                 # The save-time host fence: only this line ever adds a host.
@@ -6056,6 +6092,168 @@ function Invoke-ClientRequest {
                 $f81DelSaved = Write-F81LabStore -Map $script:F78Sources
                 Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{ ok = $true; deletedId = $f78DelId; persisted = $f81DelSaved }))
                 Write-ClientAudit ('f78 delete site id=' + $f78DelId + ' host=' + $f78DelHost + ' persisted=' + [string]$f81DelSaved)
+                return
+            }
+
+            # =====================================================================
+            # [SEARCH-REPAIR] PATCH /api/f58/sources/<id> - edit ONE stored site.
+            #
+            # The Manage-sources dialog can rename a source, change its notes and
+            # enable/disable it without deleting and re-adding the row (which used
+            # to be the only option, and which lost the row's addedAt/hostname).
+            # Only the fields in the body are touched; an empty body is a 400, an
+            # unknown id is a 404, the dash token gate above already ran, and the
+            # same value rules as POST apply (name <= 50, notes <= 280 with the
+            # F58 §E code rule). Persisted through the same Write-F81LabStore call
+            # the add/delete paths use.
+            # =====================================================================
+            if ($path -like '/api/f58/sources/*' -and $parts.method -eq 'PATCH') {
+                $f78PatchId = ''
+                try { $f78PatchId = [string]$path.Substring('/api/f58/sources/'.Length) } catch { $f78PatchId = '' }
+                $f78PatchId = $f78PatchId.Trim()
+                if (-not $f78PatchId -or $f78PatchId.Contains('/')) {
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
+                    return
+                }
+                if (-not $script:F78Sources.ContainsKey($f78PatchId)) {
+                    Send-ClientResponse -Stream $stream -Code 404 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'NOT_FOUND' -MessageKey 'lab.notFound' -RetryAfter 0))
+                    return
+                }
+                $f78PatchText = ''
+                try { $f78PatchText = [System.Text.Encoding]::UTF8.GetString($parts.body) } catch { $f78PatchText = '' }
+                $f78PatchJson = $null
+                try { $f78PatchJson = $f78PatchText | ConvertFrom-Json -ErrorAction Stop } catch { $f78PatchJson = $null }
+                if (-not $f78PatchJson) {
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
+                    return
+                }
+                $f78PatchErrs = [ordered]@{}
+                $f78PatchName = $null
+                $f78PatchNotes = $null
+                $f78PatchEnabled = $null
+                try { if ($null -ne $f78PatchJson.name) { $f78PatchName = ([string]$f78PatchJson.name).Trim() } } catch { }
+                try { if ($null -ne $f78PatchJson.notes) { $f78PatchNotes = ([string]$f78PatchJson.notes).Trim() } } catch { }
+                try { if ($null -ne $f78PatchJson.enabled) { $f78PatchEnabled = [bool]$f78PatchJson.enabled } } catch { }
+                if ($null -eq $f78PatchName -and $null -eq $f78PatchNotes -and $null -eq $f78PatchEnabled) {
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes (New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0))
+                    return
+                }
+                if ($null -ne $f78PatchName) {
+                    if (-not $f78PatchName) { $f78PatchErrs['name'] = 'newSiteNameRequired' }
+                    elseif ($f78PatchName.Length -gt 50) { $f78PatchErrs['name'] = 'newSiteNameTooLong' }
+                }
+                if ($null -ne $f78PatchNotes) {
+                    if ($f78PatchNotes.Length -gt 280) { $f78PatchErrs['notes'] = 'search.sources.notesTooLong' }
+                    elseif ($f78PatchNotes -match '(=>|function\s*\(|<\s*script|\beval\s*\(|\brequire\s*\(|\bnew\s+Function\b)') { $f78PatchErrs['notes'] = 'search.sources.notesRejected' }
+                }
+                if ($f78PatchErrs.Count -gt 0) {
+                    $f78PatchErr = New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0
+                    $f78PatchErr['errors'] = $f78PatchErrs
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $f78PatchErr)
+                    return
+                }
+                $f78RowP = $script:F78Sources[$f78PatchId]
+                if ($null -ne $f78PatchName) { $f78RowP['name'] = $f78PatchName }
+                if ($null -ne $f78PatchNotes) { $f78RowP['notes'] = $f78PatchNotes }
+                if ($null -ne $f78PatchEnabled) {
+                    $f78RowP['enabled'] = $f78PatchEnabled
+                    # enableState is the F58 enum the rest of the app reads, so it
+                    # is kept in step with the operator's toggle.
+                    $f78RowP['enableState'] = $(if ($f78PatchEnabled) { 'permanent' } else { 'paused' })
+                }
+                $script:F78Sources[$f78PatchId] = $f78RowP
+                $f81PatchSaved = Write-F81LabStore -Map $script:F78Sources
+                Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{ ok = $true; source = $f78RowP; persisted = $f81PatchSaved }))
+                Write-ClientAudit ('f78 patch site id=' + $f78PatchId + ' persisted=' + [string]$f81PatchSaved)
+                return
+            }
+
+            # =====================================================================
+            # [SEARCH-REPAIR] GET /api/providers/relay?url=<encoded>
+            #
+            # WHY: the browser can read Open Culture, archive.org, Openverse,
+            # api.github.com, fmhy.net and rentry.org directly (all answer
+            # `access-control-allow-origin: *` - measured, see
+            # docs/reports/search-repair/evidence/live-probe.json). A website the
+            # operator ADDS may not, and github.com HTML / archive.org/download do
+            # not. This route is the only way those can be read, so it exists -
+            # with the same fences the rest of the block uses:
+            #   * dash token required (the gate above already enforced it);
+            #   * https only, no userinfo, <= 2048 chars;
+            #   * the host must be one the app already knows: a BUILT-IN provider
+            #     host, or the exact host of a stored source (plus its probe
+            #     redirect host). No wildcard, no suffix match, no open proxy;
+            #   * Invoke-F78SecureFetch transport: 2 MB cap, 10 s, no cookies, no
+            #     auth header, same-host redirects only;
+            #   * 10 fetches/minute per host (429 + retryAfterSeconds), so a
+            #     misbehaving page cannot hammer a site through this server.
+            # A refusal names the reason (host not allowed, size, timeout) and is
+            # never reported as an authentication problem.
+            # =====================================================================
+            if ($path -eq '/api/providers/relay' -and $parts.method -eq 'GET') {
+                $fRelayUrl = ''
+                try { $fRelayUrl = [string]$parts.query['url'] } catch { $fRelayUrl = '' }
+                $fRelayUrl = $fRelayUrl.Trim()
+                $fRelayUri = $null
+                try { $fRelayUri = [System.Uri]$fRelayUrl } catch { $fRelayUri = $null }
+                if (-not $fRelayUrl -or $fRelayUrl.Length -gt 2048 -or -not $fRelayUri -or $fRelayUri.Scheme -ne 'https' -or $fRelayUri.UserInfo) {
+                    $fRelayErr = New-F78Error -Code 'VALIDATION_ERROR' -MessageKey 'search.errors.validation' -RetryAfter 0
+                    $fRelayErr.details = [ordered]@{ reason = 'relay url must be a plain https URL of at most 2048 characters' }
+                    Send-ClientResponse -Stream $stream -Code 400 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $fRelayErr)
+                    return
+                }
+                $fRelayHost = $fRelayUri.Host.ToLowerInvariant()
+                $fRelayAllowed = $false
+                if ($script:ProviderRelayHosts -and $script:ProviderRelayHosts.ContainsKey($fRelayHost)) { $fRelayAllowed = $true }
+                if (-not $fRelayAllowed) {
+                    foreach ($fRelayRowK in @($script:F78Sources.Keys)) {
+                        $fRelayRow = $script:F78Sources[$fRelayRowK]
+                        if (-not $fRelayRow) { continue }
+                        if (Test-F78SameHost -Allowed ([string]$fRelayRow.hostname) -Actual $fRelayHost) { $fRelayAllowed = $true; break }
+                        if ([string]$fRelayRow.canonicalHostname -and (Test-F78SameHost -Allowed ([string]$fRelayRow.canonicalHostname) -Actual $fRelayHost)) { $fRelayAllowed = $true; break }
+                        if ([string]$fRelayRow.redirectHostname -and (Test-F78SameHost -Allowed ([string]$fRelayRow.redirectHostname) -Actual $fRelayHost)) { $fRelayAllowed = $true; break }
+                    }
+                }
+                if (-not $fRelayAllowed) {
+                    $fRelayErr = New-F78Error -Code 'RELAY_REFUSED' -MessageKey 'search.errors.validation' -RetryAfter 0
+                    $fRelayErr.details = [ordered]@{ offHost = $fRelayHost; reason = 'host is neither a built-in provider host nor a stored source host'; url = $fRelayUrl }
+                    Send-ClientResponse -Stream $stream -Code 403 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $fRelayErr)
+                    Write-ClientAudit ('search relay refused host=' + $fRelayHost)
+                    return
+                }
+                if (-not $script:FRelayWindows) { $script:FRelayWindows = @{} }
+                $fRelayNow = (Get-Date).ToUniversalTime()
+                $fRelayHits = @()
+                if ($script:FRelayWindows.ContainsKey($fRelayHost)) { $fRelayHits = @($script:FRelayWindows[$fRelayHost]) }
+                $fRelayKept = @()
+                foreach ($fRelayHit in $fRelayHits) { if (($fRelayNow - $fRelayHit).TotalSeconds -lt 60) { $fRelayKept += $fRelayHit } }
+                if ($fRelayKept.Count -ge 10) {
+                    $fRelayErr = New-F78Error -Code 'RATE_LIMITED' -MessageKey 'lab.rateLimited' -RetryAfter 60
+                    Send-ClientResponse -Stream $stream -Code 429 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $fRelayErr)
+                    return
+                }
+                $fRelayKept += $fRelayNow
+                $script:FRelayWindows[$fRelayHost] = $fRelayKept
+                $fRelayOut = Invoke-F78SecureFetch -Url $fRelayUrl -ExpectedHost $fRelayHost -MaxBytes 2097152 -TimeoutSec 10
+                if (-not $fRelayOut.ok) {
+                    $fRelayCode = [string]$fRelayOut.code
+                    $fRelayStatus = 502
+                    if ($fRelayCode -eq 'SIZE_LIMIT') { $fRelayStatus = 413 }
+                    elseif ($fRelayCode -eq 'TIMEOUT') { $fRelayStatus = 504 }
+                    elseif ($fRelayCode -eq 'HOSTNAME_MISMATCH') { $fRelayStatus = 403 }
+                    elseif ($fRelayCode -eq 'VALIDATION_ERROR') { $fRelayStatus = 400 }
+                    $fRelayErr = New-F78Error -Code $(if ($fRelayCode -eq 'HOSTNAME_MISMATCH') { 'REDIRECT_REFUSED' } else { $fRelayCode }) -MessageKey 'lab.unreachable' -RetryAfter 0
+                    $fRelayErr.details = [ordered]@{ url = $fRelayUrl; host = $fRelayHost; reason = $fRelayCode }
+                    Send-ClientResponse -Stream $stream -Code $fRelayStatus -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes $fRelayErr)
+                    Write-ClientAudit ('search relay failed host=' + $fRelayHost + ' code=' + $fRelayCode)
+                    return
+                }
+                # Text passthrough. The client parses the body itself; the final
+                # URL rides a header so a redirect is visible, not guessed.
+                $fRelayBody = [System.Text.Encoding]::UTF8.GetBytes([string]$fRelayOut.text)
+                $fRelayExtra = 'X-Relay-Final-Url: ' + [string]$fRelayOut.url
+                Send-ClientResponse -Stream $stream -Code 200 -CType 'text/plain; charset=utf-8' -Body $fRelayBody -ExtraHeaders $fRelayExtra
+                Write-ClientAudit ('search relay ok host=' + $fRelayHost + ' bytes=' + [string]$fRelayOut.bytes)
                 return
             }
 

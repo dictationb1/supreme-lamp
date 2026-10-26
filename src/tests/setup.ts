@@ -3,6 +3,14 @@
 // static file checks live in scripts/*.mjs with explicit EOL normalization).
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+// [SEARCH-REPAIR] The client provider lane is OFF by default in the jsdom suite:
+// otherwise every submit() in every existing test would open real provider
+// connections. The lane's own suites turn it on and inject a transport.
+// [SEARCH-REPAIR] The client provider lane is OFF in unit tests unless a test
+// turns it on: otherwise every submit() would reach the real providers. The
+// lane's own suites call setProviderLaneEnabled(true) and inject a fetch.
+import { setProviderLaneEnabled } from "@/lib/search/providerLane";
+setProviderLaneEnabled(false);
 import "@testing-library/jest-dom/vitest";
 
 afterEach(() => {

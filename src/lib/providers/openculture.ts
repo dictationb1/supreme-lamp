@@ -1,53 +1,38 @@
 // [SEARCH-REPAIR] Open Culture provider.
 //
-// WHAT THE SITE ACTUALLY OFFERS (probed live 2026-10-26, evidence committed in
-// docs/reports/search-repair/evidence/live-probe.json):
-//   * https://www.openculture.com/?s=<query>  302 -> /gcsearch  ... the search
-//     page is a GOOGLE CUSTOM SEARCH widget. Its HTML carries no results, so
-//     scraping it can only ever produce an empty list. That is exactly the
-//     "public source looks broken / needs a login" symptom we are removing.
-//   * https://www.openculture.com/feed  200, CORS *, full WordPress RSS with
-//     title, link, pubDate, categories and a description  -> this is the real
-//     machine-readable index.
-//   * category pages and the article pages themselves are ordinary HTML.
+// WHAT IS ACTUALLY AVAILABLE (measured, see the live probe evidence):
+//   * https://www.openculture.com/feed - WordPress RSS, CORS `*`, ~35 recent
+//     items with title, link, pubDate, categories and a description. This is the
+//     only real queryable surface.
+//   * /sitemap.xml - the site's sitemap (Yoast-style), which lets an older post
+//     be found by its slug.
+//   * /?s=<query> - a 302 to /gcsearch, a Google Custom Search page whose
+//     results are rendered by Google's JavaScript. It cannot be parsed, so it is
+//     never used and never offered.
 //
-// So the adapter searches the FEEDS and (optionally) the site's sitemap slugs,
-// and it says which of those answered. A hit is explicitly an EDITORIAL listing:
-// Open Culture's article is not the resource, it points at one - the inspector
-// separates the two.
-import { ProviderError, getJson, getResource, qs, type ProviderContext } from "./core";
-import {
-  decodeEntities,
-  detectChallenge,
-  extractAnchors,
-  extractFeedItems,
-  extractMeta,
-  extractSitemap,
-  matchesQuery,
-  scoreMatch,
-  stripHtml,
-  truncate,
-  type FeedItem,
-} from "./text";
+// Therefore "search" here honestly means: read the feed, match locally, and fall
+// back to slug matching in the sitemap. The result is the EDITORIAL article; the
+// external resource it recommends is reported separately by the inspector, which
+// is the distinction the operator asked for.
+import { ProviderError, getResource, type ProviderContext } from "./core";
+import { decodeEntities, detectChallenge, extractFeedItems, extractSitemap, extractMeta, matchesQuery, scoreMatch, stripHtml, truncate, type FeedItem } from "./text";
 import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome } from "./types";
 
 const BASE = "https://www.openculture.com";
-const HOST = "www.openculture.com";
 
 export const OPENCULTURE_CAPABILITIES: ProviderCapabilities = {
   search: "partial",
-  inspect: "supported",
-  filters: ["feedPages", "sitemapScan"],
   pagination: "partial",
-  itemDetails: "supported",
-  downloads: "unsupported",
-  preview: "unsupported",
-  attribution: "supported",
+  filters: ["feedPages", "sitemap"],
+  itemDetail: "supported",
+  files: "unsupported",
+  preview: "partial",
+  license: "partial",
   notes: [
-    "Open Culture has no JSON search API: /?s= redirects to a Google Custom Search widget (/gcsearch) whose HTML contains no results. Verified live; scraping it cannot work.",
-    "Search therefore reads the site's RSS feed(s) (/feed, ?paged=N) and, when needed, the sitemap, then matches locally - so it covers recent and indexed items rather than a ranked full-text index.",
-    "A result is the EDITORIAL article. The external resource it recommends is listed separately by the inspector.",
-    "No downloads: Open Culture links to third-party resources and hosts no files itself.",
+    "Open Culture has no JSON search API. Its /?s= search redirects to a Google Custom Search widget whose results exist only inside Google's script, so that page is never used.",
+    "Search reads the site's own RSS feed(s) and matches locally, then falls back to matching URLs in its sitemap. Coverage is therefore 'recent feed + indexed slugs', not a ranked full-text index - the UI says so.",
+    "A hit is the Open Culture ARTICLE. Links to third-party courses, books and videos are reported separately as external resources.",
+    "Nothing is downloaded by this app: Open Culture links out and hosts no files of its own.",
   ],
 };
 
@@ -58,6 +43,12 @@ interface FeedPage {
 
 const feedCache = new Map<string, FeedPage>();
 
+/** Drop the in-memory feed pages. Called between searches and by the tests so
+ *  a long-lived tab never serves yesterday's feed for a fresh query. */
+export function clearOpenCultureCache(): void {
+  feedCache.clear();
+}
+
 /** WordPress feeds answer ?paged=N; the cap keeps a search bounded. */
 export async function fetchFeedPage(page: number, ctx: ProviderContext): Promise<FeedPage> {
   const url = page <= 1 ? `${BASE}/feed` : `${BASE}/feed?paged=${page}`;
@@ -67,20 +58,23 @@ export async function fetchFeedPage(page: number, ctx: ProviderContext): Promise
   if (detectChallenge(res.text).challenged) {
     throw new ProviderError("FORBIDDEN", "Open Culture served a bot-challenge page instead of its feed.", { url, retryable: false });
   }
-  const items = extractFeedItems(res.text, BASE);
+  const items = extractFeedItems(res.text);
   if (!items.length) {
-    throw new ProviderError("PARSE_ERROR", "The Open Culture feed answered, but no <item> entries could be read.", { url, detail: `${res.bytes} bytes` });
+    throw new ProviderError("PARSE_ERROR", "The Open Culture feed answered, but no <item> entries could be read.", {
+      url,
+      detail: `${res.bytes} bytes`,
+    });
   }
-  const page1: FeedPage = { items, url };
-  feedCache.set(url, page1);
-  return page1;
+  const feed: FeedPage = { items, url };
+  feedCache.set(url, feed);
+  return feed;
 }
 
 export interface OpenCultureSearchOptions {
   query: string;
   feedPages?: number;
-  /** When the feed does not cover the query, scan the sitemap for slug hits. */
-  sitemapScan?: boolean;
+  /** Slug matching inside the sitemap when the feed has nothing. */
+  sitemap?: boolean;
   limit?: number;
   signal?: AbortSignal;
 }
@@ -100,15 +94,46 @@ function feedItemToHit(item: FeedItem, providerId: string): ProviderHit {
       ...(item.categories && item.categories.length ? { categories: item.categories.join(", ") } : {}),
       origin: "rss-feed",
     },
-    provenance: "live",
   };
+}
+
+async function sitemapEntries(ctx: ProviderContext): Promise<{ loc: string; lastmod?: string }[]> {
+  const first = await getResource(`${BASE}/sitemap.xml`, ctx, { accept: "application/xml, text/xml;q=0.9, */*;q=0.8" });
+  const sm = extractSitemap(first.text);
+  if (sm.kind === "urlset") return sm.entries;
+  const out: { loc: string; lastmod?: string }[] = [];
+  for (const sub of sm.entries.slice(0, 3)) {
+    if (ctx.signal?.aborted) break;
+    try {
+      const res = await getResource(sub.loc, ctx, { accept: "application/xml, text/xml;q=0.9, */*;q=0.8" });
+      out.push(...extractSitemap(res.text).entries);
+    } catch {
+      /* one unreadable sub-sitemap must not lose the others */
+    }
+  }
+  return out;
+}
+
+function slugOf(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname)
+      .replace(/\.html?$/i, "")
+      .replace(/[-_/]+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+function humanise(slug: string): string {
+  return slug.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export async function opencultureSearch(o: OpenCultureSearchOptions, ctx: ProviderContext, providerId = "openculture"): Promise<SearchOutcome> {
   const started = Date.now();
   const query = String(o.query || "").trim();
-  const limit = o.limit ?? 20;
-  const pages = Math.max(1, Math.min(5, o.feedPages ?? 2));
+  const limit = Math.max(1, Math.min(50, o.limit ?? 20));
+  const pages = Math.max(1, Math.min(3, o.feedPages ?? 2));
   const hits: ProviderHit[] = [];
   const notes: string[] = [];
   const applied = ["feed"];
@@ -134,189 +159,111 @@ export async function opencultureSearch(o: OpenCultureSearchOptions, ctx: Provid
     }
     if (hits.length >= limit) break;
   }
-
   hits.sort((a, b) => scoreMatch(b.title, b.description ?? "", query) - scoreMatch(a.title, a.description ?? "", query));
   notes.push(`RSS feed: ${seen.size} recent entries scanned, ${hits.length} match "${query}".`);
 
-  // Broader archive coverage: the sitemap lists article URLs, so a slug match
-  // finds older posts the feed has scrolled past. Reported separately because it
-  // is a weaker signal (slug only, no article body).
-  if (o.sitemapScan && hits.length < Math.min(5, limit)) {
-    const sitemapHits = await opencultureSitemapScan(query, ctx, providerId, limit - hits.length);
-    for (const h of sitemapHits) hits.push(h);
-    if (sitemapHits.length) {
+  if (o.sitemap !== false && hits.length < Math.min(5, limit)) {
+    try {
+      const entries = await sitemapEntries(ctx);
+      let added = 0;
+      for (const entry of entries) {
+        if (hits.length >= limit) break;
+        if (seen.has(entry.loc)) continue;
+        const slug = slugOf(entry.loc);
+        if (!slug || !matchesQuery(slug, query)) continue;
+        seen.add(entry.loc);
+        hits.push({
+          id: `oc-sitemap:${entry.loc}`,
+          providerId,
+          kind: "editorial",
+          title: humanise(slug),
+          date: entry.lastmod,
+          url: entry.loc,
+          source: { label: "Open Culture (sitemap, slug match)", url: BASE },
+          extra: { origin: "sitemap" },
+        });
+        added += 1;
+      }
       applied.push("sitemap");
-      notes.push(`Sitemap: ${sitemapHits.length} additional article URL(s) matched the query in their slug.`);
-    } else {
-      notes.push("Sitemap: no additional slug matches.");
+      notes.push(`Sitemap: ${entries.length} URL(s) scanned, ${added} additional slug match(es). Slugs are weaker evidence than feed titles.`);
+    } catch (e) {
+      notes.push(`Sitemap unavailable (${(e as ProviderError).code}); feed results only.`);
     }
   }
 
   return {
     hits: hits.slice(0, limit),
-    hasMore: hits.length >= limit,
+    totalReported: undefined,
+    hasMore: false,
     appliedFilters: applied,
     ignoredFilters: [],
-    notes,
+    notes: [...notes, "Open Culture exposes no server-side search: results are feed entries plus sitemap slug matches."],
     tookMs: Date.now() - started,
   };
 }
 
-async function opencultureSitemapLocs(ctx: ProviderContext): Promise<{ loc: string; lastmod?: string }[]> {
-  let res;
-  try {
-    res = await getResource(`${BASE}/sitemap.xml`, ctx, { accept: "application/xml, text/xml;q=0.9, */*;q=0.8" });
-  } catch (e) {
-    if (e instanceof ProviderError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) return [];
-    throw e;
-  }
-  const first = extractSitemap(res.text);
-  if (first.kind === "urlset") return first.locs;
-  if (first.kind !== "index") return [];
-  const out: { loc: string; lastmod?: string }[] = [];
-  // Only the first few sub-sitemaps: bounded, and reported if truncated.
-  for (const sub of first.locs.slice(0, 4)) {
-    try {
-      const subRes = await getResource(sub.loc, ctx, { accept: "application/xml, text/xml;q=0.9, */*;q=0.8" });
-      out.push(...extractSitemap(subRes.text).locs);
-    } catch {
-      /* one unreadable sub-sitemap must not lose the ones that worked */
-    }
-  }
-  return out;
-}
-
-async function opencultureSitemapScan(query: string, ctx: ProviderContext, providerId: string, want: number): Promise<ProviderHit[]> {
-  const locs = await opencultureSitemapLocs(ctx);
-  if (!locs.length) return [];
-  const slug = (u: string) => {
-    try {
-      return decodeURIComponent(new URL(u).pathname).replace(/[-_/]+/g, " ").toLowerCase();
-    } catch {
-      return "";
-    }
-  };
-  const hits: ProviderHit[] = [];
-  for (const entry of locs) {
-    if (hits.length >= want) break;
-    if (!matchesQuery(slug(entry.loc), query)) continue;
-    const pretty = slug(entry.loc).replace(/\b\w/g, (c) => c.toUpperCase()).trim();
-    hits.push({
-      id: `oc-sitemap:${entry.loc}`,
-      providerId,
-      kind: "editorial",
-      title: pretty || entry.loc,
-      date: entry.lastmod,
-      url: entry.loc,
-      source: { label: "Open Culture (sitemap, slug match)", url: BASE },
-      extra: { origin: "sitemap" },
-      provenance: "live",
-    });
-  }
-  return hits;
-}
-
 export function isOpenCultureUrl(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === HOST || host === "openculture.com";
+    return /(^|\.)openculture\.com$/.test(new URL(url).hostname.toLowerCase());
   } catch {
     return false;
   }
 }
 
+/** Inspect an Open Culture page: the editorial article, its metadata, and the
+ *  external resources it links to (kept apart from the article itself). */
 export async function opencultureInspect(url: string, ctx: ProviderContext, providerId = "openculture"): Promise<InspectOutcome> {
   const started = Date.now();
-  if (!isOpenCultureUrl(url)) {
-    throw new ProviderError("UNSUPPORTED", "That is not an Open Culture URL.", { url, retryable: false });
-  }
-  const path = (() => {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      return "";
-    }
-  })();
-  if (path === "/" || path === "") {
-    return {
-      providerId,
-      kind: "homepage",
-      canonicalUrl: BASE,
-      title: "Open Culture",
-      description:
-        "Open Culture's homepage. Add it as a source and searches read the site's RSS feed(s); a pasted article URL opens the article and lists the external resources it recommends.",
-      facts: [
-        { label: "Search interface", value: "RSS feed + sitemap (its ?s= page is a Google CSE widget)" },
-        { label: "Feed", value: `${BASE}/feed` },
-      ],
-      sections: [],
-      addable: true,
-      capabilities: OPENCULTURE_CAPABILITIES,
-      tookMs: Date.now() - started,
-    };
-  }
-
+  if (!isOpenCultureUrl(url)) throw new ProviderError("UNSUPPORTED", "That is not an openculture.com URL.", { url, retryable: false });
   const res = await getResource(url, ctx, { accept: "text/html" });
   if (detectChallenge(res.text).challenged) {
-    throw new ProviderError("FORBIDDEN", "Open Culture served a bot-challenge page for this article.", { url, retryable: false });
+    throw new ProviderError("FORBIDDEN", "Open Culture served a bot challenge instead of the page.", { url, retryable: false });
   }
   const meta = extractMeta(res.text);
-  const anchors = extractAnchors(res.text, res.finalUrl || url);
-  const external = anchors.filter((a) => {
+  const external: { title: string; url: string; note?: string }[] = [];
+  const internal: { title: string; url: string }[] = [];
+  const seenExt = new Set<string>();
+  const anchorRe = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = anchorRe.exec(res.text))) {
+    const title = stripHtml(m[2]);
+    if (!title || title.length < 3) continue;
+    let abs: URL;
     try {
-      const h = new URL(a.url).hostname.toLowerCase();
-      return !h.endsWith("openculture.com") && !/facebook\.com|twitter\.com|x\.com|youtube\.com|pinterest\.com|linkedin\.com|instagram\.com|patreon\.com|paypal\.com/.test(h);
+      abs = new URL(decodeEntities(m[1]), res.finalUrl || BASE);
     } catch {
-      return false;
+      continue;
     }
-  });
-  const internal = anchors.filter((a) => {
-    try {
-      return new URL(a.url).hostname.toLowerCase().endsWith("openculture.com");
-    } catch {
-      return false;
+    if (abs.protocol !== "http:" && abs.protocol !== "https:") continue;
+    if (isOpenCultureUrl(abs.toString())) {
+      if (internal.length < 40) internal.push({ title, url: abs.toString() });
+    } else if (!seenExt.has(abs.toString()) && external.length < 40) {
+      seenExt.add(abs.toString());
+      external.push({ title, url: abs.toString() });
     }
-  });
-  const seen = new Set<string>();
-  const extItems = external
-    .filter((a) => (seen.has(a.url) ? false : (seen.add(a.url), true)))
-    .slice(0, 100)
-    .map((a) => ({ title: a.text || a.url, url: a.url }));
-
-  const articleBody = /<article[\s\S]*?<\/article>/i.exec(res.text)?.[0] ?? "";
+  }
+  const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(res.text);
   const facts: InspectOutcome["facts"] = [
-    { label: "Page type", value: "editorial article" },
-    { label: "Editorial listing", value: "yes - this article is Open Culture's own page" },
-    { label: "External resources linked", value: String(extItems.length) },
+    { label: "Page", value: new URL(url).pathname, fromProvider: false },
+    ...(meta.published ? [{ label: "Published", value: String(meta.published).slice(0, 10), fromProvider: true }] : []),
+    ...(meta.author ? [{ label: "Author", value: meta.author, fromProvider: true }] : []),
+    { label: "External resources", value: String(external.length), fromProvider: true },
+    { label: "Search interface", value: "RSS feed + sitemap only (no search API)", fromProvider: false },
   ];
-  if (meta.published) facts.push({ label: "Published", value: meta.published });
-  if (meta.author) facts.push({ label: "Author/site", value: meta.author });
-  if (articleBody) facts.push({ label: "Article body", value: `${Math.round(articleBody.length / 1024)} KB of HTML` });
-
   return {
     providerId,
-    kind: "editorial",
+    kind: "article",
     canonicalUrl: meta.canonical || res.finalUrl || url,
-    title: meta.title || stripHtml((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(res.text) || [])[1] || ""),
+    title: meta.ogTitle || meta.title || (h1 ? stripHtml(h1[1]) : "Open Culture"),
     description: meta.description,
-    date: meta.published,
-    creator: "Open Culture",
     sections: [
-      ...(extItems.length ? [{ key: "external", label: "External resources this article recommends", items: extItems }] : []),
-      {
-        key: "internal",
-        label: "More from Open Culture",
-        items: internal
-          .slice(0, 60)
-          .map((a) => ({ title: a.text || a.url, url: a.url }))
-          .filter((it) => it.title),
-      },
+      ...(external.length ? [{ key: "external", label: "External resources this article recommends", items: external, anchor: "editorial vs external" }] : []),
+      ...(internal.length ? [{ key: "internal", label: "More on Open Culture", items: internal }] : []),
     ],
     facts,
     addable: true,
     capabilities: OPENCULTURE_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }
-
-export { qs, decodeEntities, getJson };

@@ -1,61 +1,73 @@
-// [SEARCH-REPAIR] Text layer: HTML / RSS / Atom / sitemap / Markdown reading
-// without a DOM.
+// [SEARCH-REPAIR] Small, dependency-free text/HTML/Markdown helpers.
 //
-// Runtime constraint: this code runs in the browser bundle AND under vitest in
-// node, so there is no DOMParser dependency and no third-party HTML library.
-// The extractors are deliberately tolerant, but they never invent data: a field
-// that is absent in the payload stays absent (`undefined`), it is never filled
-// with a guessed value.
+// Everything here runs in the BROWSER (the app has no build-time DOM guarantee
+// for tests) so it is a tolerant regex tokenizer, not a parser library. It only
+// ever extracts what is literally in the payload: no fabricated titles, no
+// guessed dates. Every helper is exported so the fixture suite can pin it.
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-  mdash: "-",
-  ndash: "-",
-  hellip: "...",
-  rsquo: "'",
-  lsquo: "'",
-  rdquo: '"',
-  ldquo: '"',
-  copy: "(c)",
-  reg: "(R)",
-  trade: "(TM)",
-  star: "*",
-  check: "✓",
-};
-
-export function decodeEntities(input: string): string {
-  return String(input || "").replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body: string) => {
-    if (body.startsWith("#x") || body.startsWith("#X")) {
-      const code = parseInt(body.slice(2), 16);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
-    }
-    if (body.startsWith("#")) {
-      const code = parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
-    }
-    const named = NAMED_ENTITIES[body.toLowerCase()];
-    return named != null ? named : m;
-  });
+export function decodeEntities(s: string): string {
+  return String(s || "")
+    .replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, ent: string) => {
+      if (ent[0] === "#") {
+        const code = ent[1] === "x" || ent[1] === "X" ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
+        return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+      }
+      const map: Record<string, string> = {
+        amp: "&",
+        lt: "<",
+        gt: ">",
+        quot: '"',
+        apos: "'",
+        nbsp: " ",
+        ndash: "–",
+        mdash: "—",
+        hellip: "…",
+        rsquo: "’",
+        lsquo: "‘",
+        ldquo: "“",
+        rdquo: "”",
+        middot: "·",
+        copy: "©",
+      };
+      return map[ent.toLowerCase()] ?? m;
+    })
+    .replace(/\s+/g, " ");
 }
 
-export function stripHtml(input: string): string {
+/** Strip tags, decode entities, collapse whitespace. */
+export function stripHtml(html: string): string {
   return decodeEntities(
-    String(input || "")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+    String(html || "")
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+  ).trim();
 }
 
-/** Cloudflare / JS wall detection: this is the difference between "the page is
- *  empty" and "the page is behind a challenge", and the UI says which. */
+export function truncate(s: string, n: number): string {
+  const t = String(s || "");
+  return t.length <= n ? t : t.slice(0, Math.max(0, n - 1)).trimEnd() + "…";
+}
+
+/** Absolute URL from a possibly relative href; null for javascript:/mailto:/#. */
+export function absolutize(href: string, base: string): string | null {
+  const raw = String(href || "").trim();
+  if (!raw) return null;
+  if (/^(javascript|mailto|tel|data):/i.test(raw)) return null;
+  if (/^#/.test(raw)) return null;
+  try {
+    const u = new URL(raw, base);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** The common link-time shapes of an anti-bot interstitial. */
 export function detectChallenge(html: string): { challenged: boolean; kind?: string } {
   const s = String(html || "").slice(0, 20_000).toLowerCase();
   if (s.includes("cf-browser-verification") || s.includes("just a moment...") || s.includes("cf_chl_opt")) {
@@ -70,119 +82,88 @@ export function detectChallenge(html: string): { challenged: boolean; kind?: str
   return { challenged: false };
 }
 
-export function absolutize(href: string, base: string): string | null {
-  const raw = String(href || "").trim();
-  if (!raw) return null;
-  if (/^(javascript|mailto|tel|data):/i.test(raw)) return null;
-  try {
-    return new URL(raw, base).toString();
-  } catch {
-    return null;
-  }
-}
-
 export interface Anchor {
-  /** Absolute URL (resolved against the page). */
+  title: string;
   url: string;
-  /** The raw href exactly as written in the page. */
-  href: string;
-  text: string;
-  rel?: string;
-  /** Text of the enclosing list item / paragraph, used as the description. */
-  context: string;
+  /** The text after the link, when the listing supplies a description. */
+  note?: string;
 }
 
-export function extractAnchors(html: string, baseUrl: string): Anchor[] {
+/** All <a href> anchors with readable text, resolved against `base`. */
+export function extractAnchors(html: string, base: string, opts: { minText?: number } = {}): Anchor[] {
+  const minText = opts.minText ?? 2;
   const out: Anchor[] = [];
-  const re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+  const seen = new Set<string>();
+  const re = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(String(html || ""))) !== null) {
-    const attrs = m[1] || "";
-    const inner = m[2] || "";
-    const hrefMatch = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-    if (!hrefMatch) continue;
-    const href = decodeEntities(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "");
-    const url = absolutize(href, baseUrl);
-    if (!url) continue;
-    const relMatch = /\brel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-    out.push({
-      url,
-      href,
-      text: stripHtml(inner),
-      rel: relMatch ? (relMatch[1] ?? relMatch[2] ?? relMatch[3]) : undefined,
-      context: "",
-    });
+  while ((m = re.exec(String(html || "")))) {
+    const title = stripHtml(m[2]);
+    if (!title || title.length < minText) continue;
+    const url = absolutize(m[1], base);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title, url });
   }
-  // Second pass: attach the sibling text as context, so a link row carries the
-  // description printed beside it (WordPress listings put it in the same <li>).
   return out;
 }
 
-export function extractTitle(html: string): string {
-  const og = /<meta[^>]+property\s*=\s*["']og:title["'][^>]*content\s*=\s*["']([^"']*)["']/i.exec(html);
-  if (og) return decodeEntities(og[1]).trim();
-  const t = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  return t ? stripHtml(t[1]) : "";
+/** Headings with their immediate anchor lists, so a listing keeps its section.
+ *  The id is captured from the SAME tag it belongs to (an earlier version
+ *  collected ids in a second pass, which shifted every anchor by one as soon as
+ *  a heading had no id). */
+export function extractHeadingSections(html: string, base: string): { heading: string; id?: string; anchors: Anchor[] }[] {
+  const src = String(html || "");
+  const tagRe = /<h([1-4])\b([^>]*)>/gi;
+  const marks: { start: number; end: number; attrs: string }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(src))) marks.push({ start: m.index, end: m.index + m[0].length, attrs: m[2] });
+  if (!marks.length) {
+    const anchors = extractAnchors(src, base);
+    return anchors.length ? [{ heading: "", anchors }] : [];
+  }
+  const out: { heading: string; id?: string; anchors: Anchor[] }[] = [];
+  const before = src.slice(0, marks[0].start);
+  const leading = extractAnchors(before, base);
+  if (leading.length) out.push({ heading: "", anchors: leading });
+  for (let i = 0; i < marks.length; i += 1) {
+    const from = marks[i].end;
+    const to = i + 1 < marks.length ? marks[i + 1].start : src.length;
+    const chunk = src.slice(from, to);
+    const close = chunk.search(/<\/h[1-4]>/i);
+    const heading = close >= 0 ? stripHtml(chunk.slice(0, close)) : "";
+    const rest = close >= 0 ? chunk.slice(close) : chunk;
+    const id = /\bid\s*=\s*["']([^"']+)["']/i.exec(marks[i].attrs)?.[1];
+    const anchors = extractAnchors(rest, base);
+    if (heading || anchors.length) out.push({ heading, id, anchors });
+  }
+  return out;
 }
 
-export interface MetaInfo {
-  title: string;
+export function extractMeta(html: string): {
+  title?: string;
   description?: string;
+  canonical?: string;
+  ogTitle?: string;
   published?: string;
   author?: string;
-  canonical?: string;
-  siteName?: string;
-  image?: string;
-}
-
-function metaContent(html: string, names: string[]): string | undefined {
-  for (const name of names) {
-    const re = new RegExp(
-      `<meta[^>]+(?:property|name|itemprop)\\s*=\\s*["']${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]*content\\s*=\\s*["']([^"']*)["']`,
-      "i"
-    );
-    const m = re.exec(html);
-    if (m) return decodeEntities(m[1]).trim();
-    const re2 = new RegExp(
-      `<meta[^>]+content\\s*=\\s*["']([^"']*)["'][^>]*(?:property|name|itemprop)\\s*=\\s*["']${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-      "i"
-    );
-    const m2 = re2.exec(html);
-    if (m2) return decodeEntities(m2[1]).trim();
-  }
-  return undefined;
-}
-
-export function extractMeta(html: string): MetaInfo {
-  const out: MetaInfo = { title: extractTitle(html) };
-  const desc = metaContent(html, ["description", "og:description", "twitter:description"]);
-  if (desc) out.description = desc;
-  const published = metaContent(html, ["article:published_time", "datePublished", "date", "og:updated_time"]);
-  if (published) out.published = published;
-  const author = metaContent(html, ["article:author", "author", "twitter:creator", "og:site_name"]);
-  if (author) out.author = author;
-  const canonical = /<link[^>]+rel\s*=\s*["']canonical["'][^>]*href\s*=\s*["']([^"']+)["']/i.exec(html);
-  if (canonical) out.canonical = decodeEntities(canonical[1]).trim();
-  const site = metaContent(html, ["og:site_name"]);
-  if (site) out.siteName = site;
-  const img = metaContent(html, ["og:image", "twitter:image"]);
-  if (img) out.image = img;
-  return out;
-}
-
-/** JSON-LD blocks, parsed; a malformed block is skipped (never thrown). */
-export function extractJsonLd(html: string): unknown[] {
-  const out: unknown[] = [];
-  const re = /<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      out.push(JSON.parse(m[1].trim()));
-    } catch {
-      /* one malformed block must not lose the page */
-    }
-  }
-  return out;
+} {
+  const src = String(html || "");
+  const meta = (name: string): string | undefined => {
+    const re = new RegExp(`<meta\\b[^>]*(?:name|property)\\s*=\\s*["']${name}["'][^>]*content\\s*=\\s*["']([^"']*)["']`, "i");
+    const alt = new RegExp(`<meta\\b[^>]*content\\s*=\\s*["']([^"']*)["'][^>]*(?:name|property)\\s*=\\s*["']${name}["']`, "i");
+    const m = re.exec(src) || alt.exec(src);
+    return m ? decodeEntities(m[1]) : undefined;
+  };
+  const titleTag = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(src);
+  const canonical = /<link\b[^>]*rel\s*=\s*["']canonical["'][^>]*href\s*=\s*["']([^"']+)["']/i.exec(src);
+  return {
+    title: titleTag ? stripHtml(titleTag[1]) : undefined,
+    description: meta("description") || meta("og:description"),
+    canonical: canonical ? absolutize(canonical[1], "https://example.invalid/") || canonical[1] : undefined,
+    ogTitle: meta("og:title"),
+    published: meta("article:published_time") || meta("date") || meta("datePublished"),
+    author: meta("author") || meta("article:author"),
+  };
 }
 
 export interface FeedItem {
@@ -190,235 +171,153 @@ export interface FeedItem {
   link: string;
   description?: string;
   date?: string;
-  guid?: string;
   categories?: string[];
 }
 
-function xmlBlocks(xml: string, tag: string): string[] {
-  const out: string[] = [];
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml)) !== null) out.push(m[1]);
-  return out;
-}
-
-function firstTag(block: string, tag: string): string | undefined {
-  const m = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "i").exec(block);
-  if (m) return m[1];
-  const selfClose = new RegExp(`<${tag}\\b[^>]*href\\s*=\\s*["']([^"']+)["'][^>]*/?>`, "i").exec(block);
-  return selfClose ? selfClose[1] : undefined;
-}
-
-export function extractFeedItems(xml: string, baseUrl: string): FeedItem[] {
+/** RSS 2.0 / RDF / Atom, by tag rather than by parser: tolerant of namespaces. */
+export function extractFeedItems(xml: string): FeedItem[] {
+  const src = String(xml || "");
   const items: FeedItem[] = [];
-  const blocks = [...xmlBlocks(xml, "item"), ...xmlBlocks(xml, "entry")];
+  const blocks = src.match(/<item\b[\s\S]*?<\/item>/gi) || src.match(/<entry\b[\s\S]*?<\/entry>/gi) || [];
   for (const block of blocks) {
-    const title = stripHtml(firstTag(block, "title") ?? "");
-    const rawLink = firstTag(block, "link") ?? firstTag(block, "guid") ?? "";
-    const link = absolutize(decodeEntities(rawLink).trim(), baseUrl);
+    const pick = (tag: string): string | undefined => {
+      const m = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "i").exec(block);
+      if (!m) return undefined;
+      return decodeEntities(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")).trim();
+    };
+    const title = pick("title");
+    let link = pick("link");
+    if (!link) {
+      const href = /<link\b[^>]*href\s*=\s*["']([^"']+)["']/i.exec(block);
+      link = href ? href[1] : undefined;
+    }
     if (!title || !link) continue;
-    const desc = stripHtml(firstTag(block, "description") ?? firstTag(block, "summary") ?? firstTag(block, "content:encoded") ?? "");
-    const date = firstTag(block, "pubDate") ?? firstTag(block, "published") ?? firstTag(block, "updated") ?? firstTag(block, "dc:date");
-    const cats = xmlBlocks(block, "category").map((c) => stripHtml(c)).filter(Boolean);
-    const parsedDate = date ? new Date(decodeEntities(date).trim()) : null;
+    const descHtml = pick("description") || pick("summary") || pick("content:encoded") || pick("content");
+    const cats = [...block.matchAll(/<category\b[^>]*>([\s\S]*?)<\/category>/gi)]
+      .map((m) => stripHtml(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")))
+      .filter(Boolean);
+    const date = pick("pubDate") || pick("dc:date") || pick("published") || pick("updated");
     items.push({
       title,
       link,
-      description: desc || undefined,
-      date: parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : undefined,
-      guid: firstTag(block, "guid") ? stripHtml(firstTag(block, "guid") as string) : undefined,
+      description: descHtml ? truncate(stripHtml(descHtml), 400) : undefined,
+      date: date ? new Date(date).toISOString().slice(0, 10).replace(/^Invalid/, "") || undefined : undefined,
       categories: cats.length ? cats : undefined,
     });
   }
   return items;
 }
 
-export interface SitemapResult {
-  kind: "index" | "urlset" | "none";
-  locs: { loc: string; lastmod?: string }[];
+export interface SitemapEntry {
+  loc: string;
+  lastmod?: string;
 }
 
-export function extractSitemap(xml: string): SitemapResult {
-  const body = String(xml || "");
-  if (/<sitemapindex\b/i.test(body)) {
-    const locs: { loc: string; lastmod?: string }[] = [];
-    for (const block of xmlBlocks(body, "sitemap")) {
-      const loc = firstTag(block, "loc");
-      if (!loc) continue;
-      const lastmod = firstTag(block, "lastmod");
-      locs.push({ loc: decodeEntities(loc).trim(), lastmod: lastmod ? decodeEntities(lastmod).trim() : undefined });
-    }
-    return { kind: "index", locs };
+export function extractSitemap(xml: string): { kind: "index" | "urlset"; entries: SitemapEntry[] } {
+  const src = String(xml || "");
+  const kind: "index" | "urlset" = /<sitemapindex\b/i.test(src) ? "index" : "urlset";
+  const entries: SitemapEntry[] = [];
+  const blocks = src.match(/<(url|sitemap)\b[\s\S]*?<\/\1>/gi) || [];
+  for (const b of blocks) {
+    const loc = /<loc>\s*([^<\s]+)\s*<\/loc>/i.exec(b);
+    if (!loc) continue;
+    const lastmod = /<lastmod>\s*([^<\s]+)\s*<\/lastmod>/i.exec(b);
+    const url = absolutize(decodeEntities(loc[1]), "https://example.invalid/");
+    if (!url) continue;
+    entries.push({ loc: url, lastmod: lastmod ? lastmod[1].slice(0, 10) : undefined });
   }
-  if (/<urlset\b/i.test(body)) {
-    const locs: { loc: string; lastmod?: string }[] = [];
-    for (const block of xmlBlocks(body, "url")) {
-      const loc = firstTag(block, "loc");
-      if (!loc) continue;
-      const lastmod = firstTag(block, "lastmod");
-      locs.push({ loc: decodeEntities(loc).trim(), lastmod: lastmod ? decodeEntities(lastmod).trim() : undefined });
-    }
-    return { kind: "urlset", locs };
-  }
-  return { kind: "none", locs: [] };
-}
-
-// ---------------------------------------------------------------- Markdown --
-// Awesome lists are Markdown. Their content is: headings (= categories),
-// bullet entries (= resources), and links inside both. The reader below keeps
-// the heading path so a result can say WHICH category it came from, and it
-// resolves relative links against the repository's default branch.
-
-export interface MarkdownLink {
-  title: string;
-  url: string;
-  description?: string;
-  /** Heading path, e.g. ["Contents", "Audio"]. */
-  section: string[];
-  /** 0 = top-level bullet, 1 = nested, -1 = inline/table. */
-  depth: number;
+  return { kind, entries };
 }
 
 export interface MarkdownSection {
-  title: string;
   level: number;
-  links: MarkdownLink[];
+  title: string;
+  /** Raw heading text without #s, with inline markup stripped. */
+  text: string;
+  links: { title: string; url: string; description?: string }[];
+  /** Number of list items (used to tell a list section from a prose section). */
+  bullets: number;
 }
 
-const INLINE_LINK = /(!?)\[([^\]\n]{0,300})\]\(\s*<?([^)\s>]+)>?(?:\s+"([^"]*)")?\s*\)/g;
-const REF_LINK = /(!?)\[([^\]\n]{0,300})\]\[([^\]\n]{0,80})\]/g;
-const REF_DEF = /^\s{0,3}\[([^\]]{1,80})\]:\s*(\S+)/;
-const ANGLE_LINK = /<(https?:\/\/[^>\s]+)>/g;
+/** Strip badge markup so headings read as text: "## Audio [![x](y)](z)" -> "Audio". */
+export function cleanHeading(raw: string): string {
+  return stripHtml(
+    String(raw || "")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/[*_`~]/g, "")
+  ).trim();
+}
 
-export function parseMarkdownSections(markdown: string, baseUrl: string): MarkdownSection[] {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  const refs = new Map<string, string>();
-  for (const line of lines) {
-    const m = REF_DEF.exec(line);
-    if (m) refs.set(m[1].trim().toLowerCase(), m[2].trim());
-  }
+const MD_LINK = /\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const MD_BULLET = /^\s{0,3}(?:[-*+]|\d+\.)\s+/;
+
+/** Markdown → heading sections, each with the links it contains.
+ *  `baseUrl` resolves relative links (a README's `./docs/x.md`) so a nested list
+ *  never produces a broken URL. */
+export function parseMarkdownSections(md: string, baseUrl: string, titlePrefix = ""): MarkdownSection[] {
+  const lines = String(md || "").split(/\r?\n/);
   const sections: MarkdownSection[] = [];
-  let stack: { level: number; title: string }[] = [];
+  let current: MarkdownSection = { level: 0, title: titlePrefix, text: titlePrefix, links: [], bullets: 0 };
   let inFence = false;
-  let current: MarkdownSection = { title: "", level: 0, links: [] };
-  sections.push(current);
-
-  const pushLink = (title: string, url: string, description: string | undefined, depth: number) => {
-    const resolved = absolutize(url, baseUrl);
-    if (!resolved) return;
-    if (/^#/.test(url)) return; // a table-of-contents jump is not a resource
-    const clean = title.replace(/\s+/g, " ").replace(/^[!\s]+/, "").trim();
-    if (!clean || clean.startsWith("!")) return;
-    current.links.push({
-      title: clean,
-      url: resolved,
-      description: description && description.trim() ? description.replace(/\s+/g, " ").trim() : undefined,
-      section: stack.map((s) => s.title),
-      depth,
-    });
+  const push = () => {
+    if (current.links.length || current.bullets || current.level || titlePrefix) sections.push(current);
   };
-
-  for (const rawLine of lines) {
-    // Badge shields (`[![alt](img)](target)`) are decoration, not resources:
-    // strip every image before reading links, or the label becomes "![alt".
-    const raw = rawLine.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
-    if (/^\s*(```|~~~)/.test(raw)) {
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) {
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
-
-    const heading = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(raw);
+    const heading = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
-      const level = heading[1].length;
-      // A heading may itself contain badges/links; keep only its words.
-      const title = heading[2]
-        .replace(/!?\[[^\]]*\]\([^)]*\)/g, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/#+\s*$/, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
-      stack.push({ level, title });
-      current = { title, level, links: [] };
-      sections.push(current);
+      push();
+      const raw = heading[2].trim();
+      current = { level: heading[1].length, title: cleanHeading(raw), text: raw, links: [], bullets: 0 };
       continue;
     }
-
-    // indentation gives the nesting depth of a bullet entry
-    const indent = /^(\s*)/.exec(raw)?.[1].length ?? 0;
-    const depth = indent >= 2 ? Math.min(3, Math.floor(indent / 2)) : 0;
-    // Text after the LAST link on a bullet line is the entry's description.
-    const line = raw.replace(/^[\s>*+-]+/, "").replace(/^\d+[.)]\s+/, "");
-
-    let lastEnd = -1;
-    INLINE_LINK.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = INLINE_LINK.exec(line)) !== null) {
-      const [, bang, label, href] = m;
-      if (bang === "!") continue;
-      const tail = line.slice(m.index + m[0].length);
-      // description = the segment up to the next link, trimmed of separators
-      const nextIdx = tail.search(/\[[^\]]*\]\(/);
-      const rawDesc = nextIdx >= 0 ? tail.slice(0, nextIdx) : tail;
-      pushLink(label, href, rawDesc.replace(/^[\s\-–—:.,|]+|[\s|]+$/g, ""), depth);
-      lastEnd = m.index + m[0].length;
-    }
-    REF_LINK.lastIndex = 0;
-    while ((m = REF_LINK.exec(line)) !== null) {
-      const [, bang, label, ref] = m;
-      if (bang === "!") continue;
-      const target = refs.get(ref.trim().toLowerCase());
-      if (!target) continue;
-      pushLink(label, target, line.slice(m.index + m[0].length), depth);
-    }
-    ANGLE_LINK.lastIndex = 0;
-    while ((m = ANGLE_LINK.exec(line)) !== null) {
-      if (m.index < lastEnd) continue;
-      pushLink(m[1], m[1], line.slice(m.index + m[0].length), depth);
-    }
+    if (MD_BULLET.test(line)) current.bullets += 1;
+    const text = line.replace(MD_LINK, (_m, label: string, href: string) => {
+      const url = absolutize(href, baseUrl);
+      if (url) {
+        const note = line.replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/, "").split(" - ")[1];
+        current.links.push({ title: stripHtml(label).trim(), url, description: note ? truncate(stripHtml(note), 160) : undefined });
+      }
+      return label;
+    });
+    void text;
   }
-  return sections.filter((s) => s.links.length > 0 || s.title);
+  push();
+  return sections.filter((s) => s.level > 0 || s.links.length || s.bullets);
 }
 
-export function dedupeLinks(links: MarkdownLink[]): MarkdownLink[] {
-  const seen = new Map<string, MarkdownLink>();
-  for (const l of links) {
-    const key = l.url.replace(/#.*$/, "").replace(/\/$/, "");
-    if (!seen.has(key)) seen.set(key, l);
-  }
-  return [...seen.values()];
-}
-
-/** Tokenised, case/diacritic-insensitive match used by every "search inside a
- *  listing" adapter. All query tokens must appear in the haystack. */
+/** Loose query match: every whitespace-separated token must appear in the text. */
 export function matchesQuery(haystack: string, query: string): boolean {
-  const hay = stripHtml(haystack).toLowerCase();
-  const tokens = String(query || "")
+  const q = String(query || "")
     .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
     .filter((t) => t.length > 1);
-  if (!tokens.length) return true;
-  return tokens.every((t) => hay.includes(t));
+  if (!q.length) return true;
+  const hay = String(haystack || "").toLowerCase();
+  return q.every((tok) => hay.includes(tok));
 }
 
-/** Score for ordering: title hits beat description hits, exact phrase wins. */
+/** Ranking: title matches weigh more than description matches, prefixes most. */
 export function scoreMatch(title: string, description: string, query: string): number {
-  const q = String(query || "").trim().toLowerCase();
+  const q = String(query || "").toLowerCase().trim();
   if (!q) return 0;
   const t = String(title || "").toLowerCase();
   const d = String(description || "").toLowerCase();
   let score = 0;
-  if (t.includes(q)) score += 60;
-  if (d.includes(q)) score += 20;
-  for (const tok of q.split(/[^\p{L}\p{N}]+/u).filter((x) => x.length > 1)) {
-    if (t.includes(tok)) score += 12;
-    if (d.includes(tok)) score += 4;
+  if (t === q) score += 100;
+  if (t.startsWith(q)) score += 40;
+  if (t.includes(q)) score += 25;
+  if (d.includes(q)) score += 8;
+  for (const tok of q.split(/\s+/)) {
+    if (tok.length < 2) continue;
+    if (t.includes(tok)) score += 6;
+    else if (d.includes(tok)) score += 2;
   }
   return score;
-}
-
-export function truncate(s: string, max: number): string {
-  const v = String(s || "").replace(/\s+/g, " ").trim();
-  return v.length <= max ? v : v.slice(0, max - 1).trimEnd() + "…";
 }

@@ -1,16 +1,14 @@
-// [SEARCH-REPAIR] Openverse provider.
+// [SEARCH-REPAIR] Openverse provider (current API: /v1/images/ and /v1/audio/).
 //
-// Interface used: the CURRENT documented search API at api.openverse.org/v1/
-// (images + audio). Verified live 2026-10-26: both endpoints answer with
-// `access-control-allow-origin: *`, so the browser can call them directly; an
-// anonymous client is allowed (a token only raises the rate limit, and this
-// adapter reports the provider's own limit headers instead of guessing).
+// Verified against the live service (2026-10-26): anonymous requests work, the
+// filters that change the request are q, page, page_size, license, license_type,
+// creator, source, extension and category, and every result carries the licence,
+// its URL, the attribution line and the original landing page.
 //
-// The point of Openverse is ATTRIBUTION: creator, licence (with version and
-// URL), the source collection, and the foreign landing page. Every one of those
-// is carried through untouched when the provider sends it, and left undefined
-// when it does not - never synthesized.
-import { ProviderError, getJson, qs, type ProviderContext } from "./core";
+// openverse.org itself is a JavaScript front end; a pasted openverse.org search
+// URL is therefore TRANSLATED into the API query it represents instead of being
+// scraped (which could only ever return an empty shell).
+import { ProviderError, getJson, type ProviderContext } from "./core";
 import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome } from "./types";
 
 const API = "https://api.openverse.org/v1";
@@ -19,45 +17,19 @@ export type OpenverseMedia = "images" | "audio";
 
 export const OPENVERSE_CAPABILITIES: ProviderCapabilities = {
   search: "supported",
-  inspect: "partial",
-  filters: ["mediaType", "license", "licenseType", "creator", "source", "extension", "category", "mature"],
   pagination: "supported",
-  itemDetails: "supported",
-  downloads: "supported",
+  filters: ["mediaType", "license", "licenseType", "creator", "source", "extension", "category"],
+  itemDetail: "partial",
+  files: "supported",
   preview: "supported",
-  attribution: "supported",
+  license: "supported",
   notes: [
-    "Searches /v1/images/ and /v1/audio/ - the two media types the API serves.",
-    "Licence, creator, source collection and the original landing page are shown exactly as the API returns them.",
-    "Media and licence filters are sent as real query parameters, so they change the upstream result set.",
-    "Anonymous use is allowed and rate limited by the provider; add an Openverse token to raise the limit. A 401 is reported as an authentication requirement, never as an empty search.",
-    "openverse.org search URLs are JavaScript pages, so a pasted one is turned into the equivalent API query instead of being scraped.",
+    "Searches the current /v1/images/ and /v1/audio/ endpoints; the media type chooses which one is called.",
+    "Licence and media filters are sent to Openverse, so pagination counts and totals match the request the operator configured.",
+    "Anonymous use is allowed and is the default; an access token is optional and only raises the rate limit. A 401 (bad token) is reported as an authentication problem, a 403 as a refusal, and only a 429 or an exhausted budget as a rate limit.",
+    "Every hit carries the licence, the attribution line and the original creator page as Openverse supplies them.",
   ],
 };
-
-interface OVResult {
-  id?: string;
-  title?: string;
-  creator?: string;
-  creator_url?: string;
-  license?: string;
-  license_version?: string;
-  license_url?: string;
-  source?: string;
-  provider?: string;
-  foreign_landing_url?: string;
-  url?: string;
-  thumbnail?: string;
-  filesize?: number;
-  filetype?: string;
-  width?: number;
-  height?: number;
-  duration?: number;
-  attribution?: string;
-  category?: string;
-  mature?: boolean;
-  frontend_media_type?: string;
-}
 
 export interface OpenverseSearchOptions {
   query: string;
@@ -73,8 +45,27 @@ export interface OpenverseSearchOptions {
   signal?: AbortSignal;
 }
 
-function mediaPath(mediaType: OpenverseMedia): string {
-  return mediaType === "audio" ? "/audio/" : "/images/";
+interface OVResult {
+  id?: string;
+  title?: string;
+  creator?: string;
+  creator_url?: string;
+  license?: string;
+  license_version?: string;
+  license_url?: string;
+  attribution?: string;
+  source?: string;
+  provider?: string;
+  foreign_landing_url?: string;
+  url?: string;
+  thumbnail?: string;
+  filesize?: number;
+  filetype?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  category?: string;
+  mature?: boolean;
 }
 
 function licenceTag(license?: string): string {
@@ -87,14 +78,12 @@ function licenceTag(license?: string): string {
 function toHit(r: OVResult, providerId: string): ProviderHit | null {
   const landing = r.foreign_landing_url || r.url;
   if (!landing) return null;
-  const licence = r.license
+  const license = r.license
     ? {
         tag: licenceTag(r.license),
         name: `${String(r.license).toUpperCase()}${r.license_version ? " " + r.license_version : ""}`,
         url: r.license_url,
-        attribution:
-          r.attribution ||
-          `"${r.title || "Untitled"}" by ${r.creator || "unknown"} - ${String(r.license).toUpperCase()}${r.license_version ? " " + r.license_version : ""} via ${r.source || "Openverse"}`,
+        attribution: r.attribution || `"${r.title || "Untitled"}" by ${r.creator || "unknown"} - ${String(r.license).toUpperCase()}`,
       }
     : undefined;
   return {
@@ -107,7 +96,9 @@ function toHit(r: OVResult, providerId: string): ProviderHit | null {
     fileUrl: r.url,
     previewUrl: r.thumbnail,
     fileSizeBytes: typeof r.filesize === "number" ? r.filesize : undefined,
-    license: licence,
+    license: license
+      ? { name: license.name, url: license.url, attribution: license.attribution }
+      : undefined,
     source: { label: `Openverse${r.source ? ` › ${r.source}` : ""}${r.provider ? ` (${r.provider})` : ""}`, url: "https://openverse.org" },
     extra: {
       ...(r.license ? { license: String(r.license).toUpperCase() } : {}),
@@ -115,15 +106,13 @@ function toHit(r: OVResult, providerId: string): ProviderHit | null {
       ...(r.filetype ? { filetype: r.filetype } : {}),
       ...(typeof r.width === "number" && typeof r.height === "number" ? { dimensions: `${r.width}×${r.height}` } : {}),
       ...(typeof r.duration === "number" ? { durationMs: r.duration } : {}),
-      ...(r.category ? { category: r.category } : {}),
-      ...(typeof r.mature === "boolean" ? { mature: r.mature } : {}),
+      ...(r.creator_url ? { creatorUrl: r.creator_url } : {}),
     },
-    provenance: "live",
   };
 }
 
 function authHeaders(ctx: ProviderContext): Record<string, string> {
-  // OPTIONAL: anonymous Openverse works. The token is only a rate-limit raise.
+  // OPTIONAL: anonymous Openverse works. The token only raises the ceiling.
   return ctx.openverseToken ? { Authorization: `Bearer ${ctx.openverseToken}` } : {};
 }
 
@@ -161,7 +150,7 @@ export async function openverseSearch(o: OpenverseSearchOptions, ctx: ProviderCo
     params.set("category", o.category);
     applied.push("category");
   }
-  const url = `${API}${mediaPath(mediaType)}?${params.toString()}`;
+  const url = `${API}/${mediaType}/?${params.toString()}`;
   let data: { result_count?: number; page_count?: number; results?: OVResult[] };
   try {
     data = (await getJson<typeof data>(url, ctx, { headers: authHeaders(ctx) })).data;
@@ -174,101 +163,97 @@ export async function openverseSearch(o: OpenverseSearchOptions, ctx: ProviderCo
       );
     }
     if (e instanceof ProviderError && e.code === "FORBIDDEN") {
-      throw new ProviderError("RATE_LIMITED", "Openverse refused the request; anonymous clients are rate limited and this is the usual cause.", {
-        status: 403,
-        url,
-        retryAfterSeconds: 60,
-      });
+      // A plain 403 is a REFUSAL, not a limit: the shared transport already
+      // upgrades a 403 whose rate-limit headers say the budget is spent to
+      // RATE_LIMITED, so anything that reaches here has no such evidence and
+      // must not be guessed into a "wait and retry" message.
+      throw new ProviderError(
+        "FORBIDDEN",
+        "Openverse refused this request (403). That is a refusal rather than a rate limit - an anonymous client is normally allowed, so check the query and any configured token.",
+        { status: 403, url, retryable: false }
+      );
     }
     throw e;
   }
   const results = Array.isArray(data.results) ? data.results : [];
   const hits = results.map((r) => toHit(r, providerId)).filter((h): h is ProviderHit => Boolean(h));
   const total = Number(data.result_count ?? hits.length);
+  const pages = Number(data.page_count ?? 1);
   return {
     hits,
     totalReported: total,
-    hasMore: page < Number(data.page_count ?? 1),
-    nextPage: page < Number(data.page_count ?? 1) ? page + 1 : undefined,
+    hasMore: page < pages,
+    nextPage: page < pages ? page + 1 : undefined,
     appliedFilters: applied,
     ignoredFilters: [],
     notes: [
-      `${total.toLocaleString()} ${mediaType === "audio" ? "audio" : "image"} results; page ${page} of ${Number(data.page_count ?? 1)}.`,
+      `${total.toLocaleString()} ${mediaType === "audio" ? "audio" : "image"} result(s); page ${page} of ${pages}.`,
       ctx.openverseToken ? "Authenticated (token configured)." : "Anonymous request (Openverse's own rate limit applies).",
     ],
     tookMs: Date.now() - started,
   };
 }
 
-/** openverse.org URLs are a JavaScript front end; the honest thing to do with a
- *  pasted one is translate it into the API query it represents. */
+/** Translate an openverse.org URL into the API query it represents. */
 export function parseOpenverseUrl(url: string): { query: string; mediaType: OpenverseMedia; license?: string } | null {
   let u: URL;
   try {
-    u = new URL(url);
+    u = new URL(String(url || "").trim());
   } catch {
     return null;
   }
-  const host = u.hostname.toLowerCase();
-  if (!/(^|\.)openverse\.org$/.test(host)) return null;
-  const mediaType: OpenverseMedia = /audio/i.test(u.pathname) || /audio/i.test(u.searchParams.get("type") || "") ? "audio" : "images";
-  const query = u.searchParams.get("q") || u.searchParams.get("query") || "";
-  const license = u.searchParams.get("license") || undefined;
-  return { query, mediaType, license };
+  if (!/(^|\.)openverse\.org$/.test(u.hostname.toLowerCase())) return null;
+  const q = u.searchParams.get("q") || u.searchParams.get("query") || "";
+  const type = (u.searchParams.get("type") || u.searchParams.get("media") || "").toLowerCase();
+  const mediaType: OpenverseMedia = type === "audio" || /\/audio/.test(u.pathname) ? "audio" : "images";
+  return { query: q, mediaType, license: u.searchParams.get("license") || undefined };
 }
 
 export async function openverseInspect(url: string, ctx: ProviderContext, providerId = "openverse"): Promise<InspectOutcome> {
   const started = Date.now();
   const parsed = parseOpenverseUrl(url);
   if (!parsed) throw new ProviderError("UNSUPPORTED", "That is not an openverse.org URL.", { url, retryable: false });
+  const facts: InspectOutcome["facts"] = [
+    { label: "Site", value: "openverse.org (JavaScript front end)", fromProvider: false },
+    { label: "Interface used", value: "api.openverse.org/v1", fromProvider: false },
+  ];
   if (!parsed.query) {
     return {
       providerId,
-      kind: "search-page",
+      kind: "homepage",
       canonicalUrl: url,
-      title: "Openverse search page",
-      facts: [{ label: "Media type", value: parsed.mediaType }],
+      title: "Openverse",
+      description: "Openly licensed images and audio. Add it as a source and search from the Search page - Openverse has no page content to read.",
       sections: [],
+      facts,
       addable: true,
       capabilities: OPENVERSE_CAPABILITIES,
+      provenance: "live",
       tookMs: Date.now() - started,
-      description:
-        "This Openverse URL has no query in it, so there is nothing to preview. Add it as a source and search from here: queries are sent to the Openverse API.",
     };
   }
-  const out = await openverseSearch(
-    { query: parsed.query, mediaType: parsed.mediaType, license: parsed.license ? [parsed.license] : undefined, pageSize: 10 },
-    ctx,
-    providerId
-  );
+  // A search URL is a real query: run it and show what it returns.
+  const out = await openverseSearch({ query: parsed.query, mediaType: parsed.mediaType, license: parsed.license ? [parsed.license] : undefined, pageSize: 10 }, ctx, providerId);
+  facts.unshift({ label: "Query", value: parsed.query, fromProvider: false });
+  facts.push({ label: "Media type", value: parsed.mediaType, fromProvider: false });
+  facts.push({ label: "Results", value: String(out.totalReported ?? out.hits.length), fromProvider: true });
   return {
     providerId,
     kind: "search",
     canonicalUrl: url,
     title: `Openverse ${parsed.mediaType} for "${parsed.query}"`,
-    description: `${out.totalReported ?? out.hits.length} ${parsed.mediaType} match this query. Previewing the first ${out.hits.length}.`,
-    facts: [
-      { label: "Query", value: parsed.query },
-      { label: "Media type", value: parsed.mediaType },
-      { label: "Total reported", value: String(out.totalReported ?? "not reported") },
-      ...(parsed.license ? [{ label: "Licence filter", value: parsed.license }] : []),
-    ],
+    description: `${(out.totalReported ?? out.hits.length).toLocaleString()} result(s) in Openverse.`,
     sections: [
       {
         key: "results",
-        label: "First results (live)",
-        items: out.hits.map((h) => ({
-          title: h.title,
-          url: h.url,
-          description: h.license?.attribution,
-          meta: h.license?.name,
-        })),
+        label: "Current results",
+        items: out.hits.map((h) => ({ title: h.title, url: h.url, note: [h.creator, h.license?.name].filter(Boolean).join(" · ") })),
       },
     ],
+    facts,
     addable: true,
     capabilities: OPENVERSE_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }
-
-export { qs };

@@ -1,0 +1,29 @@
+{
+  "responseHeader": { "status": 0, "QTime": 12, "params": { "q": "coffee AND mediatype:audio" } },
+  "response": {
+    "numFound": 42,
+    "start": 0,
+    "docs": [
+      {
+        "identifier": "coffeehouse-1921",
+        "title": "The Coffee House (1921)",
+        "creator": ["Edison, Thomas A."],
+        "year": "1921",
+        "date": "1921-01-01T00:00:00Z",
+        "mediatype": "audio",
+        "downloads": 1203,
+        "item_size": 4200000,
+        "licenseurl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "collection": ["feature_films", "silent_films"],
+        "description": ["A silent comedy short about a coffee house."],
+        "language": ["eng"]
+      },
+      {
+        "identifier": "unknown-item",
+        "title": "Catalogue fragment",
+        "mediatype": "texts",
+        "collection": ["opensource"]
+      }
+    ]
+  }
+}

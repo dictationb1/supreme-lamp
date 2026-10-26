@@ -1,53 +1,43 @@
-// [SEARCH-REPAIR] GitHub provider: repositories, README/awesome lists, list
-// entries, and releases - WITHOUT ever asking a public repository for a password.
+// [SEARCH-REPAIR] GitHub provider: repositories, READMEs and curated lists.
 //
-// The defects this replaces:
-//   * a curated list was queried as if its content were RELEASES, so
-//     sindresorhus/awesome and ChessMax/awesome-programming-languages answered
-//     "no results" (their content is a README, and `releases` is legitimately
-//     empty - verified live: the releases endpoint returns `[]`);
-//   * any GitHub failure surfaced as a credential prompt, so a public README
-//     looked private;
-//   * `awesome.re` was treated as a hostname-mismatch error instead of its real
-//     canonical target (github.com/sindresorhus/awesome).
-//
-// Verified live on 2026-10-26 with an Origin header: api.github.com answers
-// `access-control-allow-origin: *`, so the API is usable straight from the
-// browser; github.com HTML and raw.githubusercontent.com are NOT, and this
-// adapter therefore never needs them (README bytes come back base64 through the
-// API). See docs/reports/search-repair/evidence/live-probe.json.
-import { ProviderError, getJson, getResource, qs, type ProviderContext } from "./core";
-import { dedupeLinks, matchesQuery, parseMarkdownSections, scoreMatch, truncate, type MarkdownLink } from "./text";
-import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome } from "./types";
+// The defects this file repairs (all observed on the real API):
+//   * a pasted repo URL was treated as a RELEASES source, so a curated list
+//     (`sindresorhus/awesome`, `ChessMax/awesome-programming-languages`) was
+//     reported as "no releases" instead of as a list. Releases are now ONE fact
+//     among many, and an empty release list is a normal, stated value.
+//   * `#readme` fragments and `awesome.re` aliases were refused or treated as
+//     hostname mismatches. Both are resolved here before any request is made.
+//   * public content asked for a credential. Anonymous api.github.com calls
+//     (60 req/h per IP) are the default; a token only raises the ceiling.
+//   * relative links in a README (`./contributing.md`, `docs/x.md`) were emitted
+//     verbatim, so a nested list produced broken URLs. They resolve against the
+//     repository's DEFAULT BRANCH, which is why the branch is read first.
+import { ProviderError, getJson, type ProviderContext } from "./core";
+import { cleanHeading, parseMarkdownSections, scoreMatch, truncate, type MarkdownSection } from "./text";
+import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome, SectionItem } from "./types";
 
 const API = "https://api.github.com";
 
-/** Hosts whose content is really a GitHub repository's README. `awesome.re` is
- *  the one the operator reported: it is a redirect front door, not a content
- *  host, so resolving it here is the CORRECT canonical path (and it is why an
- *  "off-host redirect" is never the right answer for it). */
+/** `awesome.re` is the marketing front door for sindresorhus/awesome. It is a
+ *  legitimate alias, not a hostname mismatch. */
 export const GITHUB_ALIASES: Record<string, string> = {
   "awesome.re": "sindresorhus/awesome",
-  "www.awesome.re": "sindresorhus/awesome",
+  "github.com/awesome-selfhosted": "awesome-selfhosted/awesome-selfhosted",
 };
 
 export interface GithubRef {
   owner: string;
   repo: string;
-  /** Branch/tag/sha when the URL pinned one. */
+  kind: "repo" | "readme" | "list" | "releases" | "issues" | "tree" | "blob" | "search" | "raw" | "api";
   ref?: string;
-  /** Path inside the repository (tree/blob URLs). */
   path?: string;
-  kind: "repo" | "readme" | "file" | "releases" | "raw";
-  /** The URL as given, for provenance. */
-  rawUrl: string;
-  /** Set when an alias was resolved. */
+  /** Set when the input was a known alias rather than a github.com URL. */
   resolvedFrom?: string;
 }
 
-const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
+const RESERVED = new Set(["orgs", "settings", "topics", "explore", "marketplace", "sponsors", "features", "about", "login", "collections", "events"]);
 
+/** Classify every GitHub URL shape the operator actually pastes. */
 export function parseGithubUrl(input: string): GithubRef | null {
   let u: URL;
   try {
@@ -55,525 +45,461 @@ export function parseGithubUrl(input: string): GithubRef | null {
   } catch {
     return null;
   }
-  const host = u.hostname.toLowerCase();
-  const segs = u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  const path = u.pathname.replace(/^\/+|\/+$/g, "");
+  const frag = u.hash.replace(/^#/, "").toLowerCase();
 
-  if (host === "raw.githubusercontent.com" && segs.length >= 3) {
-    return { owner: segs[0], repo: segs[1], ref: segs[2], path: segs.slice(3).join("/"), kind: "raw", rawUrl: u.toString() };
+  if (host === "awesome.re") {
+    const alias = GITHUB_ALIASES["awesome.re"];
+    const [owner, repo] = alias.split("/");
+    return { owner, repo, kind: "list", resolvedFrom: "awesome.re" };
   }
+
+  if (host === "raw.githubusercontent.com") {
+    const [owner, repo, ref, ...rest] = path.split("/");
+    if (!owner || !repo || !ref) return null;
+    return { owner, repo, kind: "raw", ref, path: rest.join("/") || undefined };
+  }
+
   if (host === "api.github.com") {
-    // https://api.github.com/repos/{o}/{r}[/...]
-    if (segs[0] === "repos" && segs.length >= 3) {
-      const tail = segs[3] || "";
-      const kind = tail === "releases" ? "releases" : tail === "readme" ? "readme" : "repo";
-      return { owner: segs[1], repo: segs[2], kind, rawUrl: u.toString() };
+    const segs = path.split("/");
+    if (segs[0] === "repos" && segs[1] && segs[2]) {
+      const tail = segs[3];
+      if (tail === "readme") return { owner: segs[1], repo: segs[2], kind: "readme" };
+      if (tail === "releases") return { owner: segs[1], repo: segs[2], kind: "releases" };
+      return { owner: segs[1], repo: segs[2], kind: "api" };
     }
+    if (segs[0] === "search") return { owner: "", repo: "", kind: "search" };
     return null;
   }
-  if (host === "github.com" || host === "www.github.com") {
-    if (segs.length < 2) return null;
-    const [owner, repo, third, ref, ...rest] = segs;
-    if (!OWNER_RE.test(owner) || !REPO_RE.test(repo)) return null;
-    const hash = (u.hash || "").toLowerCase();
-    if (third === "releases") return { owner, repo, kind: "releases", rawUrl: u.toString() };
-    if (third === "tree" && ref) {
-      const kind = rest.length === 0 ? "repo" : "file";
-      return { owner, repo, ref, path: rest.join("/"), kind, rawUrl: u.toString() };
-    }
-    if (third === "blob" && ref) return { owner, repo, ref, path: rest.join("/"), kind: "file", rawUrl: u.toString() };
-    if (!third && (hash === "#readme" || hash === "#readme-ov-file" || hash === "" || u.search === "")) {
-      return { owner, repo, kind: third || hash.includes("readme") ? "readme" : "repo", rawUrl: u.toString() };
-    }
-    return { owner, repo, kind: "repo", rawUrl: u.toString() };
+
+  if (host !== "github.com") return null;
+
+  const segs = path.split("/").filter(Boolean);
+  if (!segs.length) return null;
+  if (RESERVED.has(segs[0].toLowerCase())) return null;
+  const [owner, repo, third, ...rest] = segs;
+  if (!repo) return { owner, repo: "", kind: "repo" };
+  if (third === "releases") return { owner, repo, kind: "releases" };
+  if (third === "issues" || third === "pulls") return { owner, repo, kind: "issues" };
+  if (third === "tree") return { owner, repo, kind: "tree", ref: rest[0], path: rest.slice(1).join("/") || undefined };
+  if (third === "blob") return { owner, repo, kind: "blob", ref: rest[0], path: rest.slice(1).join("/") || undefined };
+  if (frag === "readme" || frag.startsWith("readme")) return { owner, repo, kind: "readme" };
+  if (
+    /(^|[-_/])awesome([-_/]|$)/i.test(repo) ||
+    (third === "" && frag === "") === false
+  ) {
+    // A repository whose NAME says it is a curated list is a list even before
+    // the README is read; the README then confirms it.
+    if (/(^|[-_/])awesome([-_/]|$)/i.test(repo)) return { owner, repo, kind: "list" };
   }
-  if (GITHUB_ALIASES[host]) {
-    const [owner, repo] = GITHUB_ALIASES[host].split("/");
-    return { owner, repo, kind: "readme", rawUrl: u.toString(), resolvedFrom: host };
-  }
-  return null;
+  return { owner, repo, kind: "repo" };
 }
 
-function ghHeaders(ctx: ProviderContext, accept = "application/vnd.github+json"): Record<string, string> {
+function headers(ctx: ProviderContext): Record<string, string> {
   const h: Record<string, string> = {
-    Accept: accept,
+    Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
-  // OPTIONAL. Public content NEVER needs this: the token only raises the
-  // anonymous rate limit (60/h per IP) and reaches private repositories the
-  // operator explicitly configured.
+  // OPTIONAL: public reads work anonymously. A token only raises the limit.
   if (ctx.githubToken) h.Authorization = `Bearer ${ctx.githubToken}`;
   return h;
 }
 
-async function ghGet<T>(path: string, ctx: ProviderContext): Promise<T> {
-  try {
-    const { data } = await getJson<T>(`${API}${path}`, ctx, { headers: ghHeaders(ctx) });
-    return data;
-  } catch (e) {
-    if (e instanceof ProviderError && e.code === "NOT_FOUND") {
-      throw new ProviderError(
-        "NOT_FOUND",
-        "GitHub reports this repository/page does not exist, or it is private. Public repositories and READMEs need no credentials.",
-        { status: 404, url: `${API}${path}`, retryable: false }
-      );
-    }
-    throw e;
-  }
+export interface GithubRepo {
+  fullName: string;
+  defaultBranch: string;
+  description?: string;
+  stars: number;
+  forks?: number;
+  license?: string;
+  pushedAt?: string;
+  createdAt?: string;
+  archived?: boolean;
+  htmlUrl: string;
+  topics: string[];
+  homepage?: string;
+  openIssues?: number;
+  sizeKb?: number;
+  language?: string;
 }
 
-export interface GithubRepo {
-  full_name: string;
-  name: string;
-  owner: string;
-  description: string | null;
-  html_url: string;
-  default_branch: string;
-  stars: number;
-  topics?: string[];
-  license?: { spdx_id?: string | null; name?: string | null; url?: string | null } | null;
-  pushed_at?: string | null;
+interface ApiRepo {
+  full_name?: string;
+  default_branch?: string;
+  description?: string | null;
+  stargazers_count?: number;
+  forks_count?: number;
+  pushed_at?: string;
+  created_at?: string;
   archived?: boolean;
+  html_url?: string;
+  topics?: string[];
   homepage?: string | null;
-  fork?: boolean;
-  has_downloads?: boolean;
+  open_issues_count?: number;
   size?: number;
-  open_issues?: number;
+  language?: string | null;
+  license?: { spdx_id?: string; name?: string } | null;
 }
 
 export async function getRepo(owner: string, repo: string, ctx: ProviderContext): Promise<GithubRepo> {
-  const raw = await ghGet<Record<string, unknown>>(`/repos/${owner}/${repo}`, ctx);
-  const lic = raw.license as { spdx_id?: string; name?: string; url?: string } | null;
+  const { data } = await getJson<ApiRepo>(`${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, ctx, {
+    headers: headers(ctx),
+  });
+  if (!data || !data.full_name) {
+    throw new ProviderError("PARSE_ERROR", "GitHub answered, but not with repository data.", { url: `${API}/repos/${owner}/${repo}` });
+  }
   return {
-    full_name: String(raw.full_name ?? `${owner}/${repo}`),
-    name: String(raw.name ?? repo),
-    owner: String((raw.owner as { login?: string } | undefined)?.login ?? owner),
-    description: (raw.description as string | null) ?? null,
-    html_url: String(raw.html_url ?? `https://github.com/${owner}/${repo}`),
-    default_branch: String(raw.default_branch ?? "main"),
-    stars: Number(raw.stargazers_count ?? 0),
-    topics: Array.isArray(raw.topics) ? (raw.topics as string[]) : undefined,
-    license: lic ? { spdx_id: lic.spdx_id ?? null, name: lic.name ?? null, url: lic.url ?? null } : null,
-    pushed_at: (raw.pushed_at as string | null) ?? null,
-    archived: Boolean(raw.archived),
-    homepage: (raw.homepage as string | null) ?? null,
-    fork: Boolean(raw.fork),
-    has_downloads: Boolean(raw.has_downloads),
-    size: typeof raw.size === "number" ? raw.size : undefined,
-    open_issues: typeof raw.open_issues_count === "number" ? raw.open_issues_count : undefined,
+    fullName: data.full_name,
+    defaultBranch: String(data.default_branch || "main"),
+    description: data.description || undefined,
+    stars: Number(data.stargazers_count ?? 0),
+    forks: data.forks_count != null ? Number(data.forks_count) : undefined,
+    license: data.license?.spdx_id && data.license.spdx_id !== "NOASSERTION" ? data.license.spdx_id : data.license?.name,
+    pushedAt: data.pushed_at,
+    createdAt: data.created_at,
+    archived: Boolean(data.archived),
+    htmlUrl: String(data.html_url || `https://github.com/${data.full_name}`),
+    topics: Array.isArray(data.topics) ? data.topics : [],
+    homepage: data.homepage || undefined,
+    openIssues: data.open_issues_count,
+    sizeKb: data.size,
+    language: data.language || undefined,
   };
+}
+
+function decodeBase64(b64: string): string {
+  const clean = String(b64 || "").replace(/\s+/g, "");
+  if (typeof atob === "function") {
+    const bin = atob(clean);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  // Node (tests) fallback without depending on the Buffer type.
+  const g = globalThis as unknown as { Buffer?: { from: (s: string, enc: string) => { toString: (enc: string) => string } } };
+  if (g.Buffer) return g.Buffer.from(clean, "base64").toString("utf8");
+  throw new ProviderError("PARSE_ERROR", "This environment cannot decode base64.", {});
 }
 
 export interface ReadmeDoc {
   text: string;
   path: string;
+  ref: string;
+  /** URL a human can open to read the same document. */
   htmlUrl: string;
-  bytes: number;
+  /** Where a RELATIVE link in this README resolves to. */
+  baseUrl: string;
+  truncated: boolean;
 }
 
-function decodeBase64(b64: string): string {
-  const clean = b64.replace(/\s+/g, "");
-  if (typeof atob === "function") {
-    try {
-      const bin = atob(clean);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-      return new TextDecoder("utf-8").decode(bytes);
-    } catch {
-      /* fall through to the Buffer path (node tests) */
-    }
-  }
-  const buf = (globalThis as unknown as { Buffer?: { from: (s: string, enc: string) => { toString: (enc: string) => string } } }).Buffer;
-  if (buf) return buf.from(clean, "base64").toString("utf-8");
-  return "";
+interface ApiReadme {
+  content?: string;
+  encoding?: string;
+  path?: string;
+  html_url?: string;
+  name?: string;
 }
 
-export async function getReadme(owner: string, repo: string, ctx: ProviderContext, ref?: string): Promise<ReadmeDoc | null> {
-  const suffix = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-  let raw: Record<string, unknown>;
+/** Read the repository's README through the API (CORS `*`, no HTML scraping). */
+export async function getReadme(owner: string, repo: string, defaultBranch: string, ctx: ProviderContext): Promise<ReadmeDoc | null> {
   try {
-    raw = await ghGet<Record<string, unknown>>(`/repos/${owner}/${repo}/readme${suffix}`, ctx);
+    const { data } = await getJson<ApiReadme>(`${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/readme`, ctx, {
+      headers: headers(ctx),
+    });
+    if (!data || !data.content || data.encoding !== "base64") {
+      throw new ProviderError("PARSE_ERROR", "The README could not be decoded.", {
+        url: `${API}/repos/${owner}/${repo}/readme`,
+      });
+    }
+    const text = decodeBase64(data.content);
+    const path = String(data.path || "README.md");
+    return {
+      text,
+      path,
+      ref: defaultBranch,
+      htmlUrl: String(data.html_url || `https://github.com/${owner}/${repo}#readme`),
+      baseUrl: `https://github.com/${owner}/${repo}/blob/${defaultBranch}/${path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : ""}`,
+      truncated: text.length > 1_000_000,
+    };
   } catch (e) {
-    if (e instanceof ProviderError && e.code === "NOT_FOUND") return null; // no README is valid
+    // A repository with NO readme is a real, reportable state (204/404), not an
+    // error that should block the rest of the inspection.
+    if (e instanceof ProviderError && (e.code === "NOT_FOUND" || e.status === 404)) return null;
     throw e;
   }
-  const encoding = String(raw.encoding ?? "");
-  const content = String(raw.content ?? "");
-  let text: string;
-  if (encoding === "base64" && content) text = decodeBase64(content);
-  else if (encoding === "none" && typeof raw.download_url === "string") {
-    // Extremely large files answer `encoding: none`; the download host has no
-    // CORS, so this is the one place a relay is genuinely required.
-    const res = await getResource(String(raw.download_url), ctx, { transport: "auto" });
-    text = res.text;
-  } else text = "";
-  if (!text.trim()) return null;
-  return {
-    text,
-    path: String(raw.path ?? "README.md"),
-    htmlUrl: String(raw.html_url ?? `https://github.com/${owner}/${repo}#readme`),
-    bytes: Number(raw.size ?? text.length),
-  };
 }
 
 export interface ReleaseInfo {
-  count: number;
-  latest?: { tag: string; name: string; url: string; publishedAt?: string; assets: { name: string; sizeBytes: number; url: string }[] };
+  /** null = the provider did not answer; [] = answered with no releases. */
+  tags: { tag: string; name?: string; publishedAt?: string; prerelease: boolean }[] | null;
+  latest?: string;
+  url?: string;
 }
 
-/** A repository whose content is its README legitimately has ZERO releases.
- *  Empty is a VALID answer here, and the caller must render it as such. */
 export async function listReleases(owner: string, repo: string, ctx: ProviderContext): Promise<ReleaseInfo> {
-  const arr = await ghGet<Record<string, unknown>[]>(`/repos/${owner}/${repo}/releases?per_page=5`, ctx);
-  if (!Array.isArray(arr) || arr.length === 0) return { count: 0 };
-  const first = arr[0];
-  const assets = Array.isArray(first.assets)
-    ? (first.assets as Record<string, unknown>[]).map((a) => ({
-        name: String(a.name ?? ""),
-        sizeBytes: Number(a.size ?? 0),
-        url: String(a.browser_download_url ?? ""),
-      }))
-    : [];
-  return {
-    count: arr.length,
-    latest: {
-      tag: String(first.tag_name ?? ""),
-      name: String(first.name ?? first.tag_name ?? ""),
-      url: String(first.html_url ?? `https://github.com/${owner}/${repo}/releases`),
-      publishedAt: (first.published_at as string | undefined) ?? undefined,
-      assets,
-    },
-  };
+  try {
+    const { data } = await getJson<{ tag_name?: string; name?: string; published_at?: string; prerelease?: boolean; html_url?: string }[]>(
+      `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases?per_page=5`,
+      ctx,
+      { headers: headers(ctx) }
+    );
+    const rows = Array.isArray(data) ? data : [];
+    return {
+      tags: rows.map((r) => ({ tag: String(r.tag_name || ""), name: r.name, publishedAt: r.published_at, prerelease: Boolean(r.prerelease) })),
+      latest: rows[0]?.tag_name,
+      url: rows[0]?.html_url,
+    };
+  } catch (e) {
+    if (e instanceof ProviderError && e.code === "RATE_LIMITED") return { tags: null };
+    if (e instanceof ProviderError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) return { tags: null };
+    throw e;
+  }
 }
 
 export interface GithubSearchItem {
-  full_name: string;
-  description: string | null;
-  html_url: string;
+  fullName: string;
+  description?: string;
   stars: number;
-  topics?: string[];
-  pushed_at?: string;
-  default_branch?: string;
-  license?: { spdx_id?: string | null } | null;
+  language?: string;
+  pushedAt?: string;
+  url: string;
+  archived: boolean;
+  topics: string[];
 }
 
-export async function searchRepos(query: string, ctx: ProviderContext, limit = 10): Promise<{ items: GithubSearchItem[]; total: number }> {
-  const path = `/search/repositories?${qs({ q: query, per_page: Math.min(30, limit), sort: "stars", order: "desc" })}`;
-  const data = await ghGet<{ total_count?: number; items?: Record<string, unknown>[] }>(path, ctx);
-  const items = (data.items ?? []).map((r) => ({
-    full_name: String(r.full_name ?? ""),
-    description: (r.description as string | null) ?? null,
-    html_url: String(r.html_url ?? ""),
+/** Repository search: the provider's own ranking, with the provider's total. */
+export async function searchRepos(query: string, ctx: ProviderContext, perPage = 10): Promise<{ items: GithubSearchItem[]; total: number }> {
+  const q = String(query || "").trim();
+  if (!q) throw new ProviderError("UNSUPPORTED", "An empty query cannot be searched.", { retryable: false });
+  const url = `${API}/search/repositories?q=${encodeURIComponent(q)}&per_page=${Math.max(1, Math.min(50, perPage))}&sort=stars&order=desc`;
+  const { data } = await getJson<{ total_count?: number; items?: (ApiRepo & { name?: string })[] }>(url, ctx, { headers: headers(ctx) });
+  const items = (data.items || []).map((r) => ({
+    fullName: String(r.full_name || ""),
+    description: r.description || undefined,
     stars: Number(r.stargazers_count ?? 0),
-    topics: Array.isArray(r.topics) ? (r.topics as string[]) : undefined,
-    pushed_at: (r.pushed_at as string | undefined) ?? undefined,
-    default_branch: (r.default_branch as string | undefined) ?? undefined,
-    license: (r.license as { spdx_id?: string | null } | null) ?? null,
+    language: r.language || undefined,
+    pushedAt: r.pushed_at,
+    url: String(r.html_url || `https://github.com/${r.full_name}`),
+    archived: Boolean(r.archived),
+    topics: Array.isArray(r.topics) ? r.topics : [],
   }));
-  return { items, total: Number(data.total_count ?? items.length) };
+  return { items: items.filter((i) => i.fullName), total: Number(data.total_count ?? items.length) };
 }
 
 export const GITHUB_CAPABILITIES: ProviderCapabilities = {
   search: "supported",
-  inspect: "supported",
-  filters: ["language", "topic", "minimumStars", "sort", "listMode"],
   pagination: "partial",
-  itemDetails: "supported",
-  downloads: "supported",
+  filters: ["sort", "listMode"],
+  itemDetail: "supported",
+  files: "partial",
   preview: "unsupported",
-  attribution: "supported",
-  nestedLists: "supported",
+  license: "supported",
   notes: [
-    "Public repositories and READMEs are read with the GitHub REST API and need no credentials.",
-    "A token is OPTIONAL: it raises the 60 requests/hour anonymous limit and reaches private repositories only if you add one.",
-    "'No releases' is a valid answer for a list repository - its content is the README, not a release.",
-    "awesome.re resolves to github.com/sindresorhus/awesome, its documented canonical target.",
-    "Release assets are listed only when the repository actually publishes releases.",
+    "Public repositories, READMEs and curated lists are read through api.github.com, which allows browser calls and needs NO credential (60 requests/hour per address; a token only raises that).",
+    "Releases are one fact among many. A curated list normally has none, and 'none' is a real answer - never an error and never a reason to refuse the URL.",
+    "A README's relative links resolve against the repository's default branch, read from the API before the README, so `docs/x.md` becomes a working URL.",
+    "Nested discovery is incremental and cancellable: the first lists are read, hits are reported as they arrive, and a cancel stops further reads.",
+    "github.com HTML pages do not allow browser reads; they are never required, because the API returns the same data.",
   ],
 };
 
-function licenseFromRepo(repo: GithubRepo): ProviderHit["license"] | undefined {
-  if (!repo.license) return undefined;
-  const spdx = (repo.license.spdx_id || "").toUpperCase();
-  if (!spdx || spdx === "NOASSERTION") return undefined;
-  return {
-    tag: spdx.includes("CC") ? "creative-commons" : spdx.includes("GPL") || spdx.includes("MIT") || spdx.includes("APACHE") || spdx.includes("BSD") || spdx.includes("MPL") ? "open-access" : "open-access",
-    name: repo.license.name ?? spdx,
-    url: repo.license.url ?? undefined,
-    attribution: `${repo.full_name} - ${repo.license.name ?? spdx}`,
-  };
+function repoFacts(repo: GithubRepo): { label: string; value: string; fromProvider: boolean }[] {
+  return [
+    { label: "Repository", value: repo.fullName, fromProvider: true },
+    { label: "Default branch", value: repo.defaultBranch, fromProvider: true },
+    { label: "Stars", value: repo.stars.toLocaleString(), fromProvider: true },
+    ...(repo.language ? [{ label: "Language", value: repo.language, fromProvider: true }] : []),
+    ...(repo.license ? [{ label: "Licence", value: repo.license, fromProvider: true }] : []),
+    ...(repo.pushedAt ? [{ label: "Last push", value: repo.pushedAt.slice(0, 10), fromProvider: true }] : []),
+    ...(repo.homepage ? [{ label: "Homepage", value: repo.homepage, fromProvider: true }] : []),
+    ...(repo.archived ? [{ label: "Archived", value: "yes - read-only repository", fromProvider: true }] : []),
+  ];
 }
 
-function repoHit(repo: GithubRepo, providerId: string): ProviderHit {
-  return {
-    id: `repo:${repo.full_name.toLowerCase()}`,
-    providerId,
-    kind: "repository",
-    title: repo.full_name,
-    description: repo.description ?? undefined,
-    creator: repo.owner,
-    date: repo.pushed_at ?? undefined,
-    url: repo.html_url,
-    license: licenseFromRepo(repo),
-    source: { label: `GitHub repository ${repo.full_name}`, url: repo.html_url },
-    extra: {
-      stars: repo.stars,
-      defaultBranch: repo.default_branch,
-      ...(repo.topics && repo.topics.length ? { topics: repo.topics.slice(0, 8).join(", ") } : {}),
-      ...(repo.archived ? { archived: true } : {}),
-    },
-    provenance: "live",
-  };
+function sectionsFromMarkdown(md: string, baseUrl: string, repoFullName: string, limit = 40): { sections: InspectOutcome["sections"]; items: number; categories: number } {
+  const parsed = parseMarkdownSections(md, baseUrl);
+  const sections: InspectOutcome["sections"] = [];
+  let items = 0;
+  let categories = 0;
+  for (const s of parsed) {
+    if (!s.links.length) continue;
+    categories += 1;
+    if (sections.length >= limit) break;
+    const sectionItems: SectionItem[] = s.links.slice(0, 60).map((l) => ({
+      title: l.title || l.url,
+      url: l.url,
+      note: l.description,
+    }));
+    items += sectionItems.length;
+    sections.push({
+      key: `readme-${categories}`,
+      label: cleanHeading(s.title) || `Section ${categories}`,
+      items: sectionItems,
+      anchor: `${repoFullName} › ${cleanHeading(s.title) || `Section ${categories}`}`,
+    });
+  }
+  return { sections, items, categories };
 }
 
-function listEntryHit(link: MarkdownLink, repo: GithubRepo, providerId: string, listRef: MarkdownLink[]): ProviderHit {
-  const sameTargets = listRef.filter((l) => l.url === link.url).length;
-  return {
-    id: `entry:${repo.full_name.toLowerCase()}:${link.url}`,
-    providerId,
-    kind: "list-entry",
-    title: link.title,
-    description: link.description,
-    date: repo.pushed_at ?? undefined,
-    url: link.url,
-    source: {
-      label: `README of ${repo.full_name}${link.section.length ? ` › ${link.section.join(" › ")}` : ""}`,
-      url: `${repo.html_url}#readme`,
-    },
-    context: link.section,
-    extra: {
-      list: repo.full_name,
-      ...(link.section.length ? { category: link.section.join(" › ") } : {}),
-      ...(sameTargets > 1 ? { mentionedTimes: sameTargets } : {}),
-    },
-    provenance: "live",
-  };
-}
-
-/** Which READMEs to mine for a query: repositories GitHub already ranks for it
- *  that look like curated lists. Bounded on purpose - the crawl is incremental
- *  and cancellable, and the bound is reported to the caller. */
-async function candidateLists(query: string, ctx: ProviderContext, limit: number, maxLists: number): Promise<GithubSearchItem[]> {
-  const { items } = await searchRepos(`${query} awesome in:name,description,readme`, ctx, limit);
-  const scored = items
-    .map((it) => {
-      const name = it.full_name.toLowerCase();
-      let score = 0;
-      if (/awesome/.test(name)) score += 30;
-      if ((it.topics || []).some((t) => /awesome|list|curated/.test(t))) score += 15;
-      if (/list|collection|curated/.test(it.description || "")) score += 8;
-      score += Math.min(20, Math.log10(Math.max(1, it.stars)) * 6);
-      return { it, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  return scored.slice(0, maxLists).map((s) => s.it);
-}
-
-async function readList(repo: GithubSearchItem, ctx: ProviderContext): Promise<MarkdownLink[]> {
-  const readme = await getReadme(repo.full_name.split("/")[0], repo.full_name.split("/")[1], ctx, repo.default_branch);
-  if (!readme) return [];
-  const base = `${repo.html_url}/blob/${repo.default_branch}/`;
-  const sections = parseMarkdownSections(readme.text, base);
-  const all: MarkdownLink[] = [];
-  for (const s of sections) all.push(...s.links);
-  return dedupeLinks(all.filter((l) => !l.url.startsWith(repo.html_url)));
-}
-
-export async function githubSearch(
-  req: { query: string; limit?: number; maxLists?: number; signal?: AbortSignal },
-  ctx: ProviderContext,
-  providerId = "github"
-): Promise<SearchOutcome> {
-  const started = Date.now();
-  const limit = req.limit ?? 20;
-  const maxLists = req.maxLists ?? 3;
-  const query = String(req.query || "").trim();
+function listEntryHits(md: string, baseUrl: string, repoFullName: string, query: string, limit: number): ProviderHit[] {
+  const parsed: MarkdownSection[] = parseMarkdownSections(md, baseUrl);
   const hits: ProviderHit[] = [];
+  for (const s of parsed) {
+    if (!s.links.length) continue;
+    const section = cleanHeading(s.title);
+    for (const l of s.links) {
+      if (hits.length >= limit) return hits;
+      if (!scoreMatch(`${l.title} ${section}`, `${l.description ?? ""}`, query)) continue;
+      hits.push({
+        id: `gh-list:${repoFullName}:${l.url}`,
+        providerId: "github",
+        kind: "list-entry",
+        title: l.title || l.url,
+        url: l.url,
+        description: l.description ? truncate(l.description, 240) : undefined,
+        source: { label: `README of ${repoFullName}${section ? ` › ${section}` : ""}`, url: `https://github.com/${repoFullName}#readme` },
+        context: section ? [section] : [],
+        extra: { origin: "curated-list", list: repoFullName },
+      });
+    }
+  }
+  return hits;
+}
+
+export interface GithubSearchOptions {
+  query: string;
+  limit?: number;
+  /** Curated lists to mine after the repository search (bounded, incremental). */
+  maxLists?: number;
+  signal?: AbortSignal;
+  onProgress?: (done: number, total: number, label: string) => void;
+}
+
+/** Search: repositories by the provider's own index, then entries inside the
+ *  most relevant curated lists. Each hit says which list it came from. */
+export async function githubSearch(o: GithubSearchOptions, ctx: ProviderContext): Promise<SearchOutcome> {
+  const started = Date.now();
+  const limit = Math.max(1, Math.min(50, o.limit ?? 20));
   const notes: string[] = [];
-  const appliedFilters: string[] = [];
+  const { items, total } = await searchRepos(o.query, ctx, 10);
+  const repoHits: ProviderHit[] = items.map((r) => ({
+    id: `gh-repo:${r.fullName}`,
+    providerId: "github",
+    kind: "repo",
+    title: r.fullName,
+    url: r.url,
+    description: r.description ? truncate(r.description, 260) : undefined,
+    date: r.pushedAt ? r.pushedAt.slice(0, 10) : undefined,
+    source: { label: "GitHub repository search", url: `https://github.com/search?q=${encodeURIComponent(o.query)}&type=repositories` },
+    extra: {
+      stars: r.stars,
+      ...(r.language ? { language: r.language } : {}),
+      ...(r.archived ? { archived: true } : {}),
+    },
+  }));
+  notes.push(`${total.toLocaleString()} repositories match "${o.query}" (GitHub's own total).`);
 
-  // A pasted URL is not a search: hand it to inspect (the caller does that) but
-  // still answer with the repository so the lane never returns nothing.
-  const ref = parseGithubUrl(query);
-  if (ref) {
-    const repo = await getRepo(ref.owner, ref.repo, ctx);
-    hits.push(repoHit(repo, providerId));
-    const links = await readList(
-      { full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stars: repo.stars, default_branch: repo.default_branch },
-      ctx
-    );
-    for (const l of links.slice(0, limit)) {
-      hits.push(listEntryHit(l, repo, providerId, links));
-    }
-    notes.push(`Inspected ${repo.full_name} directly (URL input, not a search).`);
-    return {
-      hits,
-      hasMore: links.length > limit,
-      appliedFilters,
-      ignoredFilters: [],
-      notes,
-      tookMs: Date.now() - started,
-    };
-  }
-
-  const repoLimit = Math.max(5, Math.min(15, Math.floor(limit / 2)));
-  const { items, total } = await searchRepos(query, ctx, repoLimit);
-  appliedFilters.push("sort=stars", "repoSearch");
-  const listCandidates = await candidateLists(query, ctx, 12, maxLists);
-
-  const seenRepos = new Set<string>();
-  for (const it of [...listCandidates, ...items]) {
-    const key = it.full_name.toLowerCase();
-    if (seenRepos.has(key) || seenRepos.size >= maxLists + repoLimit) continue;
-    seenRepos.add(key);
-    const repo: GithubRepo = {
-      full_name: it.full_name,
-      name: it.full_name.split("/")[1] || it.full_name,
-      owner: it.full_name.split("/")[0] || "",
-      description: it.description,
-      html_url: it.html_url,
-      default_branch: it.default_branch || "main",
-      stars: it.stars,
-      topics: it.topics,
-      license: it.license ? { spdx_id: it.license.spdx_id ?? null, name: null, url: null } : null,
-      pushed_at: it.pushed_at ?? null,
-    };
-    hits.push(repoHit(repo, providerId));
-  }
-
-  // Mine the curated lists: incremental, cancellable, observable.
-  let mined = 0;
-  for (const cand of listCandidates) {
-    if (ctx.signal?.aborted) break;
-    if (hits.length >= limit) break;
-    mined += 1;
-    ctx.onProgress?.({ providerId, stage: "list", message: `Reading ${cand.full_name}`, done: mined, total: listCandidates.length });
-    let links: MarkdownLink[] = [];
+  // Mine the curated lists among the top results: that is where the actual
+  // resources live, and it is what the operator asked for.
+  const isListName = (r: GithubSearchItem) => /(^|[-_/])awesome([-_/]|$)|(^|[-_/])lists?($|[-_/])/i.test(r.fullName.split("/")[1] || "");
+  let listPool = items.filter(isListName);
+  if (!listPool.length && !/\bawesome\b/i.test(o.query)) {
+    // A curated list is often titled "awesome <topic>", so when the first page of
+    // results has none, ask the provider for that exact phrase ONCE. This is a
+    // real GitHub query, reported in the notes - never a guessed repository.
     try {
-      links = await readList(cand, ctx);
+      const extra = await searchRepos(`${o.query} awesome`, ctx, 5);
+      listPool = extra.items.filter(isListName);
+      notes.push(`No curated list in the first results; searched "${o.query} awesome" and found ${listPool.length}.`);
     } catch (e) {
-      if (e instanceof ProviderError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) {
-        notes.push(`${cand.full_name}: README unavailable (${e.code}).`);
-        continue;
-      }
-      throw e;
+      notes.push(`The follow-up list search failed (${(e as ProviderError).code}).`);
     }
-    const repo = {
-      full_name: cand.full_name,
-      name: cand.full_name.split("/")[1] || cand.full_name,
-      owner: cand.full_name.split("/")[0] || "",
-      description: cand.description,
-      html_url: cand.html_url,
-      default_branch: cand.default_branch || "main",
-      stars: cand.stars,
-      topics: cand.topics,
-      license: cand.license ? { spdx_id: cand.license.spdx_id ?? null, name: null, url: null } : null,
-      pushed_at: cand.pushed_at ?? null,
-    } as GithubRepo;
-    const matches = links
-      .filter((l) => matchesQuery(`${l.title} ${l.description ?? ""} ${l.section.join(" ")}`, query))
-      .map((l) => ({ link: l, score: scoreMatch(l.title, `${l.description ?? ""} ${l.section.join(" ")}`, query) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, Math.max(3, Math.floor(limit / 2)));
-    for (const { link } of matches) hits.push(listEntryHit(link, repo, providerId, links));
-    if (matches.length) notes.push(`${cand.full_name}: ${matches.length} of ${links.length} listed resources match.`);
   }
-  if (listCandidates.length) {
-    notes.push(`Mined ${mined} curated list README(s) of ${listCandidates.length} candidate(s).`);
+  const lists = listPool.slice(0, Math.max(0, Math.min(3, o.maxLists ?? 1)));
+  let mined = 0;
+  // Entries from curated lists are the resources the operator is looking for, so
+  // they get their own budget instead of competing with the repository list (a
+  // plain repository search alone would use the whole limit and mine nothing).
+  const entryBudget = Math.max(3, Math.floor(limit / 2));
+  const entryHits: ProviderHit[] = [];
+  for (const [i, list] of lists.entries()) {
+    if (ctx.signal?.aborted) break;
+    if (entryHits.length >= entryBudget) break;
+    o.onProgress?.(i + 1, lists.length, list.fullName);
+    const [owner, repo] = list.fullName.split("/");
+    try {
+      const repoInfo = await getRepo(owner, repo, ctx);
+      const readme = await getReadme(owner, repo, repoInfo.defaultBranch, ctx);
+      if (!readme) continue;
+      const found = listEntryHits(readme.text, readme.baseUrl, repoInfo.fullName, o.query, entryBudget - entryHits.length);
+      entryHits.push(...found);
+      mined += 1;
+      notes.push(`${repoInfo.fullName}: ${found.length} matching entr(ies) in its README.`);
+    } catch (e) {
+      notes.push(`${list.fullName}: list could not be read (${(e as ProviderError).code}).`);
+    }
   }
+  if (mined) notes.push(`Mined ${mined} curated list(s) incrementally; each entry names its list.`);
+  const merged = [...entryHits, ...repoHits].slice(0, limit);
 
   return {
-    hits,
+    hits: merged,
     totalReported: total,
-    hasMore: hits.length >= limit,
-    appliedFilters,
+    hasMore: total > items.length,
+    appliedFilters: ["sort"],
     ignoredFilters: [],
     notes,
     tookMs: Date.now() - started,
   };
 }
 
-export async function githubInspect(url: string, ctx: ProviderContext, providerId = "github"): Promise<InspectOutcome> {
+/** Inspect a repository, a README, or a curated list. */
+export async function githubInspect(url: string, ctx: ProviderContext): Promise<InspectOutcome> {
   const started = Date.now();
   const ref = parseGithubUrl(url);
-  if (!ref) {
-    throw new ProviderError("UNSUPPORTED", "That is not a GitHub repository, README or release URL.", { url, retryable: false });
+  if (!ref || !ref.owner || !ref.repo) {
+    throw new ProviderError("UNSUPPORTED", "That GitHub URL does not address a repository, README or list.", { url, retryable: false });
   }
   const repo = await getRepo(ref.owner, ref.repo, ctx);
-  const facts: InspectOutcome["facts"] = [
-    { label: "Repository", value: repo.full_name },
-    { label: "Default branch", value: repo.default_branch },
-    { label: "Stars", value: String(repo.stars) },
-  ];
-  if (repo.license?.spdx_id) facts.push({ label: "Licence", value: repo.license.spdx_id });
-  if (repo.pushed_at) facts.push({ label: "Last push", value: repo.pushed_at.slice(0, 10) });
-  if (repo.archived) facts.push({ label: "Archived", value: "yes" });
-  if (ref.resolvedFrom) facts.push({ label: "Resolved from", value: `${ref.resolvedFrom} → ${repo.html_url}` });
+  const [readme, releases] = await Promise.all([
+    getReadme(ref.owner, ref.repo, repo.defaultBranch, ctx),
+    listReleases(ref.owner, ref.repo, ctx),
+  ]);
+  const facts = repoFacts(repo);
+  const isList = ref.kind === "list" || /(^|[-_/])awesome([-_/]|$)/i.test(ref.repo) || (readme ? /curated list|awesome list/i.test(readme.text.slice(0, 4000)) : false);
+  const markdown = readme ? sectionsFromMarkdown(readme.text, readme.baseUrl, repo.fullName) : { sections: [], items: 0, categories: 0 };
 
-  const sections: InspectOutcome["sections"] = [];
-  let readme = null as Awaited<ReturnType<typeof getReadme>>;
-  try {
-    readme = await getReadme(ref.owner, ref.repo, ctx, ref.ref);
-  } catch (e) {
-    if (!(e instanceof ProviderError)) throw e;
-    facts.push({ label: "README", value: `unavailable (${e.code})` });
-  }
-  if (readme) {
-    facts.push({ label: "README", value: `${readme.path} · ${Math.round(readme.bytes / 1024)} KB` });
-    const parsed = parseMarkdownSections(readme.text, `${repo.html_url}/blob/${ref.ref || repo.default_branch}/`);
-    let total = 0;
-    for (const sec of parsed) {
-      const links = dedupeLinks(sec.links);
-      total += links.length;
-      if (!links.length) continue;
-      sections.push({
-        key: sec.title || "root",
-        label: sec.title || "Top of README",
-        items: links.slice(0, 200).map((l) => ({
-          title: l.title,
-          url: l.url,
-          description: l.description,
-          meta: truncate(l.section.join(" › "), 80) || undefined,
-        })),
-      });
-    }
-    facts.push({ label: "Listed resources", value: String(total) });
-    facts.push({ label: "Categories", value: String(sections.length) });
-  }
+  facts.push({
+    label: "Releases",
+    value:
+      releases.tags === null
+        ? "unavailable (GitHub did not answer this request)"
+        : releases.tags.length
+          ? `${releases.tags.length} recent (latest ${releases.latest || releases.tags[0].tag})`
+          : "none - this repository publishes no releases, which is normal for a curated list",
+    fromProvider: releases.tags !== null,
+  });
+  facts.push({ label: "Categories", value: String(markdown.categories), fromProvider: true });
+  facts.push({ label: "Listed resources", value: String(markdown.items), fromProvider: true });
+  if (readme) facts.push({ label: "README", value: `${readme.path} @ ${readme.ref}`, fromProvider: true });
+  if (ref.kind === "readme") facts.push({ label: "Requested view", value: "README (#readme)", fromProvider: false });
+  if (ref.resolvedFrom) facts.push({ label: "Resolved from", value: `${ref.resolvedFrom} → github.com/${repo.fullName}`, fromProvider: false });
 
-  // Releases are reported HONESTLY: a list repo has none, and that is not error.
-  try {
-    const rel = await listReleases(ref.owner, ref.repo, ctx);
-    facts.push({ label: "Releases", value: rel.count === 0 ? "none (valid empty)" : `${rel.count} recent` });
-    if (rel.latest) {
-      facts.push({ label: "Latest release", value: rel.latest.tag || "(untagged)" });
-      const assets = rel.latest.assets.filter((a) => a.name);
-      if (assets.length) {
-        sections.push({
-          key: "releases",
-          label: "Release assets",
-          items: assets.map((a) => ({ title: a.name, url: a.url, meta: `${Math.round(a.sizeBytes / 1024)} KB` })),
-        });
-      }
-    }
-  } catch (e) {
-    if (!(e instanceof ProviderError)) throw e;
-    facts.push({ label: "Releases", value: `unavailable (${e.code})` });
-  }
+  const warnings: string[] = [];
+  if (repo.archived) warnings.push("This repository is archived: its content is still readable, but it no longer changes.");
 
   return {
-    providerId,
-    kind: ref.kind === "readme" ? "readme" : ref.kind,
-    canonicalUrl: repo.html_url,
-    title: repo.full_name,
-    description: repo.description ?? undefined,
-    date: repo.pushed_at ?? undefined,
-    creator: repo.owner,
-    license: licenseFromRepo(repo),
-    sections,
+    providerId: "github",
+    kind: isList ? "list" : ref.kind === "readme" ? "readme" : "repo",
+    canonicalUrl: ref.kind === "readme" ? `${repo.htmlUrl}#readme` : repo.htmlUrl,
+    title: repo.fullName,
+    description: repo.description || (readme ? truncate(readme.text.replace(/[#*_>`]/g, " ").trim(), 240) : undefined),
+    sections: markdown.sections,
     facts,
-    addable: ref.kind !== "file" && ref.kind !== "raw",
-    notAddableReason: ref.kind === "file" || ref.kind === "raw" ? "A single file is not a searchable source; add the repository instead." : undefined,
+    addable: true,
     capabilities: GITHUB_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }

@@ -1,149 +1,118 @@
-// [SEARCH-REPAIR] Provider contract.
+// [SEARCH-REPAIR] Shared provider types.
 //
-// Every adapter declares what it can ACTUALLY do (capabilities), and every hit
-// carries its provenance (which list/page it came from, whether the date,
-// author, size or licence was supplied by the provider or is genuinely absent).
-// A provider that cannot search says so in `capabilities.search === "unsupported"`
-// with a reason, instead of shipping a source row that can never return rows.
-import type { ProviderContext } from "./core";
+// A provider is anything that can answer two questions truthfully:
+//   1. "what do you have for this query?"      -> SearchOutcome
+//   2. "what is this URL?"                     -> InspectOutcome
+// Every field below exists because the UI must not invent data: `date`,
+// `creator`, `fileSizeBytes` and `license` are optional and stay undefined when
+// the provider did not supply them (no plausible-looking filler).
 
 export type CapabilityLevel = "supported" | "partial" | "unsupported";
 
 export interface ProviderCapabilities {
-  /** Free-text search across the provider's own index/listing. */
+  /** Free-text query support. */
   search: CapabilityLevel;
-  /** Open ONE pasted URL and return useful structured information. */
-  inspect: CapabilityLevel;
-  /** Server-side media/content filters that actually change the request. */
-  filters: string[];
-  /** Real pagination (cursor or page number), not a bigger single request. */
   pagination: CapabilityLevel;
-  /** Item detail with file listings. */
-  itemDetails: CapabilityLevel;
-  /** A downloadable file URL supplied by the provider (not constructed). */
-  downloads: CapabilityLevel;
-  /** Preview thumbnail supplied by the provider. */
+  /** Structured filters that actually change the HTTP request. */
+  filters: string[];
+  /** Per-item detail beyond the list row. */
+  itemDetail: CapabilityLevel;
+  /** Direct file/download URLs supplied by the provider. */
+  files: CapabilityLevel;
+  /** Thumbnail/preview URL supplied by the provider. */
   preview: CapabilityLevel;
-  /** Attribution/licence supplied per item. */
-  attribution: CapabilityLevel;
-  /** Nested list discovery (a list that links to more lists). */
-  nestedLists?: CapabilityLevel;
-  /** Plain-English explanation shown in the UI, including the caveats we
-   *  verified against the live service. */
+  /** Machine-readable licence + attribution per item. */
+  license: CapabilityLevel;
   notes: string[];
 }
 
-export type HitKind =
-  | "editorial"
-  | "external-resource"
-  | "repository"
-  | "list-entry"
-  | "list-category"
-  | "item"
-  | "file"
-  | "media"
-  | "page";
-
 export interface ProviderHit {
-  /** Stable within the provider: the same page always yields the same key. */
+  /** Stable within one provider+query: the same item always yields the same id. */
   id: string;
   providerId: string;
-  kind: HitKind;
+  kind:
+    | "repo"
+    | "readme-section"
+    | "list-entry"
+    | "archive-item"
+    | "archive-file"
+    | "media"
+    | "article"
+    | "editorial"
+    | "external-resource"
+    | "wiki-page"
+    | "link"
+    | "page";
   title: string;
-  description?: string;
-  creator?: string;
-  /** ISO-8601 date or 4-digit year, ONLY when the provider supplied it. */
-  date?: string;
-  /** Landing page for the hit. */
   url: string;
-  /** A file the provider says exists. Never constructed from a guess. */
+  description?: string;
+  /** Only when the provider stated it. */
+  creator?: string;
+  /** Only when the provider stated it (ISO date or year). */
+  date?: string;
+  /** Only when the provider gave a direct file URL. */
   fileUrl?: string;
-  fileSizeBytes?: number;
   previewUrl?: string;
-  license?: { tag: string; name?: string; url?: string; attribution?: string };
-  /** Attribution line: "GitHub README of mfkl/awesome-vlc". */
-  source: { label: string; url?: string };
-  /** Where inside the provider this hit lives (category path, file list). */
+  fileSizeBytes?: number;
+  license?: { name: string; url?: string; attribution?: string };
+  /** Human-readable provenance, e.g. "README of sindresorhus/awesome › Audio". */
+  source?: { label: string; url?: string };
+  /** Category / section trail inside the source. */
   context?: string[];
-  /** Small factual extras rendered in the detail panel. Never invented: a key
-   *  is present only when the provider supplied the value. */
-  extra?: Record<string, string | number | boolean>;
-  provenance: "live";
-}
-
-export interface SearchRequest {
-  query: string;
-  limit?: number;
-  page?: number;
-  /** Provider-specific filters; each provider reports which it honours. */
-  filters?: Record<string, string | string[] | number | boolean | undefined>;
-  signal?: AbortSignal;
+  extra?: Record<string, string | number | boolean | undefined>;
 }
 
 export interface SearchOutcome {
   hits: ProviderHit[];
-  /** Honest count: the provider's total when it reports one, else undefined. */
+  /** The provider's own total when it reports one. */
   totalReported?: number;
   hasMore: boolean;
   nextPage?: number;
-  /** Which filters actually changed the upstream request. */
+  /** Filters that were really applied to the request. */
   appliedFilters: string[];
-  /** What the provider did NOT support for this request. */
+  /** Filters the provider cannot honour (never silently dropped). */
   ignoredFilters: string[];
-  /** Human-readable note about where the data came from (cache, feed, list). */
   notes: string[];
   tookMs: number;
 }
 
+export interface SectionItem {
+  title: string;
+  url: string;
+  note?: string;
+  /** e.g. "starred" for FMHY ⭐ resources. */
+  badge?: string;
+}
+
+export interface InspectSection {
+  key: string;
+  label: string;
+  items: SectionItem[];
+  /** Anchor on the page, e.g. "fmhy.net/misc#-food". */
+  anchor?: string;
+}
+
+export interface InspectFact {
+  label: string;
+  value: string;
+  /** true when the value came from the provider, false when computed locally. */
+  fromProvider?: boolean;
+}
+
 export interface InspectOutcome {
   providerId: string;
-  /** What the URL turned out to be. */
+  /** What the URL turned out to be, e.g. "repo" | "readme" | "archive-item". */
   kind: string;
   canonicalUrl: string;
   title: string;
   description?: string;
-  date?: string;
-  creator?: string;
-  license?: { tag: string; name?: string; url?: string; attribution?: string };
-  /** Structured rows: README categories, archive files, editorial resources. */
-  sections: { key: string; label: string; items: { title: string; url: string; description?: string; meta?: string }[] }[];
-  facts: { label: string; value: string }[];
-  /** True when this URL can be stored as a source and searched later. */
+  sections: InspectSection[];
+  facts: InspectFact[];
+  /** true only when this URL can be searched afterwards. */
   addable: boolean;
-  /** Why not, when `addable` is false. */
   notAddableReason?: string;
-  capabilities: ProviderCapabilities;
+  capabilities?: ProviderCapabilities;
+  /** Whether data came from the live provider in this call. */
+  provenance?: "live" | "cached";
   tookMs: number;
-}
-
-export interface ProviderDefinition {
-  id: string;
-  /** i18n key for the display name. */
-  nameKey: string;
-  label: string;
-  homepage: string;
-  /** Hosts this provider reads (mirrored by the relay allowlist). */
-  hosts: string[];
-  defaultEnabled: boolean;
-  capabilities: ProviderCapabilities;
-  /** URL shapes this provider owns, e.g. /github\.com\/[^/]+\/[^/]+/. */
-  urlPatterns: RegExp[];
-  /** True when a pasted URL should be resolved to a canonical form first. */
-  search?: (req: SearchRequest, ctx: ProviderContext) => Promise<SearchOutcome>;
-  inspect?: (url: string, ctx: ProviderContext) => Promise<InspectOutcome>;
-}
-
-export function emptyOutcome(started: number, notes: string[] = []): SearchOutcome {
-  return {
-    hits: [],
-    hasMore: false,
-    appliedFilters: [],
-    ignoredFilters: [],
-    notes,
-    tookMs: Date.now() - started,
-  };
-}
-
-export function hitId(providerId: string, url: string): string {
-  return `${providerId}:${url}`;
 }

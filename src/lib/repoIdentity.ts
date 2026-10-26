@@ -86,6 +86,9 @@ export const DOC_LINKS = {
   readme: "README.md",
   nextRunGuide: "NEXT-RUN-GUIDE-si.md",
   missionControl: "docs/mission-control/GHRDP-DELIVERY-TRACKER.md",
+  // [SEARCH-REPAIR] the durable report for the search/source work, so every
+  // "how it works" link points at a file that exists in THIS repository.
+  searchRepair: "docs/reports/search-repair/README.md",
 } as const;
 
 export type DocLinkKey = keyof typeof DOC_LINKS;

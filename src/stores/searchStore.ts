@@ -43,6 +43,12 @@ import { scoreResult } from "@/lib/search/relevance";
 import { classifyIntent, rankAdaptersByIntent } from "@/lib/search/intent";
 // [F81 §5.0/Q14=C] Search history → localStorage cache
 import { useSearchHistoryStore } from "@/stores/searchHistoryStore";
+// [SEARCH-REPAIR] the client-side provider lane (see src/lib/providers/*)
+import { isProviderLaneEnabled, startProviderLane, summariseOutcomes } from "@/lib/search/providerLane";
+import { buildProviderContext } from "@/lib/providers/appContext";
+import { enabledSourceSpecs } from "@/stores/sourcesStore";
+import type { ProviderHit, SourceSpec, SourceStatusValue } from "@/lib/providers";
+import { useUrlImportStore } from "@/stores/urlImportStore";
 
 export function classifyQuery(raw: string): InputKind {
   const q = raw.trim();
@@ -59,6 +65,26 @@ export function classifyQuery(raw: string): InputKind {
   }
   if (/^[a-z][a-z0-9+.-]*:/i.test(q)) return "unsupported-url";
   return "text";
+}
+
+/**
+ * [SEARCH-REPAIR] Per-source state for the client provider lane. Deliberately
+ * separate from `adapters` (the server's adapter rows): a source that ran here
+ * has its own notes/filters/progress, and the UI must be able to say "GitHub
+ * finished, Openverse is rate limited, Open Culture failed" instead of one
+ * aggregate phase.
+ */
+export interface ProviderSourceState {
+  sourceId: string;
+  label: string;
+  status: SourceStatusValue;
+  resultCount: number;
+  notes: string[];
+  appliedFilters: string[];
+  ignoredFilters: string[];
+  progress?: string;
+  tookMs?: number;
+  error?: { code: string; message: string; retryAfterSeconds?: number };
 }
 
 export interface FetchRecord {
@@ -104,6 +130,14 @@ export interface SearchState {
   cancelling: boolean;
   lastStatusAt: string;
   lastErrorCode: string;
+  // [SEARCH-REPAIR] client provider lane
+  providerStates: Record<string, ProviderSourceState>;
+  providerLaneRunning: boolean;
+  providerLaneTookMs: number;
+  providerLaneGeneration: number;
+  /** Raw provider hits, kept for the detail panel (files, licence, attribution,
+   *  category path). Keyed by resultId so the grid can look one up. */
+  providerHits: Record<string, ProviderHit>;
   // Result state (normalized by stable resultId)
   results: Record<string, SearchResult>;
   resultOrder: string[];
@@ -150,11 +184,32 @@ export interface SearchState {
    *  resultId). Used by the DEV fixture stream; F56-d's live partials take
    *  the same path through pollOnce, which always wins (see Search.tsx). */
   ingestResults: (rows: SearchResult[]) => void;
+  // [SEARCH-REPAIR] provider lane actions (all generation-guarded)
+  seedProviderLane: (sources: SourceSpec[], generation: number) => void;
+  applyProviderEvent: (generation: number, ev: import("@/lib/providers").LaneEvent) => void;
+  ingestProviderHits: (generation: number, sourceId: string, rows: SearchResult[], hits: ProviderHit[]) => void;
+  finishProviderLane: (generation: number, tookMs: number) => void;
+  retryProviderSource: (sourceId: string) => Promise<void>;
   // [F72 §2.2] Extended filter actions
   toggleFileExtension: (ext: string) => void;
   setYearRange: (from: number | null, to: number | null) => void;
   setLanguage: (lang: string) => void;
   toggleGroupBySource: () => void;
+}
+
+/**
+ * [SEARCH-REPAIR] The AbortController of the CURRENT lane run. Module-level on
+ * purpose: it must survive re-renders, and a new submit must abort the previous
+ * run before it starts (otherwise a slow older source could append rows to a
+ * newer query - the exact "stale results" defect).
+ */
+let laneAbort: AbortController | null = null;
+
+export function abortProviderLane(): void {
+  if (laneAbort) {
+    laneAbort.abort();
+    laneAbort = null;
+  }
 }
 
 export const useSearchStore = create<SearchState>((set, get) => ({
@@ -180,6 +235,11 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   cancelling: false,
   lastStatusAt: "",
   lastErrorCode: "",
+  providerStates: {},
+  providerLaneRunning: false,
+  providerLaneTookMs: 0,
+  providerLaneGeneration: 0,
+  providerHits: {},
   results: {},
   resultOrder: [],
   selectedIds: [],
@@ -237,9 +297,43 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       set({ phase: "idle", lastErrorCode: "search.errors.queryTooShort" });
       return;
     }
+    // [SEARCH-REPAIR] A PASTED URL is not a query. It is inspected, previewed
+    // and (when appropriate) offered as a source - the old code shipped it to
+    // /api/search, which rejects URLs by design, and the operator saw a generic
+    // failure. No credential is ever requested for a public URL.
+    if (inputKind === "https-url") {
+      const generation = st.queryGeneration + 1;
+      abortProviderLane();
+      set({
+        inputKind,
+        normalizedQuery: trimmed,
+        lastSubmittedQuery: trimmed,
+        queryGeneration: generation,
+        phase: "idle",
+        searchId: "",
+        adapters: {},
+        providerStates: {},
+        providerLaneRunning: false,
+        providerHits: {},
+        results: {},
+        resultOrder: [],
+        selectedIds: [],
+        activeResultId: "",
+        activeRowIndex: -1,
+        cursor: "",
+        hasMore: false,
+        cancelling: false,
+        lastErrorCode: "",
+      });
+      void useUrlImportStore.getState().inspect(trimmed, generation);
+      return;
+    }
+
     const generation = st.queryGeneration + 1;
     const requestId = newRequestId();
     const query = trimmed;
+    // A text query clears any previous URL import preview.
+    useUrlImportStore.getState().reset();
     set({
       inputKind,
       normalizedQuery: query,
@@ -258,7 +352,56 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       hasMore: false,
       cancelling: false,
       lastErrorCode: "",
+      providerStates: {},
+      providerLaneRunning: false,
+      providerLaneTookMs: 0,
+      providerHits: {},
     });
+    // [SEARCH-REPAIR] Start the client provider lane FIRST, in parallel with the
+    // server lane, and keep them independent: a server-side failure must not
+    // remove what the providers already delivered.
+    const specs = isProviderLaneEnabled() ? enabledSourceSpecs() : [];
+    if (specs.length) {
+      abortProviderLane();
+      const controller = new AbortController();
+      laneAbort = controller;
+      const seeded: Record<string, ProviderSourceState> = {};
+      for (const spec of specs) {
+        seeded[spec.id] = {
+          sourceId: spec.id,
+          label: spec.label,
+          status: "queued",
+          resultCount: 0,
+          notes: [],
+          appliedFilters: [],
+          ignoredFilters: [],
+        };
+      }
+      set({ providerStates: seeded, providerLaneRunning: true, providerLaneGeneration: generation });
+      void startProviderLane({
+        query,
+        sources: specs,
+        signal: controller.signal,
+        ctx: buildProviderContext({ signal: controller.signal }),
+        callbacks: {
+          onEvent: (ev) => get().applyProviderEvent(generation, ev),
+          onHits: (sourceId, rows, hits) => get().ingestProviderHits(generation, sourceId, rows, hits),
+        },
+      })
+        .then((outcomes) => {
+          if (get().queryGeneration !== generation) return;
+          const sum = summariseOutcomes(outcomes);
+          const cur = get();
+          // Only the provider lane answered: that is a PARTIAL search, and the
+          // phase must say so rather than pretending nothing came back.
+          if ((cur.phase === "failed" || cur.phase === "queued") && sum.ok > 0) {
+            set({ phase: "partial" });
+          }
+        })
+        .catch(() => {
+          if (get().queryGeneration === generation) set({ providerLaneRunning: false });
+        });
+    }
     // [F81 §5.0/Q14=C] Record this query for autocomplete + history.
     try { useSearchHistoryStore.getState().add(query); } catch { }
     // [F79] The backend is the source of truth for the automatic five-source
@@ -288,7 +431,12 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     });
     if (get().queryGeneration !== generation) return; // stale
     if (!res.ok) {
-      set({ phase: "failed", lastErrorCode: res.error.code });
+      // [SEARCH-REPAIR] The dashboard's own search route failing is NOT the
+      // end of the search: the provider lane may already have rows. Keep them.
+      // Only rows that actually exist count: a lane still in flight is not
+      // evidence that this search succeeded.
+      const hasProviderRows = get().resultOrder.length > 0;
+      set({ phase: hasProviderRows ? "partial" : "failed", lastErrorCode: res.error.code });
       return;
     }
     const adapters: Record<string, AdapterState> = {};
@@ -309,7 +457,10 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const res = await getSearchStatus(st.searchId, st.cursor || undefined);
     if (get().queryGeneration !== generation) return; // stale
     if (!res.ok) {
-      set({ phase: "failed", lastErrorCode: res.error.code });
+      // [SEARCH-REPAIR] The dashboard's own search route failing is NOT the
+      // end of the search: the provider lane may already have rows. Keep them.
+      const hasProviderRows = get().resultOrder.length > 0;
+      set({ phase: hasProviderRows ? "partial" : "failed", lastErrorCode: res.error.code });
       return;
     }
     const d = res.data;
@@ -334,7 +485,20 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   cancelSearch: async () => {
     const st = get();
-    if (!st.searchId || st.cancelling) return;
+    // [SEARCH-REPAIR] Cancel BOTH lanes. A cancelled request is reported as
+    // cancelled - never as an error, and never as a permanent spinner.
+    abortProviderLane();
+    const states = { ...get().providerStates };
+    for (const id of Object.keys(states)) {
+      if (states[id].status === "queued" || states[id].status === "running") {
+        states[id] = { ...states[id], status: "cancelled" };
+      }
+    }
+    set({ providerStates: states, providerLaneRunning: false });
+    if (!st.searchId || st.cancelling) {
+      if (st.providerLaneRunning) set({ phase: "cancelled" });
+      return;
+    }
     set({ cancelling: true });
     const res = await apiCancelSearch({
       requestId: newRequestId(),
@@ -387,6 +551,120 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       results[r.resultId] = r;
     }
     set({ results, resultOrder });
+  },
+
+  // [SEARCH-REPAIR] ------------------------------------------------------
+  // Provider lane actions. EVERY one of them is generation-guarded: an event
+  // that belongs to a superseded query is dropped instead of overwriting the
+  // newer search's state.
+  seedProviderLane: (sources, generation) => {
+    if (get().queryGeneration !== generation) return;
+    const seeded: Record<string, ProviderSourceState> = {};
+    for (const spec of sources) {
+      seeded[spec.id] = { sourceId: spec.id, label: spec.label, status: "queued", resultCount: 0, notes: [], appliedFilters: [], ignoredFilters: [] };
+    }
+    set({ providerStates: seeded, providerLaneRunning: sources.length > 0, providerLaneGeneration: generation });
+  },
+
+  applyProviderEvent: (generation, ev) => {
+    if (get().queryGeneration !== generation) return;
+    const states = { ...get().providerStates };
+    if (ev.type === "source-start") {
+      states[ev.sourceId] = {
+        ...(states[ev.sourceId] || {
+          sourceId: ev.sourceId,
+          label: ev.label,
+          status: "queued" as SourceStatusValue,
+          resultCount: 0,
+          notes: [],
+          appliedFilters: [],
+          ignoredFilters: [],
+        }),
+        status: "running",
+        progress: undefined,
+      };
+      set({ providerStates: states });
+      return;
+    }
+    if (ev.type === "source-progress") {
+      const cur = states[ev.sourceId];
+      if (!cur) return;
+      states[ev.sourceId] = { ...cur, progress: ev.message + (ev.total ? ` (${ev.done ?? 0}/${ev.total})` : "") };
+      set({ providerStates: states });
+      return;
+    }
+    if (ev.type === "source-done") {
+      const o = ev.outcome;
+      states[o.sourceId] = {
+        sourceId: o.sourceId,
+        label: o.label,
+        status: o.status,
+        resultCount: o.hits.length,
+        notes: o.notes,
+        appliedFilters: o.appliedFilters,
+        ignoredFilters: o.ignoredFilters,
+        tookMs: o.tookMs,
+        error: o.error,
+      };
+      set({ providerStates: states });
+      return;
+    }
+    if (ev.type === "lane-done") {
+      set({ providerLaneRunning: false, providerLaneTookMs: ev.tookMs });
+    }
+  },
+
+  ingestProviderHits: (generation, _sourceId, rows, hits) => {
+    if (get().queryGeneration !== generation || !rows.length) return;
+    const results = { ...get().results };
+    const resultOrder = [...get().resultOrder];
+    const providerHits = { ...get().providerHits };
+    const knownUrls = new Set(Object.values(results).map((r) => r.sourceUrl));
+    let added = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      // Cross-provider duplicate guard: the same item found twice (e.g. an
+      // archive item through both the client lane and the server lane) is shown
+      // once, and the FIRST provider to report it keeps attribution.
+      if (results[row.resultId] || knownUrls.has(row.sourceUrl)) continue;
+      results[row.resultId] = row;
+      resultOrder.push(row.resultId);
+      providerHits[row.resultId] = hits[i];
+      knownUrls.add(row.sourceUrl);
+      added += 1;
+    }
+    if (!added) return;
+    // Rows from a provider are a REAL answer: a search that the server lane
+    // failed is "partial" from that moment, not "failed".
+    const phase = get().phase === "failed" ? "partial" : get().phase;
+    set({ results, resultOrder, providerHits, phase });
+  },
+
+  finishProviderLane: (generation, tookMs) => {
+    if (get().queryGeneration !== generation) return;
+    set({ providerLaneRunning: false, providerLaneTookMs: tookMs });
+  },
+
+  retryProviderSource: async (sourceId) => {
+    const st = get();
+    const spec = enabledSourceSpecs().find((s) => s.id === sourceId);
+    if (!spec || !st.lastSubmittedQuery) return;
+    const generation = st.queryGeneration;
+    const controller = new AbortController();
+    const states = { ...get().providerStates };
+    states[sourceId] = { ...(states[sourceId] || { sourceId, label: spec.label, resultCount: 0, notes: [], appliedFilters: [], ignoredFilters: [] }), status: "running", error: undefined, progress: undefined };
+    set({ providerStates: states, providerLaneRunning: true });
+    await startProviderLane({
+      query: st.lastSubmittedQuery,
+      sources: [spec],
+      signal: controller.signal,
+      ctx: buildProviderContext({ signal: controller.signal }),
+      callbacks: {
+        onEvent: (ev) => get().applyProviderEvent(generation, ev),
+        onHits: (sid, rows, hits) => get().ingestProviderHits(generation, sid, rows, hits),
+      },
+    });
+    if (get().queryGeneration === generation) set({ providerLaneRunning: false });
   },
 
   // [F72 §2.2] Extended filter actions

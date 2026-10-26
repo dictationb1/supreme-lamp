@@ -1,38 +1,55 @@
 // [SEARCH-REPAIR] Internet Archive provider.
 //
-// Uses ONLY the interfaces the archive documents and actually serves:
-//   GET /advancedsearch.php   metadata search  (CORS: *)
-//   GET /metadata/{id}        item metadata + file list (CORS: *)
-//   GET /download/{id}/{f}    file bytes (NO CORS -> relay or link-out)
-// Verified live 2026-10-26: advancedsearch + metadata answer with
-// `access-control-allow-origin: *`; the /download host does not, so a file is
-// offered as a link (and through the relay when the operator enables it) rather
-// than silently failing in the browser.
-import { ProviderError, getJson, qs, type ProviderContext } from "./core";
-import { detectChallenge, extractAnchors, extractMeta, matchesQuery, scoreMatch, stripHtml, truncate } from "./text";
+// Interfaces used (all CORS `*`, verified live - see
+// docs/reports/search-repair/evidence/live-probe.json):
+//   * https://archive.org/advancedsearch.php?q=...&fl[]=...&rows=&page=&output=json
+//     - real query language (mediatype:, collection:, year ranges), real
+//       numFound total, real page/rows pagination, real sort.
+//   * https://archive.org/metadata/<identifier>
+//     - item metadata PLUS the authoritative file list (name, size, format,
+//       md5), so a file listing is never guessed from a URL pattern.
+// The scrape endpoint is NOT used: its parameter set differs (cursor/count) and
+// the advancedsearch API already answers everything this app needs.
+import { ProviderError, getJson, type ProviderContext } from "./core";
+import { stripHtml, truncate } from "./text";
 import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome } from "./types";
 
 const SEARCH = "https://archive.org/advancedsearch.php";
-const METADATA = "https://archive.org/metadata";
+const META = "https://archive.org/metadata";
 
 export const MEDIATYPES = ["texts", "audio", "movies", "software", "image", "etree", "web", "data", "collection"] as const;
+export type ArchiveMediatype = (typeof MEDIATYPES)[number];
 
 export const ARCHIVE_CAPABILITIES: ProviderCapabilities = {
   search: "supported",
-  inspect: "supported",
-  filters: ["mediatype", "collection", "language", "year", "sort", "rows"],
   pagination: "supported",
-  itemDetails: "supported",
-  downloads: "supported",
+  filters: ["mediatype", "collection", "language", "year", "sort"],
+  itemDetail: "supported",
+  files: "supported",
   preview: "supported",
-  attribution: "supported",
+  license: "partial",
   notes: [
-    "Search runs on /advancedsearch.php and returns the archive's own fields only (title, creator, year, mediatype, downloads, licence).",
-    "Item details come from /metadata/{id}, which also supplies the real file list and sizes.",
-    "Files are downloadable from /download/{id}/{name}; that host sends no CORS header, so files are offered as links (or via the server relay when enabled).",
-    "Preview thumbnails come from /services/img/{id}.",
+    "Queries run against archive.org's own advancedsearch index, so the total, the page size and the sort order are the archive's, not a local guess.",
+    "Every item row comes with its identifier; the item's real file list (name, size, format) is read from its metadata document rather than constructed from a URL.",
+    "Download URLs are the archive's own /download/<identifier>/<file> paths, reported only for files the metadata document lists.",
+    "The download host does not allow browser reads, so 'open the file' is offered as a link; the metadata itself is read through the CORS-enabled endpoint.",
   ],
 };
+
+export type ArchiveSort = "relevance" | "date" | "downloads" | "title";
+
+export interface ArchiveSearchOptions {
+  query: string;
+  mediatype?: ArchiveMediatype;
+  collection?: string;
+  language?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  sort?: ArchiveSort;
+  page?: number;
+  rows?: number;
+  signal?: AbortSignal;
+}
 
 interface AdvancedSearchDoc {
   identifier?: string;
@@ -42,88 +59,66 @@ interface AdvancedSearchDoc {
   date?: string;
   mediatype?: string;
   downloads?: number;
-  item_size?: number;
   licenseurl?: string;
-  collection?: string | string[];
-  language?: string | string[];
   description?: string | string[];
+  collection?: string | string[];
+  item_size?: number;
+  language?: string | string[];
 }
 
-function firstOf(v: string | string[] | undefined): string | undefined {
-  if (Array.isArray(v)) return v.length ? String(v[0]) : undefined;
-  return v != null ? String(v) : undefined;
+function firstString(v: string | string[] | number | undefined): string | undefined {
+  if (Array.isArray(v)) return v.find((x) => typeof x === "string" && x.trim()) || undefined;
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  return s || undefined;
 }
 
-function detailsUrl(id: string): string {
-  return `https://archive.org/details/${encodeURIComponent(id)}`;
-}
-
-function downloadUrl(id: string, file?: string): string {
-  const base = `https://archive.org/download/${encodeURIComponent(id)}/`;
-  return file ? base + file.split("/").map(encodeURIComponent).join("/") : base;
-}
-
-function docToHit(doc: AdvancedSearchDoc, providerId: string): ProviderHit | null {
-  const id = String(doc.identifier ?? "").trim();
-  if (!id) return null;
-  const title = firstOf(doc.title) || id;
-  const creator = firstOf(doc.creator);
-  const year = doc.year != null ? String(doc.year) : doc.date ? String(doc.date).slice(0, 4) : undefined;
-  const licence = doc.licenseurl
-    ? {
-        tag: /creativecommons\.org\/(?:publicdomain|zero)/.test(doc.licenseurl) ? "public-domain" : "creative-commons",
-        url: doc.licenseurl,
-        name: doc.licenseurl.replace(/^https?:\/\//, ""),
-        attribution: `Internet Archive item ${id}`,
-      }
-    : undefined;
-  return {
-    id: `ia:${id}`,
-    providerId,
-    kind: "item",
-    title,
-    description: firstOf(doc.description) ? truncate(stripHtml(firstOf(doc.description) as string), 400) : undefined,
-    creator,
-    date: year,
-    url: detailsUrl(id),
-    previewUrl: `https://archive.org/services/img/${encodeURIComponent(id)}`,
-    fileSizeBytes: typeof doc.item_size === "number" ? doc.item_size : undefined,
-    license: licence,
-    source: { label: `Internet Archive${doc.mediatype ? ` (${doc.mediatype})` : ""}`, url: detailsUrl(id) },
-    extra: {
-      identifier: id,
-      ...(doc.mediatype ? { mediatype: doc.mediatype } : {}),
-      ...(typeof doc.downloads === "number" ? { downloads: doc.downloads } : {}),
-      ...(firstOf(doc.collection) ? { collection: firstOf(doc.collection) as string } : {}),
-    },
-    provenance: "live",
-  };
-}
-
-export interface ArchiveSearchOptions {
-  query: string;
-  mediatype?: string;
-  collection?: string;
-  language?: string;
-  yearFrom?: number;
-  yearTo?: number;
-  sort?: "relevance" | "date" | "downloads" | "title";
-  page?: number;
-  rows?: number;
-  signal?: AbortSignal;
-}
-
-function buildArchiveQuery(o: ArchiveSearchOptions): string {
-  const parts: string[] = [String(o.query || "").trim()];
+function buildQuery(o: ArchiveSearchOptions): string {
+  const parts: string[] = [];
+  const q = String(o.query || "").trim();
+  if (q) parts.push(q);
   if (o.mediatype) parts.push(`mediatype:${o.mediatype}`);
   if (o.collection) parts.push(`collection:${o.collection}`);
   if (o.language) parts.push(`language:${o.language}`);
-  if (o.yearFrom || o.yearTo) {
-    const from = o.yearFrom ?? 0;
-    const to = o.yearTo ?? 3000;
-    parts.push(`year:[${from} TO ${to}]`);
-  }
-  return parts.filter(Boolean).join(" AND ");
+  if (o.yearFrom || o.yearTo) parts.push(`year:[${o.yearFrom ?? 0} TO ${o.yearTo ?? 3000}]`);
+  return parts.join(" AND ") || "*:*";
+}
+
+const SORTS: Record<Exclude<ArchiveSort, "relevance">, string> = {
+  date: "date desc",
+  downloads: "downloads desc",
+  title: "titleSorter asc",
+};
+
+function docToHit(d: AdvancedSearchDoc, providerId: string): ProviderHit | null {
+  const identifier = firstString(d.identifier);
+  if (!identifier) return null;
+  const title = firstString(d.title) || identifier;
+  const creator = firstString(d.creator);
+  const year = firstString(d.year);
+  const date = firstString(d.date);
+  const description = firstString(d.description);
+  return {
+    id: `ia:${identifier}`,
+    providerId,
+    kind: "archive-item",
+    title,
+    url: `https://archive.org/details/${encodeURIComponent(identifier)}`,
+    description: description ? truncate(stripHtml(description), 260) : undefined,
+    // ONLY what the archive stated: many items genuinely have no creator/year.
+    ...(creator ? { creator } : {}),
+    ...(year || date ? { date: year || (date ? date.slice(0, 10) : undefined) } : {}),
+    ...(typeof d.item_size === "number" ? { fileSizeBytes: d.item_size } : {}),
+    ...(d.licenseurl ? { license: { name: firstString(d.licenseurl) as string, url: firstString(d.licenseurl) } } : {}),
+    previewUrl: `https://archive.org/services/img/${encodeURIComponent(identifier)}`,
+    source: { label: `Internet Archive${d.mediatype ? ` › ${firstString(d.mediatype)}` : ""}`, url: "https://archive.org" },
+    extra: {
+      identifier,
+      ...(d.mediatype ? { mediatype: firstString(d.mediatype) } : {}),
+      ...(typeof d.downloads === "number" ? { downloads: d.downloads } : {}),
+      ...(firstString(d.collection) ? { collection: firstString(d.collection) } : {}),
+    },
+  };
 }
 
 export async function archiveSearch(o: ArchiveSearchOptions, ctx: ProviderContext, providerId = "internet-archive"): Promise<SearchOutcome> {
@@ -132,25 +127,28 @@ export async function archiveSearch(o: ArchiveSearchOptions, ctx: ProviderContex
   const page = Math.max(1, o.page ?? 1);
   const fl = ["identifier", "title", "creator", "year", "date", "mediatype", "downloads", "item_size", "licenseurl", "collection", "description", "language"];
   const params = new URLSearchParams();
-  params.set("q", buildArchiveQuery(o));
+  params.set("q", buildQuery(o));
   for (const f of fl) params.append("fl[]", f);
   params.set("rows", String(rows));
   params.set("page", String(page));
   params.set("output", "json");
-  const sortMap: Record<string, string> = { date: "date desc", downloads: "downloads desc", title: "titleSorter asc" };
-  if (o.sort && sortMap[o.sort]) params.append("sort[]", sortMap[o.sort]);
-
-  const url = `${SEARCH}?${params.toString()}`;
-  const { data } = await getJson<{ response?: { numFound?: number; start?: number; docs?: AdvancedSearchDoc[] } }>(url, ctx);
-  const docs = data.response?.docs ?? [];
-  const hits = docs.map((d) => docToHit(d, providerId)).filter((h): h is ProviderHit => Boolean(h));
-  const found = Number(data.response?.numFound ?? hits.length);
-  const applied: string[] = ["rows", "page"];
+  const applied = ["rows", "page"];
   if (o.mediatype) applied.push("mediatype");
   if (o.collection) applied.push("collection");
   if (o.language) applied.push("language");
   if (o.yearFrom || o.yearTo) applied.push("year");
-  if (o.sort && sortMap[o.sort]) applied.push("sort");
+  if (o.sort && o.sort !== "relevance" && SORTS[o.sort]) {
+    params.append("sort[]", SORTS[o.sort]);
+    applied.push("sort");
+  }
+  const url = `${SEARCH}?${params.toString()}`;
+  const { data } = await getJson<{ response?: { numFound?: number; start?: number; docs?: AdvancedSearchDoc[] } }>(url, ctx);
+  if (!data || !data.response) {
+    throw new ProviderError("PARSE_ERROR", "archive.org answered, but not with a search response.", { url });
+  }
+  const docs = data.response.docs ?? [];
+  const hits = docs.map((d) => docToHit(d, providerId)).filter((h): h is ProviderHit => Boolean(h));
+  const found = Number(data.response.numFound ?? hits.length);
   return {
     hits,
     totalReported: found,
@@ -158,7 +156,7 @@ export async function archiveSearch(o: ArchiveSearchOptions, ctx: ProviderContex
     nextPage: page * rows < found ? page + 1 : undefined,
     appliedFilters: applied,
     ignoredFilters: [],
-    notes: [`advancedsearch.php: ${found.toLocaleString()} items for "${o.query}"${o.mediatype ? ` in ${o.mediatype}` : ""}.`],
+    notes: [`advancedsearch.php: ${found.toLocaleString()} item(s) for "${o.query || "*"}"${o.mediatype ? ` in ${o.mediatype}` : ""}.`],
     tookMs: Date.now() - started,
   };
 }
@@ -168,6 +166,7 @@ export interface ArchiveFile {
   format?: string;
   sizeBytes?: number;
   md5?: string;
+  /** The archive's own download URL for this file. */
   url: string;
 }
 
@@ -178,156 +177,123 @@ export interface ArchiveItem {
   creator?: string;
   date?: string;
   mediatype?: string;
-  license?: { tag: string; name?: string; url?: string; attribution?: string };
-  detailsUrl: string;
+  collection: string[];
+  language?: string;
+  license?: { name: string; url?: string };
   files: ArchiveFile[];
-  metadata: Record<string, string>;
+  detailsUrl: string;
 }
 
-interface MetadataResp {
-  metadata?: Record<string, unknown>;
-  files?: { name?: string; format?: string; size?: string | number; md5?: string; source?: string }[];
+interface ApiMetadata {
+  metadata?: {
+    identifier?: string;
+    title?: string;
+    description?: string | string[];
+    creator?: string | string[];
+    date?: string;
+    publicdate?: string;
+    mediatype?: string;
+    collection?: string | string[];
+    language?: string | string[];
+    licenseurl?: string;
+    year?: string;
+  };
+  files?: { name?: string; format?: string; size?: string; md5?: string }[];
   is_dark?: boolean;
-  message?: string;
 }
 
 export async function archiveItem(identifier: string, ctx: ProviderContext): Promise<ArchiveItem> {
   const id = String(identifier || "").trim();
-  if (!id) throw new ProviderError("UNSUPPORTED", "An Internet Archive identifier is required.", { retryable: false });
-  const { data } = await getJson<MetadataResp>(`${METADATA}/${encodeURIComponent(id)}`, ctx);
-  if (!data || data.is_dark) {
-    throw new ProviderError("NOT_FOUND", `The archive item "${id}" is dark (unavailable) or does not exist.`, { retryable: false });
+  if (!id) throw new ProviderError("UNSUPPORTED", "An archive.org identifier is required.", { retryable: false });
+  const url = `${META}/${encodeURIComponent(id)}`;
+  const { data } = await getJson<ApiMetadata>(url, ctx);
+  if (!data || (!data.metadata && !data.files)) {
+    throw new ProviderError("NOT_FOUND", `archive.org has no item called "${id}".`, { url, status: 404, retryable: false });
   }
-  const md = data.metadata ?? {};
-  const pick = (k: string): string | undefined => {
-    const v = md[k];
-    if (v == null) return undefined;
-    return Array.isArray(v) ? String(v[0]) : String(v);
-  };
-  const files: ArchiveFile[] = (data.files ?? [])
-    .filter((f) => f && f.name && f.name !== "__ia_thumb.jpg")
+  const m = data.metadata || {};
+  const files: ArchiveFile[] = (data.files || [])
+    .filter((f) => f.name)
     .map((f) => ({
       name: String(f.name),
-      format: f.format ? String(f.format) : undefined,
-      sizeBytes: f.size != null && Number.isFinite(Number(f.size)) ? Number(f.size) : undefined,
-      md5: f.md5 ? String(f.md5) : undefined,
-      url: downloadUrl(id, String(f.name)),
-    }));
-  const licUrl = pick("licenseurl");
+      format: f.format,
+      sizeBytes: f.size ? Number(f.size) : undefined,
+      md5: f.md5,
+      url: `https://archive.org/download/${encodeURIComponent(id)}/${String(f.name).split("/").map(encodeURIComponent).join("/")}`,
+    }))
+    .filter((f) => Number.isFinite(f.sizeBytes ?? 0) || f.format);
+  const licenseUrl = firstString(m.licenseurl);
   return {
-    identifier: id,
-    title: pick("title") || id,
-    description: pick("description") ? truncate(stripHtml(pick("description") as string), 1200) : undefined,
-    creator: pick("creator"),
-    date: pick("date") || pick("year") || pick("publicdate")?.slice(0, 10),
-    mediatype: pick("mediatype"),
-    license: licUrl
-      ? {
-          tag: /creativecommons\.org\/(?:publicdomain|zero)/.test(licUrl) ? "public-domain" : "creative-commons",
-          url: licUrl,
-          name: licUrl.replace(/^https?:\/\//, ""),
-          attribution: `Internet Archive item ${id}`,
-        }
-      : undefined,
-    detailsUrl: detailsUrl(id),
+    identifier: firstString(m.identifier) || id,
+    title: firstString(m.title) || id,
+    description: firstString(m.description) ? truncate(stripHtml(firstString(m.description) as string), 600) : undefined,
+    creator: firstString(m.creator),
+    date: firstString(m.date) || firstString(m.year) || (m.publicdate ? String(m.publicdate).slice(0, 10) : undefined),
+    mediatype: firstString(m.mediatype),
+    collection: (Array.isArray(m.collection) ? m.collection : m.collection ? [m.collection] : []).filter(Boolean) as string[],
+    language: firstString(m.language),
+    ...(licenseUrl ? { license: { name: licenseUrl.replace(/^https?:\/\/(www\.)?creativecommons\.org\//, "CC "), url: licenseUrl } } : {}),
     files,
-    metadata: Object.fromEntries(
-      Object.entries(md)
-        .filter(([, v]) => v != null && (typeof v === "string" || typeof v === "number"))
-        .slice(0, 40)
-        .map(([k, v]) => [k, String(v)] as [string, string])
-    ),
+    detailsUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
   };
 }
 
-/** Which Internet Archive URL shape is this? Item page, download directory,
- *  single file, or API. The distinction matters: only an item is addable as a
- *  source, and only a file is directly downloadable. */
-export function parseArchiveUrl(url: string): { kind: "details" | "download" | "file" | "metadata" | "thumb"; identifier: string; file?: string } | null {
+/** Parse the three archive.org URL shapes (details / download / file). */
+export function parseArchiveUrl(url: string): { kind: "details" | "download" | "file" | "metadata"; identifier: string; file?: string } | null {
   let u: URL;
   try {
-    u = new URL(url);
+    u = new URL(String(url || "").trim());
   } catch {
     return null;
   }
   const host = u.hostname.toLowerCase();
   if (!/(^|\.)archive\.org$/.test(host)) return null;
-  const segs = u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  if (host === "services-img" || host === "services") {
-    const idx = segs.indexOf("img");
-    if (idx >= 0 && segs[idx + 1]) return { kind: "thumb", identifier: segs[idx + 1] };
-    return null;
-  }
-  if (segs[0] === "details" && segs[1]) return { kind: "details", identifier: segs[1] };
-  if (segs[0] === "metadata" && segs[1]) return { kind: "metadata", identifier: segs[1] };
+  const segs = u.pathname.split("/").filter(Boolean);
+  if (segs[0] === "details" && segs[1]) return { kind: "details", identifier: decodeURIComponent(segs[1]) };
+  if (segs[0] === "metadata" && segs[1]) return { kind: "metadata", identifier: decodeURIComponent(segs[1]) };
   if (segs[0] === "download" && segs[1]) {
-    const rest = segs.slice(2).join("/");
-    return rest ? { kind: "file", identifier: segs[1], file: rest } : { kind: "download", identifier: segs[1] };
+    const file = segs.slice(2).map(decodeURIComponent).join("/");
+    return file ? { kind: "file", identifier: decodeURIComponent(segs[1]), file } : { kind: "download", identifier: decodeURIComponent(segs[1]) };
   }
+  if (segs[0] === "services" && segs[1] === "img" && segs[2]) return { kind: "details", identifier: decodeURIComponent(segs[2]) };
   return null;
 }
 
 export async function archiveInspect(url: string, ctx: ProviderContext, providerId = "internet-archive"): Promise<InspectOutcome> {
   const started = Date.now();
   const parsed = parseArchiveUrl(url);
-  if (!parsed) throw new ProviderError("UNSUPPORTED", "That is not an archive.org item or file URL.", { url, retryable: false });
+  if (!parsed) {
+    throw new ProviderError("UNSUPPORTED", "That archive.org URL is not an item, a download or a file.", { url, retryable: false });
+  }
   const item = await archiveItem(parsed.identifier, ctx);
+  const files = item.files.slice(0, 120).map((f) => ({
+    title: f.name,
+    url: f.url,
+    note: [f.format, f.sizeBytes ? `${Math.round(f.sizeBytes / 1024).toLocaleString()} KB` : undefined].filter(Boolean).join(" · ") || undefined,
+  }));
   const facts: InspectOutcome["facts"] = [
-    { label: "Identifier", value: item.identifier },
-    { label: "Media type", value: item.mediatype ?? "not reported" },
-    { label: "Files", value: String(item.files.length) },
+    { label: "Identifier", value: item.identifier, fromProvider: true },
+    { label: "Media type", value: item.mediatype || "not stated", fromProvider: Boolean(item.mediatype) },
+    { label: "Files", value: String(item.files.length), fromProvider: true },
+    ...(item.creator ? [{ label: "Creator", value: item.creator, fromProvider: true }] : []),
+    ...(item.date ? [{ label: "Date", value: item.date, fromProvider: true }] : []),
+    ...(item.language ? [{ label: "Language", value: item.language, fromProvider: true }] : []),
+    ...(item.license ? [{ label: "Licence", value: item.license.name, fromProvider: true }] : []),
+    ...(item.collection.length ? [{ label: "Collections", value: item.collection.join(", "), fromProvider: true }] : []),
   ];
-  if (item.creator) facts.push({ label: "Creator", value: item.creator });
-  if (item.date) facts.push({ label: "Date", value: item.date });
-  if (parsed.file) facts.push({ label: "Requested file", value: parsed.file });
-  const sections: InspectOutcome["sections"] = [
-    {
-      key: "files",
-      label: "Files available from this item",
-      items: item.files.slice(0, 300).map((f) => ({
-        title: f.name,
-        url: f.url,
-        description: f.format,
-        meta: f.sizeBytes != null ? `${(f.sizeBytes / 1024 / 1024).toFixed(1)} MB` : undefined,
-      })),
-    },
-  ];
-  const metaItems = Object.entries(item.metadata)
-    .filter(([k]) => !["identifier", "title", "description", "mediatype"].includes(k))
-    .slice(0, 40)
-    .map(([k, v]) => ({ title: k, url: item.detailsUrl, description: truncate(v, 240) }));
-  if (metaItems.length) sections.push({ key: "metadata", label: "Item metadata", items: metaItems });
+  if (parsed.kind === "file" || parsed.kind === "download") {
+    facts.unshift({ label: "Requested", value: parsed.file ? `file: ${parsed.file}` : "the item's download folder", fromProvider: false });
+  }
   return {
     providerId,
-    kind: parsed.kind === "file" ? "file" : "item",
+    kind: parsed.kind === "details" || parsed.kind === "metadata" ? "archive-item" : parsed.file ? "archive-file" : "archive-item",
     canonicalUrl: item.detailsUrl,
     title: item.title,
     description: item.description,
-    date: item.date,
-    creator: item.creator,
-    license: item.license,
-    sections,
+    sections: files.length ? [{ key: "files", label: `Files in this item (${item.files.length})`, items: files }] : [],
     facts,
-    addable: parsed.kind !== "file",
-    notAddableReason: parsed.kind === "file" ? "A single archived file is not a searchable source; add the item or the archive instead." : undefined,
+    addable: true,
     capabilities: ARCHIVE_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }
-
-/** Collection browsing helper: the archive's own listing of a collection's
- *  newest items (used by the item-detail screen and the custom-source preview). */
-export async function archiveCollectionFeed(collection: string, ctx: ProviderContext, rows = 20): Promise<ProviderHit[]> {
-  const out = await archiveSearch({ query: `collection:${collection}`, rows, sort: "date" }, ctx);
-  return out.hits;
-}
-
-/** Fallback used when a details page must be read as HTML (relay transport). */
-export async function archiveDetailsPageFacts(html: string): Promise<{ title?: string; description?: string }> {
-  if (detectChallenge(html).challenged) return {};
-  const meta = extractMeta(html);
-  const anchors = extractAnchors(html, "https://archive.org/");
-  return { title: meta.title || undefined, description: meta.description || anchors.length ? meta.description : meta.description };
-}
-
-export { matchesQuery, scoreMatch, qs };

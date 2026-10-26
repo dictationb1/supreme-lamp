@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { classifyUrl, inspectUrl } from "@/lib/providers";
 import { githubSearch, parseGithubUrl, searchRepos } from "@/lib/providers/github";
 
-const live = process.env.PROVIDERS_LIVE !== "0";
+const live = process.env.PROVIDERS_LIVE === "1";
 
 describe.skipIf(!live)("github provider (live api.github.com)", () => {
   it("A. a public repository URL needs no credential and inspects fully", async () => {
@@ -28,7 +28,7 @@ describe.skipIf(!live)("github provider (live api.github.com)", () => {
     expect(cls.providerId).toBe("github");
     expect(cls.subkind).toBe("readme");
     const out = await inspectUrl("https://github.com/mfkl/awesome-vlc#readme", {});
-    expect(out.kind === "readme" || out.kind === "repo").toBe(true);
+    expect(["readme", "repo", "list"]).toContain(out.kind);
     expect(out.sections.length).toBeGreaterThan(0);
   }, 60_000);
 

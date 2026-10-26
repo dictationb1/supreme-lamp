@@ -1,28 +1,27 @@
-// [SEARCH-REPAIR] Listing/curation providers: rentry.org, fmhy.net, and the
-// generic page/feed reader used for operator-added websites.
+// [SEARCH-REPAIR] Curated-list providers: fmhy.net, rentry.org, and any other
+// website the operator adds.
 //
-// What these sites really are (probed live 2026-10-26, evidence in
-// docs/reports/search-repair/evidence/live-probe.json):
-//   * rentry.org serves the SAME page as HTML and as RAW MARKDOWN at
-//     /<slug>/raw - the raw form is the correct machine-readable interface, and
-//     its links are how the megathread reaches its sub-pages. Its canonical host
-//     is rentry.co (the HTML <link rel=canonical> says so) while rentry.org keeps
-//     working, so both hosts are treated as the same source.
-//   * fmhy.net answers /sitemap.xml with a <urlset> of its top-level pages and
-//     answers /search?... with 404 - there is NO search endpoint. Searching it
-//     means reading its pages and matching locally, and this adapter says so
-//     instead of pretending there is a query API.
-//   * both send access-control-allow-origin: * - no relay needed.
-//
-// A "hit" here is a RESOURCE ON A CURATED PAGE (kind list-entry), with the page
-// and its heading as context, so the operator can always see where the
-// recommendation came from.
+// These sites have NO search API, and pretending otherwise is what produced the
+// old "enabled source that can never return results". Each one is instead read
+// through the interface it really exposes:
+//   * fmhy.net      - /sitemap.xml lists its pages; each page is a taxonomy with
+//                     headings, anchors (fmhy.net/misc#-food) and ⭐ resources.
+//                     A query is matched against the entries of the most relevant
+//                     pages, bounded to `maxPages` and cancellable.
+//   * rentry.org    - /<slug>/raw returns the page MARKDOWN, which is the clean
+//                     interface (the HTML is a rendered wrapper). The megathread
+//                     links its own sub-pages, so discovery follows those links
+//                     one level down, incrementally.
+//   * any website   - feed → sitemap → on-site search form → page links, in that
+//                     order, with the probe reporting which of them exist.
 import { ProviderError, getResource, type ProviderContext } from "./core";
 import {
   absolutize,
   decodeEntities,
   detectChallenge,
   extractAnchors,
+  extractFeedItems,
+  extractHeadingSections,
   extractMeta,
   extractSitemap,
   matchesQuery,
@@ -30,227 +29,74 @@ import {
   scoreMatch,
   stripHtml,
   truncate,
-  type Anchor,
 } from "./text";
 import type { InspectOutcome, ProviderCapabilities, ProviderHit, SearchOutcome } from "./types";
 
-export const RENTRY_CAPABILITIES: ProviderCapabilities = {
-  search: "supported",
-  inspect: "supported",
-  filters: ["depth", "pages"],
-  pagination: "partial",
-  itemDetails: "supported",
-  downloads: "unsupported",
-  preview: "unsupported",
-  attribution: "supported",
-  nestedLists: "supported",
-  notes: [
-    "rentry.org serves raw Markdown at /<slug>/raw; that is the interface this adapter reads, so headings and links are exact.",
-    "The megathread links its own sub-pages (megathread-anime, megathread-books, ...); those are followed one level deep, incrementally and cancellably.",
-    "The canonical host is rentry.co, but rentry.org keeps serving the same pages - both are accepted and neither is treated as a foreign host.",
-    "Curation is community text, not a search index: results are literal entries on the page, with their section as context.",
-  ],
-};
+// ------------------------------------------------------------------ fmhy ----
 
 export const FMHY_CAPABILITIES: ProviderCapabilities = {
   search: "partial",
-  inspect: "supported",
+  pagination: "unsupported",
   filters: ["pages"],
-  pagination: "partial",
-  itemDetails: "supported",
-  downloads: "unsupported",
+  itemDetail: "partial",
+  files: "unsupported",
   preview: "unsupported",
-  attribution: "supported",
-  nestedLists: "partial",
+  license: "unsupported",
   notes: [
-    "fmhy.net has NO search endpoint: /search?... answers 404 (verified live 2026-10-26).",
-    "Search reads the site map (/sitemap.xml), picks the pages whose slug matches the query, reads those pages, and matches their link text locally.",
-    "Only the pages the query actually touches are fetched, one at a time, and the number fetched is reported.",
-    "The wiki's own starred (community-vetted) marks are text, so they are preserved verbatim in the entry's label rather than re-ranked.",
+    "fmhy.net exposes no search endpoint (/search answers 404) and no API: it is a wiki of taxonomy pages.",
+    "Search therefore reads the pages its sitemap lists, picks the ones whose path matches the query, and matches the anchors inside them - reporting which page and which section each hit came from.",
+    "Every entry keeps its section anchor (e.g. fmhy.net/misc#-food), its ⭐ starred marker and any safety warning text that follows it.",
+    "Coverage is the pages read in this search (bounded and stated), not the whole wiki.",
   ],
 };
 
-const RENTRY_HOSTS = ["rentry.org", "rentry.co", "www.rentry.org", "www.rentry.co"];
+const SAFETY = /(⚠|unsafe|malware|virus|scam|caution|warning|don't use|do not use)/i;
 
-export function isRentryUrl(url: string): boolean {
-  try {
-    return RENTRY_HOSTS.includes(new URL(url).hostname.toLowerCase());
-  } catch {
-    return false;
+function fmhySectionLabel(heading: string): string {
+  return heading.replace(/^[\p{Emoji}\uFE0F\u200D\s]+/u, "").trim() || heading.trim();
+}
+
+export interface FmhyPage {
+  url: string;
+  title: string;
+  description?: string;
+  sections: { label: string; anchor?: string; items: { title: string; url: string; note?: string; starred: boolean; warning?: string }[] }[];
+  entries: number;
+}
+
+/** Parse one fmhy wiki page into anchored, badge-aware sections. */
+export function parseFmhyPage(html: string, baseUrl: string): FmhyPage {
+  const meta = extractMeta(html);
+  const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
+  const groups = extractHeadingSections(html, baseUrl);
+  const sections: FmhyPage["sections"] = [];
+  let entries = 0;
+  for (const g of groups) {
+    if (!g.anchors.length) continue;
+    const items = g.anchors.slice(0, 200).map((a) => {
+      // The text immediately AFTER a link in an fmhy list is its description and
+      // often carries the warning text; the ⭐ is inside the link label.
+      const starred = /⭐|star/i.test(a.title);
+      const title = a.title.replace(/⭐/g, "").trim();
+      const note = a.note ? truncate(a.note, 200) : undefined;
+      const warning = note && SAFETY.test(note) ? note : undefined;
+      return { title: title || a.url, url: a.url, note, starred, warning };
+    });
+    entries += items.length;
+    sections.push({
+      label: fmhySectionLabel(g.heading) || "Top of page",
+      anchor: g.id ? `${new URL(baseUrl).origin}${new URL(baseUrl).pathname}#${g.id}` : undefined,
+      items,
+    });
   }
-}
-
-export function rentrySlug(url: string): string {
-  try {
-    const segs = new URL(url).pathname.split("/").filter(Boolean);
-    return decodeURIComponent(segs[0] || "");
-  } catch {
-    return "";
-  }
-}
-
-function rawUrl(slug: string): string {
-  return `https://rentry.org/${encodeURIComponent(slug)}/raw`;
-}
-
-/** Heading-grouped anchors, so an HTML listing keeps its section context. */
-export function extractAnchorGroups(html: string, baseUrl: string): { heading: string; anchors: Anchor[] }[] {
-  const groups: { heading: string; anchors: Anchor[] }[] = [];
-  const parts = String(html || "").split(/<h[1-4][^>]*>/i);
-  // The first chunk is everything before the first heading.
-  const firstAnchors = extractAnchors(parts[0] || "", baseUrl);
-  if (firstAnchors.length) groups.push({ heading: "", anchors: firstAnchors });
-  for (let i = 1; i < parts.length; i += 1) {
-    const chunk = parts[i];
-    const close = chunk.search(/<\/h[1-4]>/i);
-    const heading = close >= 0 ? stripHtml(chunk.slice(0, close)) : "";
-    const rest = close >= 0 ? chunk.slice(close) : chunk;
-    const anchors = extractAnchors(rest, baseUrl);
-    if (anchors.length) groups.push({ heading: heading.replace(/^#+\s*/, "").trim(), anchors });
-  }
-  return groups;
-}
-
-export interface RentrySearchOptions {
-  query: string;
-  /** 0 = only this page, 1 = follow the page's own sub-page links once. */
-  depth?: number;
-  /** Hard cap on pages fetched, so a search can never crawl the whole site. */
-  maxPages?: number;
-  limit?: number;
-  signal?: AbortSignal;
-}
-
-function rentryEntryHit(
-  link: { title: string; url: string; description?: string; section: string[] },
-  page: string,
-  providerId: string
-): ProviderHit {
   return {
-    id: `rentry:${page}:${link.url}`,
-    providerId,
-    kind: "list-entry",
-    title: link.title,
-    description: link.description,
-    url: link.url,
-    source: { label: `rentry.org/${page}${link.section.length ? ` › ${link.section.join(" › ")}` : ""}`, url: `https://rentry.org/${page}` },
-    context: [page, ...link.section],
-    extra: { page, ...(link.section.length ? { section: link.section.join(" › ") } : {}) },
-    provenance: "live",
+    url: meta.canonical || baseUrl,
+    title: meta.ogTitle || meta.title || (h1 ? stripHtml(h1[1]) : "fmhy.net"),
+    description: meta.description,
+    sections,
+    entries,
   };
 }
-
-export async function rentrySearch(o: RentrySearchOptions, ctx: ProviderContext, seedUrl: string, providerId = "rentry"): Promise<SearchOutcome> {
-  const started = Date.now();
-  const query = String(o.query || "").trim();
-  const limit = o.limit ?? 20;
-  const depth = Math.max(0, Math.min(2, o.depth ?? 1));
-  const maxPages = Math.max(1, Math.min(8, o.maxPages ?? 4));
-  const seed = rentrySlug(seedUrl);
-  if (!seed) throw new ProviderError("UNSUPPORTED", "A rentry.org page URL is required (https://rentry.org/<slug>).", { url: seedUrl, retryable: false });
-
-  const hits: ProviderHit[] = [];
-  const notes: string[] = [];
-  const visited = new Set<string>();
-  const queue: { slug: string; level: number }[] = [{ slug: seed, level: 0 }];
-  let fetched = 0;
-
-  while (queue.length && fetched < maxPages) {
-    if (ctx.signal?.aborted) break;
-    const { slug, level } = queue.shift() as { slug: string; level: number };
-    if (visited.has(slug)) continue;
-    visited.add(slug);
-    fetched += 1;
-    ctx.onProgress?.({ providerId, stage: "page", message: `rentry.org/${slug}`, done: fetched, total: maxPages });
-    let text: string;
-    try {
-      const res = await getResource(rawUrl(slug), ctx, { accept: "text/plain" });
-      text = res.text;
-    } catch (e) {
-      if (slug === seed) throw e;
-      notes.push(`Sub-page ${slug} unavailable (${(e as ProviderError).code}).`);
-      continue;
-    }
-    const sections = parseMarkdownSections(text, `https://rentry.org/${slug}`);
-    let matchedHere = 0;
-    for (const sec of sections) {
-      for (const link of sec.links) {
-        if (hits.length >= limit) break;
-        if (!matchesQuery(`${link.title} ${link.description ?? ""} ${sec.title}`, query)) continue;
-        if (link.url.includes("/raw")) continue;
-        hits.push(rentryEntryHit(link, slug, providerId));
-        matchedHere += 1;
-      }
-      // Discover this page's own sub-pages (the megathread's "greatest treasures").
-      if (level < depth && fetched + queue.length < maxPages) {
-        for (const link of sec.links) {
-          if (!isRentryUrl(link.url) || /\/raw(\?|$)/.test(link.url)) continue;
-          const child = rentrySlug(link.url);
-          if (!child || visited.has(child) || queue.some((q) => q.slug === child)) continue;
-          if (/^megathread/.test(child) || child.startsWith(seed)) queue.push({ slug: child, level: level + 1 });
-        }
-      }
-    }
-    notes.push(`rentry.org/${slug}: ${matchedHere} matching entry(ies).`);
-  }
-  const totalLinks = [...visited].length;
-  return {
-    hits: hits.slice(0, limit),
-    hasMore: hits.length >= limit || queue.length > 0,
-    appliedFilters: ["depth", "pages"],
-    ignoredFilters: [],
-    notes: [
-      ...notes,
-      `Read ${totalLinks} page(s) (depth ${depth}, cap ${maxPages}). Curation pages are not a ranked index: matches are literal entries.`,
-    ],
-    tookMs: Date.now() - started,
-  };
-}
-
-export async function rentryInspect(url: string, ctx: ProviderContext, providerId = "rentry"): Promise<InspectOutcome> {
-  const started = Date.now();
-  const slug = rentrySlug(url);
-  if (!isRentryUrl(url) || !slug) throw new ProviderError("UNSUPPORTED", "That is not a rentry.org page URL.", { url, retryable: false });
-  const res = await getResource(rawUrl(slug), ctx, { accept: "text/plain" });
-  const text = res.text;
-  const firstHeading = /^\s{0,3}#\s+(.+)$/m.exec(text)?.[1]?.trim();
-  const sections = parseMarkdownSections(text, `https://rentry.org/${slug}`);
-  const linkedPages = new Set<string>();
-  let linkCount = 0;
-  const outSections = sections
-    .filter((s) => s.links.length)
-    .map((s) => ({
-      key: s.title || "root",
-      label: s.title || "Top of page",
-      items: s.links.slice(0, 200).map((l) => {
-        linkCount += 1;
-        if (isRentryUrl(l.url)) {
-          const child = rentrySlug(l.url);
-          if (child && child !== slug) linkedPages.add(child);
-        }
-        return { title: l.title, url: l.url, description: l.description };
-      }),
-    }));
-  return {
-    providerId,
-    kind: "curated-page",
-    canonicalUrl: `https://rentry.org/${slug}`,
-    title: firstHeading || `rentry.org/${slug}`,
-    description: `${linkedPages.size} linked sub-page(s), ${linkCount} entries.`,
-    sections: outSections,
-    facts: [
-      { label: "Page", value: `rentry.org/${slug}` },
-      { label: "Entries", value: String(linkCount) },
-      { label: "Sub-pages linked", value: [...linkedPages].slice(0, 12).join(", ") || "none" },
-      { label: "Read from", value: "raw Markdown (/raw)" },
-    ],
-    addable: true,
-    capabilities: RENTRY_CAPABILITIES,
-    tookMs: Date.now() - started,
-  };
-}
-
-// ------------------------------------------------------------------- FMHY --
 
 export function isFmhyUrl(url: string): boolean {
   try {
@@ -262,28 +108,27 @@ export function isFmhyUrl(url: string): boolean {
 
 export interface FmhySearchOptions {
   query: string;
-  /** Extra pages to read regardless of slug match (e.g. the source's own page). */
+  /** Extra pages to read regardless of path matching (e.g. the source's page). */
   pages?: string[];
   maxPages?: number;
   limit?: number;
   signal?: AbortSignal;
 }
 
-async function fmhySitemapPages(ctx: ProviderContext): Promise<string[]> {
+async function fmhyPages(ctx: ProviderContext): Promise<string[]> {
   const res = await getResource("https://fmhy.net/sitemap.xml", ctx, { accept: "application/xml, text/xml;q=0.9, */*" });
-  const sm = extractSitemap(res.text);
-  return sm.locs.map((l) => l.loc);
+  return extractSitemap(res.text).entries.map((e) => e.loc);
 }
 
 export async function fmhySearch(o: FmhySearchOptions, ctx: ProviderContext, seedUrl: string, providerId = "fmhy"): Promise<SearchOutcome> {
   const started = Date.now();
   const query = String(o.query || "").trim();
-  const limit = o.limit ?? 20;
+  const limit = Math.max(1, Math.min(50, o.limit ?? 20));
   const maxPages = Math.max(1, Math.min(4, o.maxPages ?? 2));
   const notes: string[] = [];
   const seedPath = (() => {
     try {
-      return new URL(seedUrl).pathname.replace(/^\/+/, "").replace(/\/$/, "") || "misc";
+      return new URL(seedUrl).pathname.replace(/^\/+|\/+$/g, "") || "misc";
     } catch {
       return "misc";
     }
@@ -291,11 +136,10 @@ export async function fmhySearch(o: FmhySearchOptions, ctx: ProviderContext, see
 
   let candidates: string[] = [];
   try {
-    const sitemap = await fmhySitemapPages(ctx);
-    candidates = sitemap;
-    notes.push(`Sitemap lists ${sitemap.length} page(s).`);
+    candidates = await fmhyPages(ctx);
+    notes.push(`Sitemap lists ${candidates.length} page(s).`);
   } catch (e) {
-    notes.push(`Sitemap unavailable (${(e as ProviderError).code}); using the source page only.`);
+    notes.push(`Sitemap unavailable (${(e as ProviderError).code}); using the configured page only.`);
   }
   const scored = candidates
     .map((loc) => {
@@ -312,8 +156,7 @@ export async function fmhySearch(o: FmhySearchOptions, ctx: ProviderContext, see
     })
     .filter((c) => c.path)
     .sort((a, b) => b.score - a.score);
-  const toRead: string[] = [];
-  for (const p of o.pages ?? []) if (!toRead.includes(p)) toRead.push(p);
+  const toRead: string[] = [...(o.pages || [])];
   for (const c of scored) {
     if (toRead.length >= maxPages) break;
     if (!toRead.includes(c.loc)) toRead.push(c.loc);
@@ -337,36 +180,40 @@ export async function fmhySearch(o: FmhySearchOptions, ctx: ProviderContext, see
       notes.push(`${loc} answered a bot challenge; skipped.`);
       continue;
     }
-    const groups = extractAnchorGroups(html, loc);
-    let matchedHere = 0;
-    for (const g of groups) {
-      for (const a of g.anchors) {
+    const page = parseFmhyPage(html, loc);
+    let matched = 0;
+    for (const section of page.sections) {
+      for (const item of section.items) {
         if (hits.length >= limit) break;
-        if (!a.text || a.text.length < 2) continue;
-        if (!matchesQuery(`${a.text}`, query)) continue;
+        if (!matchesQuery(`${item.title} ${item.note ?? ""} ${section.label}`, query)) continue;
         hits.push({
-          id: `fmhy:${loc}:${a.url}`,
+          id: `fmhy:${loc}:${item.url}`,
           providerId,
           kind: "list-entry",
-          title: a.text,
-          url: a.url,
-          source: { label: `fmhy.net${g.heading ? ` › ${g.heading}` : ""}`, url: loc },
-          context: g.heading ? [g.heading] : [],
-          extra: { page: loc, ...(g.heading ? { section: g.heading } : {}) },
-          provenance: "live",
+          title: item.title,
+          url: item.url,
+          description: item.note,
+          source: { label: `fmhy.net${section.label ? ` › ${section.label}` : ""}`, url: section.anchor || loc },
+          context: section.label ? [section.label] : [],
+          extra: {
+            page: loc,
+            ...(section.anchor ? { anchor: section.anchor } : {}),
+            ...(item.starred ? { starred: true } : {}),
+            ...(item.warning ? { warning: item.warning } : {}),
+          },
         });
-        matchedHere += 1;
+        matched += 1;
       }
     }
-    notes.push(`${loc}: ${matchedHere} matching entr(ies).`);
+    notes.push(`${loc}: ${matched} matching entr(ies) of ${page.entries}.`);
   }
-  hits.sort((a, b) => scoreMatch(b.title, "", query) - scoreMatch(a.title, "", query));
+  hits.sort((a, b) => scoreMatch(b.title, b.description || "", query) - scoreMatch(a.title, a.description || "", query));
   return {
     hits: hits.slice(0, limit),
     hasMore: hits.length >= limit,
     appliedFilters: ["pages"],
     ignoredFilters: [],
-    notes: [...notes, "fmhy.net exposes no search API (its /search path 404s); this is page reading plus local matching."],
+    notes: [...notes, "fmhy.net has no search API (/search 404s); entries are matched locally and name their page and section."],
     tookMs: Date.now() - started,
   };
 }
@@ -378,54 +225,217 @@ export async function fmhyInspect(url: string, ctx: ProviderContext, providerId 
   if (detectChallenge(res.text).challenged) {
     throw new ProviderError("FORBIDDEN", "fmhy.net served a bot-challenge page.", { url, retryable: false });
   }
-  const meta = extractMeta(res.text);
-  const h1 = stripHtml((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(res.text) || [])[1] || "");
-  const groups = extractAnchorGroups(res.text, res.finalUrl || url);
-  let entries = 0;
-  const sections = groups
-    .filter((g) => g.heading || g.anchors.length)
-    .slice(0, 60)
-    .map((g) => {
-      entries += g.anchors.length;
-      return {
-        key: g.heading || "root",
-        label: g.heading || "Top of page",
-        items: g.anchors.slice(0, 120).map((a) => ({ title: a.text || a.url, url: a.url })),
-      };
-    });
+  const page = parseFmhyPage(res.text, res.finalUrl || url);
+  const starred = page.sections.reduce((n, s) => n + s.items.filter((i) => i.starred).length, 0);
+  const warned = page.sections.reduce((n, s) => n + s.items.filter((i) => i.warning).length, 0);
   return {
     providerId,
     kind: "wiki-page",
-    canonicalUrl: meta.canonical || res.finalUrl || url,
-    title: meta.title || h1 || "fmhy.net",
-    description: meta.description,
-    sections,
+    canonicalUrl: page.url,
+    title: page.title || "fmhy.net",
+    description: page.description,
+    sections: page.sections.slice(0, 60).map((s, i) => ({
+      key: `sec-${i}`,
+      label: s.label,
+      anchor: s.anchor,
+      items: s.items.slice(0, 120).map((it) => ({
+        title: it.title,
+        url: it.url,
+        note: it.note,
+        badge: it.starred ? "starred" : it.warning ? "warning" : undefined,
+      })),
+    })),
     facts: [
-      { label: "Page", value: new URL(url).pathname || "/" },
-      { label: "Sections", value: String(sections.length) },
-      { label: "Links", value: String(entries) },
-      { label: "Search interface", value: "none - pages are read and matched locally" },
+      { label: "Page", value: new URL(url).pathname || "/", fromProvider: false },
+      { label: "Sections", value: String(page.sections.length), fromProvider: true },
+      { label: "Entries", value: String(page.entries), fromProvider: true },
+      { label: "Starred", value: String(starred), fromProvider: true },
+      { label: "With warnings", value: String(warned), fromProvider: true },
+      { label: "Search interface", value: "none - pages are read and matched locally", fromProvider: false },
     ],
     addable: true,
     capabilities: FMHY_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }
 
-// -------------------------------------------------- generic custom website --
+// ---------------------------------------------------------------- rentry ----
+
+export const RENTRY_CAPABILITIES: ProviderCapabilities = {
+  search: "partial",
+  pagination: "unsupported",
+  filters: ["depth", "pages"],
+  itemDetail: "partial",
+  files: "unsupported",
+  preview: "unsupported",
+  license: "unsupported",
+  notes: [
+    "rentry.org publishes each page as raw Markdown at /<slug>/raw, which is the interface used here (the HTML is a rendered wrapper with no more data).",
+    "The canonical host is rentry.co; rentry.org is an alias and both are accepted.",
+    "The megathread links its own sub-pages, so discovery follows those links one level down, incrementally, and stops at the configured cap.",
+    "Entries keep their heading trail (e.g. 'megathread › Music') so a hit is attributable to a section.",
+  ],
+};
+
+const RENTRY_CANONICAL = "rentry.co";
+
+export function isRentryUrl(url: string): boolean {
+  try {
+    return /(^|\.)rentry\.(org|co)$/.test(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function rentrySlug(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname.replace(/^\/+|\/+$/g, "").replace(/\/raw$/, "");
+  } catch {
+    return "";
+  }
+}
+
+export interface RentrySearchOptions {
+  query: string;
+  /** 0 = only this page, 1 = also follow the page's own sub-page links. */
+  depth?: number;
+  maxPages?: number;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+function rawUrl(slug: string): string {
+  return `https://${RENTRY_CANONICAL}/${encodeURIComponent(slug)}/raw`;
+}
+
+export async function rentrySearch(o: RentrySearchOptions, ctx: ProviderContext, seedUrl: string, providerId = "rentry"): Promise<SearchOutcome> {
+  const started = Date.now();
+  const query = String(o.query || "").trim();
+  const limit = Math.max(1, Math.min(50, o.limit ?? 20));
+  const depth = Math.max(0, Math.min(2, o.depth ?? 1));
+  const maxPages = Math.max(1, Math.min(8, o.maxPages ?? 4));
+  const seed = rentrySlug(seedUrl);
+  if (!seed) throw new ProviderError("UNSUPPORTED", "A rentry.org page URL is required (https://rentry.org/<slug>).", { url: seedUrl, retryable: false });
+
+  const hits: ProviderHit[] = [];
+  const notes: string[] = [];
+  const visited = new Set<string>();
+  const queue: { slug: string; level: number }[] = [{ slug: seed, level: 0 }];
+  let fetched = 0;
+
+  while (queue.length && fetched < maxPages) {
+    if (ctx.signal?.aborted) break;
+    const { slug, level } = queue.shift() as { slug: string; level: number };
+    if (visited.has(slug)) continue;
+    visited.add(slug);
+    fetched += 1;
+    ctx.onProgress?.({ providerId, stage: "page", message: `rentry/${slug}`, done: fetched, total: maxPages });
+    let text: string;
+    try {
+      const res = await getResource(rawUrl(slug), ctx, { accept: "text/plain" });
+      text = res.text;
+    } catch (e) {
+      if (slug === seed) throw e;
+      notes.push(`Sub-page ${slug} unavailable (${(e as ProviderError).code}).`);
+      continue;
+    }
+    const sections = parseMarkdownSections(text, `https://${RENTRY_CANONICAL}/${slug}`);
+    let matched = 0;
+    for (const sec of sections) {
+      for (const link of sec.links) {
+        if (hits.length >= limit) break;
+        const label = sec.title || slug;
+        if (!matchesQuery(`${link.title} ${link.description ?? ""} ${label}`, query)) continue;
+        if (/\/raw(\?|$)/.test(link.url)) continue;
+        hits.push({
+          id: `rentry:${slug}:${link.url}`,
+          providerId,
+          kind: "list-entry",
+          title: link.title,
+          url: link.url,
+          description: link.description,
+          source: { label: `rentry/${slug}${sec.title ? ` › ${sec.title}` : ""}`, url: `https://${RENTRY_CANONICAL}/${slug}` },
+          context: [slug, ...(sec.title ? [sec.title] : [])],
+          extra: { page: slug, ...(sec.title ? { section: sec.title } : {}) },
+        });
+        matched += 1;
+      }
+      if (level < depth && fetched + queue.length < maxPages) {
+        for (const link of sec.links) {
+          if (!isRentryUrl(link.url) || /\/raw(\?|$)/.test(link.url)) continue;
+          const child = rentrySlug(link.url);
+          if (!child || visited.has(child) || queue.some((q) => q.slug === child)) continue;
+          // Only this page's own family: a curated page must not turn a search
+          // into a crawl of the whole site.
+          if (/^megathread/.test(child) || child.startsWith(seed)) queue.push({ slug: child, level: level + 1 });
+        }
+      }
+    }
+    notes.push(`rentry/${slug}: ${matched} matching entr(ies).`);
+  }
+  return {
+    hits: hits.slice(0, limit),
+    hasMore: hits.length >= limit || queue.length > 0,
+    appliedFilters: ["depth", "pages"],
+    ignoredFilters: [],
+    notes: [...notes, `Read ${visited.size} page(s) (depth ${depth}, cap ${maxPages}). Curation pages are not a ranked index: matches are literal entries.`],
+    tookMs: Date.now() - started,
+  };
+}
+
+export async function rentryInspect(url: string, ctx: ProviderContext, providerId = "rentry"): Promise<InspectOutcome> {
+  const started = Date.now();
+  const slug = rentrySlug(url);
+  if (!isRentryUrl(url) || !slug) throw new ProviderError("UNSUPPORTED", "That is not a rentry.org page URL.", { url, retryable: false });
+  const res = await getResource(rawUrl(slug), ctx, { accept: "text/plain" });
+  const sections = parseMarkdownSections(res.text, `https://${RENTRY_CANONICAL}/${slug}`);
+  const subpages = sections
+    .flatMap((s) => s.links)
+    .filter((l) => isRentryUrl(l.url) && /\/(megathread|piracy)/i.test(l.url));
+  const titleLine = /^#\s+(.+)$/m.exec(res.text);
+  return {
+    providerId,
+    kind: "curated-page",
+    canonicalUrl: `https://${RENTRY_CANONICAL}/${slug}`,
+    title: titleLine ? stripHtml(titleLine[1]) : slug,
+    sections: sections
+      .filter((s) => s.links.length)
+      .slice(0, 40)
+      .map((s, i) => ({
+        key: `sec-${i}`,
+        label: s.title || `Section ${i + 1}`,
+        items: s.links.slice(0, 120).map((l) => ({ title: l.title || l.url, url: l.url, note: l.description })),
+      })),
+    facts: [
+      { label: "Page", value: slug, fromProvider: false },
+      { label: "Sections", value: String(sections.filter((s) => s.links.length).length), fromProvider: true },
+      { label: "Entries", value: String(sections.reduce((n, s) => n + s.links.length, 0)), fromProvider: true },
+      { label: "Own sub-pages", value: String(subpages.length), fromProvider: true },
+      { label: "Interface", value: "raw Markdown at /<slug>/raw", fromProvider: false },
+    ],
+    addable: true,
+    capabilities: RENTRY_CAPABILITIES,
+    provenance: "live",
+    tookMs: Date.now() - started,
+  };
+}
+
+// -------------------------------------------------- generic custom website ---
 
 export const GENERIC_CAPABILITIES: ProviderCapabilities = {
   search: "partial",
-  inspect: "supported",
-  filters: ["source"],
   pagination: "unsupported",
-  itemDetails: "partial",
-  downloads: "unsupported",
+  filters: ["source"],
+  itemDetail: "partial",
+  files: "unsupported",
   preview: "partial",
-  attribution: "partial",
+  license: "unsupported",
   notes: [
-    "A website added by URL is read through the interface it actually exposes: an RSS/Atom feed first, then its sitemap, then the page itself.",
-    "Sites whose HTML has no readable links, or that answer with a bot challenge, are reported as unsupported rather than saved as a source that can never return results.",
+    "A website added by URL is read through the interface it actually exposes: an RSS/Atom feed first, then its sitemap, then a readable on-site search form, then the page's own links.",
+    "Sites with no feed, no sitemap and no readable links are reported as NOT addable rather than saved as a source that can never return results.",
+    "A site that answers a bot challenge or refuses the browser is named as such; it is not reported as 'no results'.",
     "Hosts that send no CORS header need the dashboard server relay (/api/providers/relay); without it the adapter names that exact limitation.",
   ],
 };
@@ -442,8 +452,7 @@ export interface DetectedCapabilities {
   notes: string[];
 }
 
-/** Probe a site for the interfaces it really exposes. Cheap, bounded, and it
- *  reports every attempt - the operator sees why a site is or is not usable. */
+/** Probe a site for the interfaces it really exposes. Cheap, bounded, explicit. */
 export async function detectSiteCapabilities(url: string, ctx: ProviderContext): Promise<DetectedCapabilities> {
   const notes: string[] = [];
   const out: DetectedCapabilities = { feeds: [], sitemaps: [], jsonLd: false, title: "", entryLinks: 0, notes };
@@ -454,6 +463,7 @@ export async function detectSiteCapabilities(url: string, ctx: ProviderContext):
     throw new ProviderError("UNSUPPORTED", "That is not a valid URL.", { url, retryable: false });
   }
   for (const [kind, path] of [["feed", "/feed"], ["rss", "/rss.xml"], ["atom", "/atom.xml"], ["index", "/sitemap.xml"]] as const) {
+    if (ctx.signal?.aborted) break;
     const candidate = `${origin}${path}`;
     try {
       const res = await getResource(candidate, ctx, { accept: "*/*" });
@@ -463,7 +473,7 @@ export async function detectSiteCapabilities(url: string, ctx: ProviderContext):
       if (kind === "index" && isSitemap) out.sitemaps.push(candidate);
       else if (kind !== "index" && isFeed) out.feeds.push(candidate);
     } catch {
-      /* absence is the answer; no note needed for a 404 */
+      /* absence is a real answer */
     }
   }
   if (!out.feeds.length) notes.push("No RSS/Atom feed found at /feed, /rss.xml or /atom.xml.");
@@ -473,24 +483,20 @@ export async function detectSiteCapabilities(url: string, ctx: ProviderContext):
     const ch = detectChallenge(res.text);
     if (ch.challenged) out.challenge = ch.kind;
     const meta = extractMeta(res.text);
-    out.title = meta.title;
+    out.title = meta.title || "";
     out.description = meta.description;
     out.jsonLd = /application\/ld\+json/i.test(res.text);
     const anchors = extractAnchors(res.text, res.finalUrl || url);
-    out.entryLinks = anchors.filter((a) => a.text.length > 2).length;
+    out.entryLinks = anchors.filter((a) => a.title.length > 2).length;
     const form = /<form[^>]+action\s*=\s*["']([^"']*)["'][^>]*>([\s\S]{0,600}?)<\/form>/i.exec(res.text);
     if (form) {
       const action = form[1];
-      const inputs = form[2];
-      const name = /<input[^>]+name\s*=\s*["']([^"']+)["']/i.exec(inputs)?.[1];
+      const name = /<input[^>]+name\s*=\s*["']([^"']+)["']/i.exec(form[2])?.[1];
       if (name && /^(s|q|query|search|searchterm|keywords)$/i.test(name)) {
         const target = absolutize(action || url, res.finalUrl || url) || url;
         out.searchParam = `${target}${target.includes("?") ? "&" : "?"}${encodeURIComponent(name)}=`;
-        notes.push(`The page has its own search form (${name}); searches can use it.`);
+        notes.push(`The page has its own search form (${name}); searches use it.`);
       }
-    }
-    if (/\/(gcsearch|search)\b/i.test(res.finalUrl || "") && /google|cse|customsearch/i.test(res.text)) {
-      notes.push("This site's search page is a Google Custom Search widget, which cannot be read server-side.");
     }
   } catch (e) {
     const err = e as ProviderError;
@@ -498,30 +504,55 @@ export async function detectSiteCapabilities(url: string, ctx: ProviderContext):
       notes.push("The site could not be read directly from the browser (no CORS header). The server relay is required.");
       out.challenge = "cors";
     } else if (err.code === "NOT_FOUND") {
-      throw new ProviderError("NOT_FOUND", "The site answered 404 for its homepage.", { url, retryable: false });
+      throw new ProviderError("NOT_FOUND", "The site answered 404 for this page.", { url, retryable: false });
     } else throw e;
   }
   return out;
 }
 
-export async function genericSearch(
-  o: { query: string; url: string; limit?: number; signal?: AbortSignal },
-  ctx: ProviderContext,
-  providerId: string
-): Promise<SearchOutcome> {
+export interface GenericSearchOptions {
+  query: string;
+  url: string;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export async function genericSearch(o: GenericSearchOptions, ctx: ProviderContext, providerId: string): Promise<SearchOutcome> {
   const started = Date.now();
   const caps = await detectSiteCapabilities(o.url, ctx);
+  // A site that answered a bot challenge or refused the browser outright is NOT
+  // "no results": say which of the two it is, so the operator knows whether to
+  // enable the relay or to stop trying.
+  if (caps.challenge === "cors") {
+    throw new ProviderError(
+      "RELAY_UNAVAILABLE",
+      "This site sends no CORS header, so the browser cannot read it and the dashboard server relay is not configured in this build.",
+      { url: o.url, retryable: false }
+    );
+  }
+  if (caps.challenge) {
+    throw new ProviderError("FORBIDDEN", `This site answered a bot challenge (${caps.challenge}), so it cannot be read without a browser session.`, {
+      url: o.url,
+      retryable: false,
+    });
+  }
   const query = o.query.trim();
-  const limit = o.limit ?? 20;
+  const limit = Math.max(1, Math.min(50, o.limit ?? 20));
   const hits: ProviderHit[] = [];
   const notes = [...caps.notes];
+  const host = (() => {
+    try {
+      return new URL(o.url).hostname;
+    } catch {
+      return o.url;
+    }
+  })();
 
   for (const feed of caps.feeds) {
     if (ctx.signal?.aborted || hits.length >= limit) break;
     try {
       const res = await getResource(feed, ctx, { accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*" });
-      const { extractFeedItems } = await import("./text");
-      const items = extractFeedItems(res.text, o.url);
+      const items = extractFeedItems(res.text);
       let n = 0;
       for (const it of items) {
         if (hits.length >= limit) break;
@@ -534,9 +565,8 @@ export async function genericSearch(
           description: it.description ? truncate(it.description, 300) : undefined,
           date: it.date,
           url: it.link,
-          source: { label: `${new URL(feed).hostname} feed`, url: feed },
+          source: { label: `${host} feed`, url: feed },
           extra: { origin: "feed" },
-          provenance: "live",
         });
         n += 1;
       }
@@ -550,27 +580,28 @@ export async function genericSearch(
     try {
       const res = await getResource(caps.sitemaps[0], ctx, { accept: "application/xml, text/xml;q=0.9, */*" });
       const sm = extractSitemap(res.text);
-      const locs = sm.kind === "index" ? sm.locs.slice(0, 3).map((l) => l.loc) : sm.locs.map((l) => l.loc);
-      const matched: string[] = [];
-      for (const loc of locs) {
+      const locs = (sm.kind === "index" ? sm.entries.slice(0, 3).map((e) => e.loc) : sm.entries.map((e) => e.loc)).slice(0, 2000);
+      const matched: { loc: string; lastmod?: string }[] = [];
+      for (const entry of sm.entries) {
         let path = "";
         try {
-          path = decodeURIComponent(new URL(loc).pathname).replace(/[-_/]+/g, " ");
+          path = decodeURIComponent(new URL(entry.loc).pathname).replace(/[-_/]+/g, " ");
         } catch {
           continue;
         }
-        if (matchesQuery(path, query) && matched.length < limit) matched.push(loc);
+        if (matchesQuery(path, query) && matched.length < limit) matched.push(entry);
       }
-      for (const loc of matched) {
+      void locs;
+      for (const m of matched) {
         hits.push({
-          id: `web:sitemap:${loc}`,
+          id: `web:sitemap:${m.loc}`,
           providerId,
           kind: "page",
-          title: loc.replace(/^https?:\/\/[^/]+\//, "").replace(/[-_/]+/g, " "),
-          url: loc,
-          source: { label: `${new URL(loc).hostname} sitemap`, url: caps.sitemaps[0] },
+          title: m.loc.replace(/^https?:\/\/[^/]+\//, "").replace(/[-_/]+/g, " "),
+          url: m.loc,
+          date: m.lastmod,
+          source: { label: `${host} sitemap`, url: caps.sitemaps[0] },
           extra: { origin: "sitemap" },
-          provenance: "live",
         });
       }
       notes.push(`Sitemap: ${matched.length} URL(s) matched the query in their path.`);
@@ -582,22 +613,21 @@ export async function genericSearch(
   if (!hits.length && caps.searchParam) {
     try {
       const res = await getResource(caps.searchParam + encodeURIComponent(query), ctx, { accept: "text/html" });
-      const groups = extractAnchorGroups(res.text, res.finalUrl || o.url);
+      const groups = extractHeadingSections(res.text, res.finalUrl || o.url);
       let n = 0;
       for (const g of groups) {
         for (const a of g.anchors) {
           if (hits.length >= limit) break;
-          if (!a.text || !matchesQuery(a.text, query)) continue;
+          if (!matchesQuery(a.title, query)) continue;
           hits.push({
             id: `web:site-search:${a.url}`,
             providerId,
-            kind: "page",
-            title: a.text,
+            kind: "link",
+            title: a.title,
             url: a.url,
-            source: { label: `${new URL(o.url).hostname} on-site search`, url: caps.searchParam },
+            source: { label: `${host} on-site search`, url: caps.searchParam },
             context: g.heading ? [g.heading] : [],
             extra: { origin: "on-site-search" },
-            provenance: "live",
           });
           n += 1;
         }
@@ -605,6 +635,31 @@ export async function genericSearch(
       notes.push(`On-site search returned ${n} readable match(es).`);
     } catch (e) {
       notes.push(`On-site search failed (${(e as ProviderError).code}).`);
+    }
+  }
+
+  if (!hits.length && !caps.feeds.length && !caps.sitemaps.length && !caps.searchParam) {
+    try {
+      const res = await getResource(o.url, ctx, { accept: "text/html" });
+      const anchors = extractAnchors(res.text, res.finalUrl || o.url);
+      let n = 0;
+      for (const a of anchors) {
+        if (hits.length >= limit) break;
+        if (!matchesQuery(a.title, query)) continue;
+        hits.push({
+          id: `web:page:${a.url}`,
+          providerId,
+          kind: "link",
+          title: a.title,
+          url: a.url,
+          source: { label: `${host} page`, url: o.url },
+          extra: { origin: "page-links" },
+        });
+        n += 1;
+      }
+      notes.push(`Page links: ${n} readable match(es) of ${anchors.length}.`);
+    } catch (e) {
+      notes.push(`Page unreadable (${(e as ProviderError).code}).`);
     }
   }
 
@@ -629,31 +684,46 @@ export async function genericInspect(url: string, ctx: ProviderContext, provider
   try {
     const res = await getResource(url, ctx, { accept: "text/html" });
     nav = extractAnchors(res.text, res.finalUrl || url)
-      .filter((a) => a.text.length > 2 && a.url.startsWith("http"))
+      .filter((a) => a.title.length > 2)
       .slice(0, 120)
-      .map((a) => ({ title: a.text, url: a.url }));
+      .map((a) => ({ title: a.title, url: a.url }));
   } catch {
     /* the capability probe already reported the reason */
   }
-  const sections = nav.length ? [{ key: "links", label: "Links on this page", items: nav }] : [];
+  const host = (() => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
+  })();
+  const addable = !caps.challenge && Boolean(caps.feeds.length || caps.sitemaps.length || caps.searchParam || caps.entryLinks > 0);
   return {
     providerId,
     kind: "website",
     canonicalUrl: url,
-    title: caps.title || new URL(url).hostname,
+    title: caps.title || host,
     description: caps.description,
-    sections,
+    sections: nav.length ? [{ key: "links", label: "Links on this page", items: nav }] : [],
     facts: [
-      { label: "Host", value: new URL(url).hostname },
-      { label: "Feeds", value: caps.feeds.join(", ") || "none found" },
-      { label: "Sitemaps", value: caps.sitemaps.join(", ") || "none found" },
-      { label: "Readable links", value: String(caps.entryLinks) },
-      ...(caps.searchParam ? [{ label: "On-site search", value: caps.searchParam }] : []),
-      ...(caps.challenge ? [{ label: "Restriction", value: caps.challenge }] : []),
+      { label: "Host", value: host, fromProvider: false },
+      { label: "Feeds", value: caps.feeds.join(", ") || "none found", fromProvider: true },
+      { label: "Sitemaps", value: caps.sitemaps.join(", ") || "none found", fromProvider: true },
+      { label: "Readable links", value: String(caps.entryLinks), fromProvider: true },
+      ...(caps.searchParam ? [{ label: "On-site search", value: caps.searchParam, fromProvider: true }] : []),
+      ...(caps.challenge ? [{ label: "Restriction", value: caps.challenge, fromProvider: true }] : []),
     ],
-    addable: Boolean(caps.feeds.length || caps.sitemaps.length || caps.searchParam || caps.entryLinks > 0),
-    notAddableReason: caps.challenge === "cors" ? "The site cannot be read from the browser without the server relay." : undefined,
+    addable,
+    notAddableReason:
+      caps.challenge === "cors"
+        ? "The site cannot be read from the browser without the server relay."
+        : caps.challenge
+          ? `The site answered a bot challenge (${caps.challenge}); it cannot be searched from here.`
+          : addable
+            ? undefined
+            : "The site exposes no feed, sitemap, search form or readable links, so it could never return a result.",
     capabilities: GENERIC_CAPABILITIES,
+    provenance: "live",
     tookMs: Date.now() - started,
   };
 }

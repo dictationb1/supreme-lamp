@@ -1,0 +1,25 @@
+# LIVE provider run: real api.github.com (no fixture, no mock)
+# generated 2026-10-26T02:35:05Z in the authoring sandbox
+# command: npx vitest run --config vitest.providers.config.ts (PROVIDERS_LIVE=1)
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 /home/user/supreme-lamp
+
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > A. a public repository URL needs no credential and inspects fully 613ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > B. mfkl/awesome-vlc#readme is classified as a README and handled, not refused 502ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > C. sindresorhus/awesome yields usable list/category/resource information 476ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > D. awesome.re resolves to its legitimate canonical repository 472ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > E. ChessMax/awesome-programming-languages inspects without sourceId and tolerates empty releases 486ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > K. relative README links resolve against the default branch, not the site root 449ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > searches repositories and reports the provider's own total
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > mines curated lists incrementally and reports where each hit came from 1532ms
+ ✓ src/tests/providers/github-live.test.ts > github provider (live api.github.com) > parses the URL shapes GitHub really uses
+ ✓ src/tests/providers/search-store-live.test.ts > Search store + real GitHub provider > returns real GitHub rows and keeps them when the dashboard search route is unavailable 1042ms
+ ✓ src/tests/providers/search-store-live.test.ts > Search store + real GitHub provider > a pasted awesome-list URL is inspected and offered as a source, with no credential prompt 508ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  02:35:05
+   Duration  7.90s (transform 419ms, setup 0ms, collect 541ms, tests 6.36s, environment 423ms, prepare 230ms)
+

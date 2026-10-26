@@ -8,7 +8,7 @@ import { ProviderError, hostOf, isProviderError, normalizeHttpUrl, type Provider
 import { GITHUB_CAPABILITIES, githubInspect, githubSearch, parseGithubUrl } from "./github";
 import { ARCHIVE_CAPABILITIES, archiveInspect, archiveSearch, parseArchiveUrl } from "./archive";
 import { OPENVERSE_CAPABILITIES, openverseInspect, openverseSearch, parseOpenverseUrl } from "./openverse";
-import { OPENCULTURE_CAPABILITIES, isOpenCultureUrl, opencultureInspect, opencultureSearch } from "./openculture";
+import { OPENCULTURE_CAPABILITIES, clearOpenCultureCache, isOpenCultureUrl, opencultureInspect, opencultureSearch } from "./openculture";
 import {
   FMHY_CAPABILITIES,
   GENERIC_CAPABILITIES,
@@ -45,12 +45,12 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
   {
     id: "github",
     nameKey: "search.providers.github",
-    label: "GitHub (repositories, awesome lists, releases)",
+    label: "GitHub (repositories, READMEs, awesome lists)",
     homepage: "https://github.com",
     hosts: ["github.com", "api.github.com", "raw.githubusercontent.com", "awesome.re"],
     defaultEnabled: true,
     capabilities: GITHUB_CAPABILITIES,
-    filterKeys: ["listMode"],
+    filterKeys: ["sort", "listMode"],
   },
   {
     id: "internet-archive",
@@ -70,7 +70,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     hosts: ["openverse.org", "api.openverse.org"],
     defaultEnabled: true,
     capabilities: OPENVERSE_CAPABILITIES,
-    filterKeys: ["mediaType", "license", "creator", "source"],
+    filterKeys: ["mediaType", "license", "licenseType", "creator", "source"],
   },
   {
     id: "openculture",
@@ -80,7 +80,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     hosts: ["openculture.com", "www.openculture.com"],
     defaultEnabled: true,
     capabilities: OPENCULTURE_CAPABILITIES,
-    filterKeys: ["feedPages", "sitemapScan"],
+    filterKeys: ["feedPages", "sitemap"],
   },
   {
     id: "fmhy",
@@ -147,41 +147,39 @@ export function classifyUrl(input: string): UrlClassification {
   if (!normalized) return { url: raw, normalized: null, kind: "query", providerId: null, reason: "not a URL" };
   const host = hostOf(normalized);
 
-  if (parseGithubUrl(normalized)) {
-    const ref = parseGithubUrl(normalized)!;
-    return {
-      url: raw,
-      normalized,
-      kind: "url",
-      providerId: "github",
-      subkind: ref.kind,
-      resolvedFrom: ref.resolvedFrom,
-    };
+  const gh = parseGithubUrl(normalized);
+  if (gh && (host === "github.com" || host === "api.github.com" || host === "raw.githubusercontent.com" || host === "awesome.re")) {
+    return { url: raw, normalized, kind: "url", providerId: "github", subkind: gh.kind, resolvedFrom: gh.resolvedFrom };
   }
-  if (/(^|\.)archive\.org$/.test(host) && parseArchiveUrl(normalized)) {
-    const p = parseArchiveUrl(normalized)!;
-    return { url: raw, normalized, kind: "url", providerId: "internet-archive", subkind: p.kind };
-  }
+  const ia = parseArchiveUrl(normalized);
+  if (ia) return { url: raw, normalized, kind: "url", providerId: "internet-archive", subkind: ia.kind };
   if (parseOpenverseUrl(normalized)) {
     const p = parseOpenverseUrl(normalized)!;
     return { url: raw, normalized, kind: "url", providerId: "openverse", subkind: p.query ? "search" : "homepage" };
   }
   if (isOpenCultureUrl(normalized)) {
-    const path = new URL(normalized).pathname;
-    return { url: raw, normalized, kind: "url", providerId: "openculture", subkind: path === "/" ? "homepage" : "article" };
+    let path = "/";
+    try {
+      path = new URL(normalized).pathname;
+    } catch {
+      path = "/";
+    }
+    return { url: raw, normalized, kind: "url", providerId: "openculture", subkind: path === "/" || path === "" ? "homepage" : "article" };
   }
-  if (isFmhyUrl(normalized)) {
-    return { url: raw, normalized, kind: "url", providerId: "fmhy", subkind: "wiki-page" };
-  }
-  if (isRentryUrl(normalized)) {
-    return { url: raw, normalized, kind: "url", providerId: "rentry", subkind: "curated-page" };
-  }
+  if (isFmhyUrl(normalized)) return { url: raw, normalized, kind: "url", providerId: "fmhy", subkind: "wiki-page" };
+  if (isRentryUrl(normalized)) return { url: raw, normalized, kind: "url", providerId: "rentry", subkind: "curated-page" };
   return { url: raw, normalized, kind: "url", providerId: "custom" };
 }
 
 export function looksLikeUrl(input: string): boolean {
   const s = String(input || "").trim();
   return /^https?:\/\//i.test(s) || /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(s);
+}
+
+/** Clear every adapter's in-memory cache (feed pages). Called by the Search
+ *  store at the start of a new search, and by the tests. */
+export function clearProviderCaches(): void {
+  clearOpenCultureCache();
 }
 
 // ------------------------------------------------------------- the lane ----
@@ -231,29 +229,20 @@ export interface LaneOptions {
   signal?: AbortSignal;
 }
 
-function sourceToRunner(src: SourceSpec) {
-  switch (src.providerId) {
-    case "github":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) => githubSearch({ query: q, limit: 20, signal }, { ...ctx, signal });
-    case "internet-archive":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        archiveSearch({ query: q, rows: 20, signal }, { ...ctx, signal });
-    case "openverse":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        openverseSearch({ query: q, pageSize: 20, signal }, { ...ctx, signal });
-    case "openculture":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        opencultureSearch({ query: q, feedPages: 2, sitemapScan: true, signal }, { ...ctx, signal });
-    case "fmhy":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        fmhySearch({ query: q, maxPages: 2, signal }, { ...ctx, signal }, src.baseUrl || "https://fmhy.net/misc");
-    case "rentry":
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        rentrySearch({ query: q, depth: 1, maxPages: 4, signal }, { ...ctx, signal }, src.baseUrl || "https://rentry.org/megathread");
-    default:
-      return (q: string, ctx: ProviderContext, signal?: AbortSignal) =>
-        genericSearch({ query: q, url: src.baseUrl || "", signal }, { ...ctx, signal }, src.id);
-  }
+type Runner = (query: string, ctx: ProviderContext, src: SourceSpec, limit: number) => Promise<SearchOutcome>;
+
+const RUNNERS: Record<BuiltinProviderId, Runner> = {
+  github: (q, ctx, _src, limit) => githubSearch({ query: q, limit, maxLists: 1 }, ctx),
+  "internet-archive": (q, ctx, _src, limit) => archiveSearch({ query: q, rows: limit, signal: ctx.signal }, ctx),
+  openverse: (q, ctx, _src, limit) => openverseSearch({ query: q, pageSize: Math.min(50, limit) }, ctx),
+  openculture: (q, ctx, _src, limit) => opencultureSearch({ query: q, feedPages: 2, sitemap: true, limit }, ctx),
+  fmhy: (q, ctx, src, limit) => fmhySearch({ query: q, maxPages: 2, limit }, ctx, src.baseUrl || "https://fmhy.net/misc"),
+  rentry: (q, ctx, src, limit) => rentrySearch({ query: q, depth: 1, maxPages: 4, limit }, ctx, src.baseUrl || "https://rentry.org/megathread"),
+};
+
+function runnerFor(src: SourceSpec): Runner {
+  if (src.kind === "builtin" && src.providerId && RUNNERS[src.providerId]) return RUNNERS[src.providerId];
+  return (q, ctx, spec, limit) => genericSearch({ query: q, url: spec.baseUrl || "", limit, signal: ctx.signal }, ctx, spec.id);
 }
 
 function errorToOutcome(src: SourceSpec, e: unknown, started: number): SourceOutcome {
@@ -312,6 +301,7 @@ export async function runProviderLane(opts: LaneOptions): Promise<SourceOutcome[
     opts.onEvent?.({ type: "lane-done", tookMs: 0, outcomes });
     return outcomes;
   }
+  const limit = Math.max(1, Math.min(50, opts.limit ?? 20));
   await Promise.all(
     sources.map(async (src) => {
       const sourceStarted = Date.now();
@@ -322,8 +312,7 @@ export async function runProviderLane(opts: LaneOptions): Promise<SourceOutcome[
         onProgress: (p) => opts.onEvent?.({ type: "source-progress", sourceId: src.id, message: p.message, done: p.done, total: p.total }),
       };
       try {
-        const run = sourceToRunner(src);
-        const out = await run(opts.query, ctx, opts.signal);
+        const out = await runnerFor(src)(opts.query, ctx, src, limit);
         const outcome = outcomeFromSearch(src, out);
         outcomes.push(outcome);
         opts.onHits?.(src.id, outcome.hits);
