@@ -496,7 +496,7 @@ test("F110b-h: 0 dependencies, 0 i18n keys, 26 storage surfaces, and the doc cla
     assert.ok(!(banned in pkg.dependencies) && !(banned in pkg.devDependencies), "unneeded crypto dependency appeared: " + banned);
   }
   const lock = read("tests/f-i18n-parity.test.js").match(/const EXPECTED_FLAT_KEYS = (\d+)/);
-  assert.equal(Number(lock[1]), 1280, "a default-off developer surface moves no i18n lock; moved for #211/#212/#216, for R-GLASS #213/#214, for R2, and for V4 (+15 keys, see tests/f-i18n-parity.test.js) + 13 launch/lab keys (SINGLE-DISPATCH-2026-10-25: actions.cancel/retry, lab.hostnameMismatchRedirect/redirectRefused/unreachable/forbidden/emptyNoMatches/emptyNoLinks/errorCode/resultKind/provenance/serverError/httpError)");
+  assert.equal(Number(lock[1]), 1384, "a default-off developer surface moves no i18n lock; moved for #211/#212/#216, for R-GLASS #213/#214, for R2, and for V4 (+15 keys, see tests/f-i18n-parity.test.js) + 13 launch/lab keys (SINGLE-DISPATCH-2026-10-25: actions.cancel/retry, lab.hostnameMismatchRedirect/redirectRefused/unreachable/forbidden/emptyNoMatches/emptyNoLinks/errorCode/resultKind/provenance/serverError/httpError)");
   assert.ok(!/\bt\(/.test(CODE("src/components/livePatch/PatchAuditPanel.tsx")), "the panel stays English-only while the lock says 1252");
 
   // no new persistence: F111's derived diff, re-run against THIS tree
@@ -522,7 +522,7 @@ test("F110b-h: 0 dependencies, 0 i18n keys, 26 storage surfaces, and the doc cla
   // opaque latch in lib/glass/quality.ts is in memory, not storage, so it adds
   // no surface. Declared in src/lib/ci/storageInventory.json, so the diff above
   // stays empty.
-  assert.equal(scan.keys.length, 26, "F110b adds no storage surface: 25 after R-GLASS, + 1 declared V4 R-GLASS-independent surface (ghrdp:incidentAcks)");
+  assert.equal(scan.keys.length, 28, "F110b adds no storage surface: 26 after F-V4, + 2 declared by F-SEARCH-REPAIR (ghrdp:searchSources, ghrdp:providerTokens)");
 
   // the panel tells the operator which scheme this build accepts (§EMPTY-STATE-HANDLING)
   const panel = CODE("src/components/livePatch/PatchAuditPanel.tsx");

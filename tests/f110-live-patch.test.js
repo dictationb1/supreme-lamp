@@ -488,7 +488,7 @@ test("F110-j: 0 dependencies, 0 i18n keys, 0 new registry sections, and both per
   }
   const lock = read("tests/f-i18n-parity.test.js").match(/const EXPECTED_FLAT_KEYS = (\d+)/);
   assert.ok(lock, "positive control: the count lock is still declared");
-  assert.equal(Number(lock[1]), 1280, "a default-off developer surface moves no i18n lock; the lock moved for #211/#212/#216, for R-GLASS #213/#214, and again for R2");
+  assert.equal(Number(lock[1]), 1384, "a default-off developer surface moves no i18n lock; the lock moved for #211/#212/#216, for R-GLASS #213/#214, and again for R2");
   for (const f of ["src/components/livePatch/PatchAuditPanel.tsx"]) {
     assert.ok(!/\bt\(/.test(CODE(f)), f + " must not call t() while the lock says 1252");
   }
@@ -539,7 +539,7 @@ test("F110-j: 0 dependencies, 0 i18n keys, 0 new registry sections, and both per
   // preference in prefsStore). The performance latch in lib/glass/quality.ts is
   // deliberately IN MEMORY, not a storage key: it only has to hold for the rest
   // of the page load, so persisting it would add a surface for no benefit.
-  assert.equal(scan.keys.length, 26, "the derived count this step moved: 23 -> 25, then M4 removed the dead read: 24, then R-GLASS declared 1: 25, then F-V4 declared ghrdp:incidentAcks: 26");
+  assert.equal(scan.keys.length, 28, "the derived count this step moved: 23 -> 25, then M4 removed the dead read: 24, then R-GLASS declared 1: 25, then F-V4 declared ghrdp:incidentAcks: 26, then F-SEARCH-REPAIR declared ghrdp:searchSources + ghrdp:providerTokens: 28");
   // and the ledger records the carrier, with the id the title names
   const ledger = readJson("src/lib/ci/stepLedger.json");
   const e9 = ledger.entries.find((e) => Number(e.step) === 9);

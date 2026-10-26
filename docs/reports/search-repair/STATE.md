@@ -29,3 +29,25 @@
    `fetch` call in a test that asserts the request body of the server lane.
 3. `src/tests/smoke/repo-identity-links.test.ts` — `docUrl("searchRepair")`
    pointed at a report that did not exist yet; this directory is that report.
+
+## Gates green in the authoring sandbox (re-measured after the ledger/inventory update)
+
+```text
+npx tsc -p tsconfig.build.json --noEmit   -> 0 errors
+npx vite build                            -> ui/dist/index.html built
+npx vitest run                            -> 119 files / 1539 tests pass
+node --test tests/*.test.js               -> 931 pass / 0 fail
+npm run test:providers                    -> 36 pass (11 live tests skipped)
+npm run test:providers:live               -> 11 pass against real api.github.com
+```
+
+Two of the `node --test` failures were environment-only and are NOT code defects:
+the workflow validator shells out to Python's `yaml`, which is not installed in the
+sandbox (`pip install pyyaml --break-system-packages` makes all 931 pass). The
+launch-gates workflow installs it itself.
+
+Pinned counts that moved with this change, each re-MEASURED rather than incremented:
+`src/lib/ci/storageInventory.json` 26 -> 28 declared surfaces (ghrdp:searchSources,
+ghrdp:providerTokens, both `addedBy: "F-SEARCH-REPAIR"`), the i18n flat-key lock
+1280 -> 1384, and a new `stepLedger.json` entry (step 16, PR #102) so the two new
+storage surfaces are attributable to a ledger feature.

@@ -231,6 +231,7 @@ export function UrlImportCard() {
                       <li key={it.url + i} className="py-0.5 text-xs">
                         <button
                           type="button"
+                          data-testid={"url-import-item-" + i}
                           onClick={() => void openMirrored(it.url, { push, t })}
                           className="text-left text-success underline-offset-2 hover:underline break-all"
                         >

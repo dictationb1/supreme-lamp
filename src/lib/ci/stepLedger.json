@@ -188,6 +188,17 @@
       "status": "open",
       "title": "F-V4: correlated connection/incident model - attribution, freshness, incident identity",
       "note": "Carries ONE new declared storage surface: ghrdp:incidentAcks (browser-local acknowledgement ledger, src/stores/incidentStore.ts). Acknowledgements are operator-local and never leave the browser; the ledger itself is memory-only and rebuilt from live producer data, so no resolved incident can be resurrected by a reload."
+    },
+    {
+      "step": 16,
+      "number": 102,
+      "branch": "arena/cd153e89-supreme-lamp",
+      "featureIds": [
+        "F-SEARCH-REPAIR"
+      ],
+      "status": "open",
+      "title": "F-SEARCH-REPAIR: Search provider engine, pasted-URL inspection and website-source management",
+      "note": "Carries TWO new declared storage surfaces: ghrdp:searchSources (the source registry mirror, src/stores/sourcesStore.ts - the server registry stays durable, the mirror keeps the operator's sources when it is unreachable) and ghrdp:providerTokens (OPTIONAL GitHub/Openverse tokens that only raise a rate limit - public content is read anonymously and no URL ever prompts for a credential)."
     }
   ],
   "knownRoadmapDrift": []
