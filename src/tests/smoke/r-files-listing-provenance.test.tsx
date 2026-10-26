@@ -179,8 +179,7 @@ describe("Files provenance — live index through the routed page", () => {
     // Wait for the RUNNER's projection, not merely for a count element to exist.
     await waitFor(() => expect(screen.getByTestId("count-indexed-total").textContent).toContain("5000"));
     // The default folder is the root: its only implied child is "reports".
-    const ids = names();
-    expect(ids.length).toBeGreaterThan(0);
+    await waitFor(() => expect(names().length).toBeGreaterThan(0));
     expect(rowText().join(" | ")).toContain("reports");
     // No fixture name may appear once live data has been applied.
     for (const row of rowText()) {
@@ -210,9 +209,8 @@ describe("Files provenance — live index through the routed page", () => {
     expect(note.getAttribute("data-total")).toBe("5000");
     expect(note.textContent).toContain("5000");
     // The window is bounded: 5,000 children must NOT be 5,000 DOM rows.
-    const rendered = names().length;
-    expect(rendered).toBeGreaterThan(0);
-    expect(rendered).toBeLessThan(100);
+    await waitFor(() => expect(names().length).toBeGreaterThan(0));
+    expect(names().length).toBeLessThan(100);
     // ...and the rows that ARE rendered carry the index's own names.
     expect(rowText().join(" | ")).toContain(`${prefix}-00000.iso`);
   });
