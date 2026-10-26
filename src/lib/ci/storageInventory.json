@@ -59,6 +59,7 @@
     ],
     "F-SEARCH-REPAIR": [
       "ghrdp:providerTokens",
+      "ghrdp:search.lane",
       "ghrdp:searchSources"
     ]
   },
@@ -384,6 +385,18 @@
       "i163": false,
       "note": "SEARCH-REPAIR: the operator's source registry mirror (builtin overrides + custom rows), so the Search page still has sources when the PowerShell registry is unreachable. The server registry stays the durable store; this is the reload-safe mirror and export/import is the file-level escape hatch.",
       "addedBy": "F-SEARCH-REPAIR"
+    },
+    {
+      "key": "ghrdp:search.lane",
+      "kind": "localStorage",
+      "classification": "dead-read",
+      "surface": "search",
+      "declaredIn": [
+        "src/lib/search/providerLane.ts"
+      ],
+      "i163": false,
+      "addedBy": "F-SEARCH-REPAIR",
+      "note": "SEARCH-REPAIR: a READ-ONLY escape hatch (`off`) that stops the browser from querying the public providers directly; default (absent or any other value) is ON, because the client lane IS the feature. It is classified dead-read because the app never writes it and that is deliberate: the writers are the hermetic F78/F79 Playwright lane (tests/e2e/fixtures/lane-off.storage.json) and an operator editing their own browser storage when they need the app to behave like the pre-repair server-only fan-out. Declared here so the derived inventory still accounts for every byte the app reads."
     }
   ],
   "nonStorageLookalikes": [

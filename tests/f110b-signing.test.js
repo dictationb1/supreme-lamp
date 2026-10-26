@@ -522,7 +522,7 @@ test("F110b-h: 0 dependencies, 0 i18n keys, 26 storage surfaces, and the doc cla
   // opaque latch in lib/glass/quality.ts is in memory, not storage, so it adds
   // no surface. Declared in src/lib/ci/storageInventory.json, so the diff above
   // stays empty.
-  assert.equal(scan.keys.length, 28, "F110b adds no storage surface: 26 after F-V4, + 2 declared by F-SEARCH-REPAIR (ghrdp:searchSources, ghrdp:providerTokens)");
+  assert.equal(scan.keys.length, 29, "F110b adds no storage surface: 26 after F-V4, + 2 declared by F-SEARCH-REPAIR (ghrdp:searchSources, ghrdp:providerTokens)");
 
   // the panel tells the operator which scheme this build accepts (§EMPTY-STATE-HANDLING)
   const panel = CODE("src/components/livePatch/PatchAuditPanel.tsx");
