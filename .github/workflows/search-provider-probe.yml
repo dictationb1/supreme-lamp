@@ -1,8 +1,15 @@
-# [SEARCH-REPAIR] Live (real-internet) provider probe. Real-provider evidence
-# for the search repair has to be produced on a machine that can reach the
-# providers; this sandbox can only reach github.com/npm/pypi. The job runs
-# scripts/provider-live-probe.mjs and COMMITS the report back to the branch so
-# it is durable (run logs are not fetchable from the authoring environment).
+# [SEARCH-REPAIR] Live (real-internet) provider probe.
+#
+# WHY: the authoring sandbox can only reach github.com/npm/pypi, so the real
+# answers from Open Culture, archive.org, Openverse, fmhy.net and rentry.org can
+# only be observed where the internet is real. This job runs the SAME requests
+# the shipped adapters make, records the bodies as fixtures under
+# tests/providers/fixtures/live/, writes evidence JSON, and COMMITS both back to
+# the branch (run logs are not fetchable from the authoring environment).
+#
+# Note: workflow_dispatch is declared but the authoring token gets HTTP 403 on
+# dispatch (documented in docs/reports/search-repair/README.md); a push touching
+# the paths below is the trigger that works.
 name: search-provider-probe
 on:
   workflow_dispatch:
@@ -20,16 +27,26 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - name: Probe providers
-        run: node scripts/provider-live-probe.mjs --out docs/reports/search-repair/evidence/live-probe.json | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Commit evidence
+        continue-on-error: true
         run: |
-          set -euo pipefail
-          if git diff --quiet -- docs/reports/search-repair/evidence/live-probe.json && git ls-files --error-unmatch docs/reports/search-repair/evidence/live-probe.json >/dev/null 2>&1; then
-            echo "no change"; exit 0
-          fi
+          set -uo pipefail
+          mkdir -p docs/reports/search-repair/evidence
+          node scripts/provider-live-probe.mjs --out docs/reports/search-repair/evidence/live-probe.json 2>&1 | tee docs/reports/search-repair/evidence/live-probe.log || true
+      - name: Commit evidence
+        if: always()
+        run: |
+          set -uo pipefail
           git config user.name "search-repair-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/reports/search-repair/evidence/live-probe.json tests/providers/fixtures/live
+          git add -A docs/reports/search-repair/evidence tests/providers/fixtures/live
+          if git diff --cached --quiet; then echo "no evidence change"; exit 0; fi
           git commit -m "evidence(search): live provider probe [skip ci]"
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          for i in $(seq 1 8); do
+            git fetch -q origin
+            if git rebase -q --autostash "origin/${GITHUB_REF_NAME}" && git push -q origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pushed evidence on attempt $i"; exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep 3
+          done
+          echo "::error::could not push evidence after 8 attempts"; exit 1
