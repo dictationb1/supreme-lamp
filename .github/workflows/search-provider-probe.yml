@@ -1,33 +1,35 @@
+# [SEARCH-REPAIR] Live (real-internet) provider probe. Real-provider evidence
+# for the search repair has to be produced on a machine that can reach the
+# providers; this sandbox can only reach github.com/npm/pypi. The job runs
+# scripts/provider-live-probe.mjs and COMMITS the report back to the branch so
+# it is durable (run logs are not fetchable from the authoring environment).
 name: search-provider-probe
 on:
   workflow_dispatch:
   push:
     branches: ['arena/**']
-    paths: ['.github/workflows/search-provider-probe.yml']
+    paths: ['.github/workflows/search-provider-probe.yml', 'scripts/provider-live-probe.mjs']
 permissions:
-  contents: read
+  contents: write
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Provider reachability + CORS probe
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Probe providers
+        run: node scripts/provider-live-probe.mjs --out docs/reports/search-repair/evidence/live-probe.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Commit evidence
         run: |
-          set -u
-          probe() {
-            url="$1"
-            echo "### $url"
-            curl -sS -o /tmp/body -D /tmp/hdr -L --max-time 25 -A 'SupremeLampProviderCheck/1.0' "$url" || echo "CURL_FAIL $?"
-            echo "--- status/headers (selected)"
-            grep -iE '^(HTTP/|content-type|access-control-allow-origin|location|retry-after|x-ratelimit)' /tmp/hdr || true
-            echo "--- bytes: $(wc -c < /tmp/body)"
-            head -c 300 /tmp/body | tr -d '\r' ; echo
-          }
-          probe 'https://www.openculture.com/?s=Walter+Kaufmann'
-          probe 'https://archive.org/advancedsearch.php?q=subject%3A%22librivox%22&fl%5B%5D=identifier&fl%5B%5D=title&rows=2&page=1&output=json'
-          probe 'https://api.openverse.org/v1/images/?q=saturn&page_size=2'
-          probe 'https://api.github.com/repos/sindresorhus/awesome/readme'
-          probe 'https://api.github.com/repos/mfkl/awesome-vlc'
-          probe 'https://awesome.re/'
-          probe 'https://github.com/ChessMax/awesome-programming-languages'
-          probe 'https://fmhy.net/misc'
+          set -euo pipefail
+          if git diff --quiet -- docs/reports/search-repair/evidence/live-probe.json && git ls-files --error-unmatch docs/reports/search-repair/evidence/live-probe.json >/dev/null 2>&1; then
+            echo "no change"; exit 0
+          fi
+          git config user.name "search-repair-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/reports/search-repair/evidence/live-probe.json
+          git commit -m "evidence(search): live provider probe [skip ci]"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
