@@ -16,7 +16,9 @@
     "check:bottom-bar": "node scripts/check-bottom-bar-time.mjs",
     "check:fx-ids": "node scripts/check-fx-ids.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
-    "check:glass-contrast": "node scripts/check-glass-contrast.mjs"
+    "check:glass-contrast": "node scripts/check-glass-contrast.mjs",
+    "test:providers": "vitest run --config vitest.providers.config.ts",
+    "test:providers:live": "node scripts/run-provider-live.mjs"
   },
   "dependencies": {
     "i18next": "^23.15.1",

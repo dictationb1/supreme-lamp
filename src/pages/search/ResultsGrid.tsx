@@ -17,6 +17,7 @@ import { camel, fileExtension, fileUrlExtension, formatActualBytes, licenceStyle
 import { dirnameWindows, openMirrored, queueLauncherJob } from "@/lib/launchUrl";
 import { hasMediaRoute } from "@/lib/streamRouter";
 import { StreamCard } from "@/components/search/StreamCard";
+import { ProviderResultDetail } from "@/components/search/ProviderStatus";
 
 // [F79 D5/D7] 16px card padding + a 24px inter-result gutter.
 export const CARD_HEIGHT = 216;
@@ -230,6 +231,11 @@ export function ResultsGrid() {
             <p id={"f56.search.resultCreator." + sfx} role="gridcell" data-testid="card-snippet" className="text-sm text-secondary truncate">
               {r.snippet || r.creator || "—"}
             </p>
+            {/* [SEARCH-REPAIR] provider-supplied detail (attribution, licence
+                evidence, category path, file URL, extras). Renders only for
+                rows the client provider lane produced, so the server adapter
+                cards keep their exact existing layout. */}
+            <ProviderResultDetail resultId={r.resultId} />
             <div className="flex items-center gap-2 min-w-0 text-xs">
               <span className="text-tertiary shrink-0">{t("search.v2.card.directUrl")}</span>
               {direct ? (

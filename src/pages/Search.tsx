@@ -8,7 +8,7 @@
 // stub (F56-d replaces that one module).
 import { useEffect, useRef, useState } from "react";
 import { docUrl } from "@/lib/repoIdentity";
-import { Plus, Search as SearchIcon } from "lucide-react";
+import { Plus, Search as SearchIcon, SlidersHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/primitives/PageHeader";
 import { Chip } from "@/components/primitives/Chip";
 import { EmptyState, LoadingState } from "./search/SearchStates";
@@ -33,6 +33,12 @@ import { F86DiagnosticBanner, F90ViewingModeBadge } from "@/components/search/F8
 import { F87SelfTestPanel } from "@/components/search/F87SelfTestPanel";
 import { F90LaunchChoiceModal } from "@/components/search/F90LaunchChoiceModal";
 import { resolveViewingMode } from "@/lib/launchUrl";
+// [SEARCH-REPAIR] the provider lane surfaces
+import { ProviderStatusList } from "@/components/search/ProviderStatus";
+import { UrlImportCard } from "@/components/search/UrlImportCard";
+import { SourcesManager } from "@/components/search/SourcesManager";
+import { useUrlImportStore } from "@/stores/urlImportStore";
+import { useSourcesStore } from "@/stores/sourcesStore";
 import { isDevMode } from "@/lib/devMode";
 import { DEV_FIXTURE_TICK_MS, shouldStreamDevFixture } from "@/lib/domain/devSearchFixture";
 
@@ -131,6 +137,17 @@ export default function Search() {
   const queryRef = useRef<string | null>(null);
   // [F78 §2.2] "+ Add site" modal state (owned by the page, not the bar).
   const [addSiteOpen, setAddSiteOpen] = useState(false);
+  // [SEARCH-REPAIR] full Add/Manage Sources dialog (URL + name + notes +
+  // detection + test + enable/disable + edit + retest + remove + export/import).
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const urlImportStatus = useUrlImportStore((s) => s.status);
+  const refreshSources = useSourcesStore((s) => s.refresh);
+
+  // The source list is loaded once per mount so the lane has what the operator
+  // configured, and again whenever the manager closes (the dialog can add rows).
+  useEffect(() => {
+    void refreshSources();
+  }, [refreshSources]);
 
   // [F56-c v3] §3 DEV fixture fallback: when a settled search produced zero
   // live results, stream fixture rows into the SAME normalized ingest path so
@@ -264,7 +281,17 @@ export default function Search() {
 
       {/* [F78 §2.2] "+ Add site" quick-add entry point, next to the search bar.
           Opens the two-field modal; the saved source lands in "Your sites". */}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <button
+          id="search.manageSources"
+          data-testid="manage-sources-button"
+          type="button"
+          onClick={() => setSourcesOpen(true)}
+          className="inline-flex h-11 items-center gap-1.5 rounded-md border border-default px-3 text-xs text-secondary hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <SlidersHorizontal className="size-3.5" aria-hidden />
+          {t("sources.manage")}
+        </button>
         <button
           id="f78.search.addSite"
           data-testid="add-site-button"
@@ -277,7 +304,24 @@ export default function Search() {
         </button>
       </div>
 
-      <AddSiteQuick open={addSiteOpen} onClose={() => setAddSiteOpen(false)} />
+      <AddSiteQuick
+        open={addSiteOpen}
+        onClose={() => {
+          setAddSiteOpen(false);
+          void refreshSources();
+        }}
+      />
+      <SourcesManager
+        open={sourcesOpen}
+        onClose={() => {
+          setSourcesOpen(false);
+          void refreshSources();
+        }}
+      />
+
+      {/* [SEARCH-REPAIR] A pasted URL is inspected and previewed here; it is
+          never turned into a query, and never turned into a credential prompt. */}
+      <UrlImportCard />
 
       {/* [F83 §2.1] Stored sites stay visible on the LANDING view too. Before
           this, <CustomSitesRow/> rendered only inside the results section, so
@@ -335,6 +379,7 @@ export default function Search() {
 
                 <ProgressiveLab />
                 <AdapterStatusList />
+                <ProviderStatusList />
             </>
           ) : null}
 
@@ -390,7 +435,7 @@ export default function Search() {
               </p>
             ) : null}
             {busy && totalResults === 0 ? <LoadingState /> : null}
-            {(phase === "complete" || phase === "empty") && totalResults === 0 ? (
+            {(phase === "complete" || phase === "empty") && totalResults === 0 && urlImportStatus === "idle" ? (
               <>
                 <SearchFailureSummary />
                 <EmptyState query={lastSubmittedQuery} onAddSite={() => setAddSiteOpen(true)} />

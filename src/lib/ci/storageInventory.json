@@ -56,6 +56,10 @@
     ],
     "F-V4": [
       "ghrdp:incidentAcks"
+    ],
+    "F-SEARCH-REPAIR": [
+      "ghrdp:providerTokens",
+      "ghrdp:searchSources"
     ]
   },
   "keys": [
@@ -356,6 +360,30 @@
       "i163": false,
       "addedBy": "F-V4",
       "note": "zustand persist of the operator's acknowledgements only (partialize -> {acks}). Deliberately browser-local: an ack means 'I have read this', never an operational fact about the runner, so it is not synced and cannot hide an incident from another operator. The incident ledger itself is IN MEMORY and rebuilt from live producer data."
+    },
+    {
+      "key": "ghrdp:providerTokens",
+      "kind": "localStorage",
+      "classification": "live",
+      "surface": "search",
+      "declaredIn": [
+        "src/lib/providers/appContext.ts"
+      ],
+      "i163": false,
+      "note": "SEARCH-REPAIR: the operator's OPTIONAL provider tokens (GitHub PAT / Openverse token). Never required - public content is read anonymously - and only used to raise a provider's rate limit. Written only when the operator supplies one, removed when both are cleared.",
+      "addedBy": "F-SEARCH-REPAIR"
+    },
+    {
+      "key": "ghrdp:searchSources",
+      "kind": "localStorage",
+      "classification": "live",
+      "surface": "search",
+      "declaredIn": [
+        "src/stores/sourcesStore.ts"
+      ],
+      "i163": false,
+      "note": "SEARCH-REPAIR: the operator's source registry mirror (builtin overrides + custom rows), so the Search page still has sources when the PowerShell registry is unreachable. The server registry stays the durable store; this is the reload-safe mirror and export/import is the file-level escape hatch.",
+      "addedBy": "F-SEARCH-REPAIR"
     }
   ],
   "nonStorageLookalikes": [

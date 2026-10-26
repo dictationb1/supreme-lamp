@@ -85,7 +85,12 @@ describe("i18n F56 parity (byte-verified)", () => {
     // the five diagnostic field labels, the six named non-ready states and the
     // unknown/sample fallbacks). 549 -> 577.
     // [V4 / #1] added 1 key: files.listing.provenance.auth_required. 577 -> 578.
-    expect(enNew.length).toBe(578);
+    // [SEARCH-REPAIR] +26 inside the search.* namespace: search.providers.*
+    // (6 provider names, 7 status values, 3 status-line templates and the 9
+    // result-detail labels). 578 -> 604. The sources.* and urlImport.* keys are
+    // OUTSIDE this namespace and are pinned by
+    // src/tests/providers/sources-store.test.ts.
+    expect(enNew.length).toBe(604);
   });
 
   it("every si value is non-empty, byte-stable Sinhala or a technical token", () => {

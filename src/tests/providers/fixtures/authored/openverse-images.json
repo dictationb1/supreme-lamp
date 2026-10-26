@@ -1,0 +1,29 @@
+{
+  "result_count": 1,
+  "page_count": 1,
+  "page_size": 1,
+  "page": 1,
+  "results": [
+    {
+      "id": "b1c2d3e4-0000-4000-8000-000000000001",
+      "title": "Saturn from Cassini",
+      "creator": "NASA/JPL",
+      "creator_url": "https://commons.wikimedia.org/wiki/User:NASA",
+      "license": "cc0",
+      "license_version": "1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "\"Saturn from Cassini\" by NASA/JPL is marked with CC0 1.0",
+      "source": "wikimedia",
+      "provider": "wikimedia",
+      "foreign_landing_url": "https://commons.wikimedia.org/wiki/File:Saturn_from_Cassini.jpg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/1e/Saturn_from_Cassini.jpg",
+      "thumbnail": "https://api.openverse.org/v1/images/b1c2d3e4-0000-4000-8000-000000000001/thumb/",
+      "filesize": 812345,
+      "filetype": "jpg",
+      "width": 1920,
+      "height": 1080,
+      "mature": false,
+      "category": "photograph"
+    }
+  ]
+}

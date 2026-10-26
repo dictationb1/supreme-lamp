@@ -32,6 +32,10 @@ export interface CustomSourceRow {
    *  the tolerant fence was what kept the Lab working. */
   canonicalHostname?: string;
   labMode: boolean;
+  /** [SEARCH-REPAIR] Operator notes: what they want to find on this site. */
+  notes?: string;
+  /** [SEARCH-REPAIR] Whether this source takes part in a search. */
+  enabled?: boolean;
   category: string;
   allowedDomains: string[];
   enableState: string;
@@ -146,6 +150,9 @@ function asRow(raw: unknown): CustomSourceRow | null {
     // single-host card renders exactly as it did in F84.
     canonicalHostname: canonicalOf(ext.hostname, r.canonicalHostname ?? (rawExt as Record<string, unknown>).canonicalHostname),
     labMode: ext.labMode !== false,
+    // [SEARCH-REPAIR] present only when the server row carries them.
+    notes: typeof r.notes === "string" ? r.notes : undefined,
+    enabled: typeof r.enabled === "boolean" ? r.enabled : undefined,
     category: String(descriptor.category ?? "software"),
     allowedDomains: Array.isArray(descriptor.allowedDomains) ? descriptor.allowedDomains.map(String) : ext.hostname ? [ext.hostname] : [],
     enableState: String(ext.enableState ?? "permanent"),
@@ -210,7 +217,16 @@ export async function listCustomSources(): Promise<LabResult<CustomSourceRow[]>>
   }
 }
 
-export async function createCustomSource(name: string, baseUrl: string): Promise<LabResult<CustomSourceRow>> {
+export interface CustomSourceOptions {
+  notes?: string;
+  enabled?: boolean;
+}
+
+export async function createCustomSource(
+  name: string,
+  baseUrl: string,
+  opts: CustomSourceOptions = {}
+): Promise<LabResult<CustomSourceRow>> {
   const invalid = validateNewSite(name, baseUrl);
   if (invalid) return offline("VALIDATION_ERROR", invalid);
   try {
@@ -219,7 +235,13 @@ export async function createCustomSource(name: string, baseUrl: string): Promise
       cache: "no-store",
       headers: { "Content-Type": "application/json", ...dashHeaders() },
       // labMode:true is the F78 default for this flow (a Lab Mode shortcut).
-      body: JSON.stringify({ name: String(name).trim(), baseUrl: String(baseUrl).trim(), labMode: true }),
+      body: JSON.stringify({
+        name: String(name).trim(),
+        baseUrl: String(baseUrl).trim(),
+        labMode: true,
+        ...(opts.notes != null ? { notes: String(opts.notes).slice(0, 280) } : {}),
+        ...(opts.enabled != null ? { enabled: Boolean(opts.enabled) } : {}),
+      }),
     });
     const body = (await r.json().catch(() => null)) as unknown;
     if (!r.ok) {
@@ -249,6 +271,41 @@ export async function createCustomSource(name: string, baseUrl: string): Promise
       return offline(String(env.code || "VALIDATION_ERROR"), String(fieldErr || env.messageKey || "search.errors.generic"), hasField ? fieldErrors : undefined);
     }
     const row = asRow((body as { source?: unknown })?.source ?? body);
+    return row ? { ok: true, data: row } : offline("INTERNAL_ERROR", "search.errors.generic");
+  } catch {
+    return offline("TRANSPORT_UNAVAILABLE", unreachableErrorKey());
+  }
+}
+
+/**
+ * [SEARCH-REPAIR] PATCH /api/f58/sources/<id> - edit one stored source's
+ * display name, notes or enabled flag. Only the fields supplied are sent, so an
+ * older server (which ignores unknown bodies) can never corrupt a row.
+ */
+export async function updateCustomSource(
+  sourceId: string,
+  patch: { name?: string; notes?: string; enabled?: boolean }
+): Promise<LabResult<CustomSourceRow>> {
+  const id = String(sourceId || "").trim();
+  if (!id || id.includes("/") || id.includes("..")) return offline("VALIDATION_ERROR", "search.errors.validation");
+  const body: Record<string, unknown> = {};
+  if (patch.name != null) body.name = String(patch.name).trim().slice(0, NEW_SITE_NAME_MAX);
+  if (patch.notes != null) body.notes = String(patch.notes).slice(0, 280);
+  if (patch.enabled != null) body.enabled = Boolean(patch.enabled);
+  if (!Object.keys(body).length) return offline("VALIDATION_ERROR", "search.errors.validation");
+  try {
+    const r = await fetch(apiBase() + SOURCES_PATH + "/" + encodeURIComponent(id), {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", ...dashHeaders() },
+      body: JSON.stringify(body),
+    });
+    const raw = (await r.json().catch(() => null)) as unknown;
+    if (!r.ok) {
+      const env = (raw || {}) as { code?: string; messageKey?: string };
+      return offline(String(env.code || (r.status === 404 ? "NOT_FOUND" : "VALIDATION_ERROR")), String(env.messageKey || actionableErrorKey(String(env.code || `HTTP_${r.status}`))));
+    }
+    const row = asRow((raw as { source?: unknown })?.source ?? raw);
     return row ? { ok: true, data: row } : offline("INTERNAL_ERROR", "search.errors.generic");
   } catch {
     return offline("TRANSPORT_UNAVAILABLE", unreachableErrorKey());

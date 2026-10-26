@@ -946,6 +946,36 @@
       "empty": "No results",
       "failed": "Failed",
       "cancelled": "Cancelled"
+    },
+    "providers": {
+      "github": "GitHub",
+      "internetArchive": "Internet Archive",
+      "openverse": "Openverse",
+      "openCulture": "Open Culture",
+      "fmhy": "FMHY",
+      "rentry": "rentry.org",
+      "statusLabel": "Sources",
+      "doneOf": "{{done}}/{{total}} finished",
+      "filtersApplied": "filters: {{filters}}",
+      "filtersIgnored": "ignored: {{filters}}",
+      "retryAfter": "retry in {{seconds}}s",
+      "status": {
+        "complete": "complete",
+        "empty": "empty",
+        "running": "running",
+        "queued": "queued",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "unsupported": "not supported"
+      },
+      "details": "Where this result came from",
+      "sourceLine": "Source",
+      "categoryPath": "Category",
+      "licence": "Licence evidence",
+      "licenceUrl": "Licence URL",
+      "file": "File",
+      "notStated": "Not stated by the provider",
+      "howItWorks": "How this source is read"
     }
   },
   "files": {
@@ -1698,5 +1728,113 @@
     "sourceRev": "Source revision",
     "backendRelease": "Backend release",
     "hint": "The served stamp is read from the running page. The backend release is only read when you press Re-check."
+  },
+  "sources": {
+    "title": "Sources and websites",
+    "manage": "Manage sources",
+    "close": "Close",
+    "tabs": "Source management sections",
+    "tab": {
+      "add": "Add website",
+      "manage": "Manage",
+      "transfer": "Export / import"
+    },
+    "storage": {
+      "server": "Saved on the dashboard server and mirrored in this browser.",
+      "local": "The server is not reachable: changes are kept in this browser only. Export them to avoid losing them."
+    },
+    "field": {
+      "url": "Website URL",
+      "label": "Display name (optional)",
+      "labelPlaceholder": "site name",
+      "notes": "Notes: what do you want to find here? (optional)",
+      "notesPlaceholder": "e.g. free film archives, VLC plugins, board game rules"
+    },
+    "detected": "Detected type",
+    "detect": {
+      "builtin": "{{provider}} ({{kind}}) - read through its own interface",
+      "custom": "Custom website - feed, sitemap or page reading"
+    },
+    "test": "Test / preview",
+    "save": "Add source",
+    "added": "Added {{host}}",
+    "loading": "Loading sources…",
+    "kind": {
+      "builtin": "built-in",
+      "custom": "added"
+    },
+    "enabled": "enabled",
+    "edit": "Edit",
+    "editSave": "Save",
+    "cancel": "Cancel",
+    "retest": "Retest",
+    "remove": "Remove",
+    "bulk": {
+      "label": "Add several websites at once (one URL per line)",
+      "add": "Add all",
+      "ok": "added",
+      "failed": "not added"
+    },
+    "export": {
+      "button": "Download sources file"
+    },
+    "import": {
+      "button": "Import from text",
+      "label": "Paste a previously exported sources file",
+      "done": "Imported {{count}} source(s)",
+      "failed": "Import failed"
+    },
+    "transfer": {
+      "help": "The server registry can be lost when the dashboard restarts in a fresh environment. Export your sources to keep them, and import the file to restore them.",
+      "backToManage": "Back to manage"
+    },
+    "capabilities": {
+      "search": "Search",
+      "inspect": "Open a URL",
+      "pagination": "Paging",
+      "downloads": "Files",
+      "attribution": "Attribution",
+      "filters": "Filters that change the request: {{filters}}",
+      "unknown": "Capabilities are detected when you run Test / preview.",
+      "custom": "Custom sites are read through their feed, sitemap or own search form; run Test / preview to see which one answered.",
+      "level": {
+        "supported": "yes",
+        "partial": "partly",
+        "unsupported": "no"
+      }
+    },
+    "errors": {
+      "urlInvalid": "Enter an https:// address for a real host.",
+      "saveFailed": "The source could not be saved."
+    }
+  },
+  "urlImport": {
+    "badge": "Pasted URL",
+    "alias": "known alias of {{from}}",
+    "clear": "Clear",
+    "inspecting": "Opening this page through {{provider}}…",
+    "ms": "{{ms}} ms",
+    "canonical": "Canonical address",
+    "add": "Add as source",
+    "open": "Open original",
+    "searchInstead": "Search instead",
+    "addedAs": "Added as {{name}}",
+    "added": "Source added",
+    "notAddable": "This page cannot be searched, so it is not offered as a source.",
+    "addAnyway": "Add anyway",
+    "capabilities": "What this source can do",
+    "help": {
+      "notFound": "The page or item does not exist. Check the address - a private GitHub repository also answers 404, and only then is a token needed.",
+      "rateLimited": "The provider is limiting requests. Wait for the stated time, or add a token for that provider in Manage sources.",
+      "authRequired": "This provider really did require a credential for this request. Public pages never do.",
+      "forbidden": "The site refused the request (403). It may block automated clients.",
+      "cors": "The browser is not allowed to read this host directly. Enable the server relay or use a provider API for it.",
+      "relay": "The dashboard server relay is not available on this build. It needs the server route /api/providers/relay.",
+      "timeout": "The provider did not answer in time. Retry, or try a smaller page.",
+      "network": "The provider could not be reached from this machine. Check the connection.",
+      "unsupported": "This build has no adapter for that page type, so it cannot be searched. Nothing was saved.",
+      "parse": "The page answered, but it did not contain the structure this adapter reads.",
+      "size": "The page is larger than the 2 MB reader limit."
+    }
   }
 }
