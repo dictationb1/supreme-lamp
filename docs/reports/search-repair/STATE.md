@@ -51,3 +51,17 @@ Pinned counts that moved with this change, each re-MEASURED rather than incremen
 ghrdp:providerTokens, both `addedBy: "F-SEARCH-REPAIR"`), the i18n flat-key lock
 1280 -> 1384, and a new `stepLedger.json` entry (step 16, PR #102) so the two new
 storage surfaces are attributable to a ledger feature.
+
+## CI at revision `9afc508` (PR #102)
+
+| Workflow | Run | Conclusion |
+|---|---|---|
+| `launch-gates` (static + unit + **Windows-native**, incl. parsing `payloads/ghrdp-server.ps1` with the PowerShell parser) | 40261801235 | success |
+| `autologin-lab` (Windows proof suite) | 40261801144 | success |
+| `F59 build-ui` (prebuilt UI release asset) | 40261801148 | success |
+
+An earlier revision (`9583c36`) failed `launch-gates` at "Node Unit Tests &
+PowerShell Parser": the repo's own gates (i18n key lock, storage inventory, the
+data-testid rule) had not yet been updated for the new surfaces. `9afc508` fixes
+exactly that and the gate is green — which is why the pinned counts in §"Gates"
+above are re-measured here rather than incremented.

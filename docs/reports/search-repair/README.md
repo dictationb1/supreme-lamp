@@ -117,6 +117,9 @@ Persistence boundary (deliberate, and pinned by tests):
 | `scripts/provider-live-probe.mjs` (15 real endpoints: Open Culture, archive.org, Openverse, api.github.com, fmhy.net, rentry.org) | **live** | all HTTP 200 — `evidence/live-probe.json` |
 | `npm run test:smoke` (full jsdom suite) | static/fixture | see `STATE.md` for the recorded run |
 | Browser click-through on a Windows VM with the real server | **not run here** — see §7 | BLOCKED in this environment |
+| `launch-gates` (incl. the **Windows-native** job and its "Parse native PowerShell scripts" step, which parses `payloads/ghrdp-server.ps1` on a real Windows runner) | CI | **PASS** — run 40261801235, revision `9afc508` |
+| `autologin-lab` (Windows native proof suite) | CI | **PASS** — run 40261801144, revision `9afc508` |
+| `F59 build-ui` (prebuilt UI release asset) | CI | **PASS** — run 40261801148, revision `9afc508` |
 
 Fixtures and live runs are never mixed: a payload under
 `src/tests/providers/fixtures/authored/` pins the *parser*; a payload under
@@ -157,7 +160,7 @@ The authoring environment can reach **only** `github.com`, `api.github.com`,
 |---|---|---|---|
 | Open Culture / Internet Archive / Openverse / fmhy.net / rentry.org **live adapter runs** | NOT RUN here (payload reachability is proven by the probe; parsing is proven by fixtures) | egress blocked from the sandbox | on a machine with internet: `npm run test:providers:live` — the `*-live.test.ts` files cover each provider |
 | Browser click-through of the new controls | NOT RUN here | no browser/Playwright download in the sandbox | on the VM: follow `LAB-VERIFICATION-PROMPT.md`, scenario list A–L |
-| `payloads/ghrdp-server.ps1` changes (`/api/providers/relay`, `PATCH /api/f58/sources/<id>`, `notes`/`enabled` on `POST`) | WRITTEN, NOT EXECUTED | no `pwsh`/Windows in the sandbox | on the VM: `pwsh -c "[System.Management.Automation.Language.Parser]::ParseFile('payloads/ghrdp-server.ps1',[ref]$null,[ref]$e); $e"` then the route checks in `LAB-VERIFICATION-PROMPT.md` §3 |
+| `payloads/ghrdp-server.ps1` changes (`/api/providers/relay`, `PATCH /api/f58/sources/<id>`, `notes`/`enabled` on `POST`) | **PARSED on a real Windows runner** (launch-gates step "Parse native PowerShell scripts", run 40261801235); the three ROUTES are not exercised | a syntax error is ruled out; server start-up and live request handling still need the VM | `LAB-VERIFICATION-PROMPT.md` §3 (the six route checks) |
 | Windows runner suite (launch gates, RDP, launcher) | unchanged by this branch | — | the existing `autologin-lab` workflow already ran green on this branch's commit |
 
 **First unresolved cause** of anything still failing on a real machine would be
