@@ -54,6 +54,7 @@ not be executed in the authoring environment (see §7).
 | D10 | Adding a site did not make it searchable; nothing could be edited | the F58 registry could only `POST` and `DELETE`; the Search page had no idea a source existed | `PATCH /api/f58/sources/<id>` (new), `notes`/`enabled` on `POST`, and `src/stores/sourcesStore.ts` which turns registry rows into search sources |
 | D11 | Silent/decorative buttons | several controls had no handler, and some actions "succeeded" in the UI while the server rejected them | every control in the source manager acts on the store and surfaces the server's own error; `Add as source` is only offered when `InspectOutcome.addable` is true |
 | D12 | Sinhala text missing for the new surfaces | the new UI had English-only strings | 104 keys added to **both** `src/i18n/en.json` and `src/i18n/si.json`; the parity test pins the key count |
+| D13 | **After the merge**, `e2e-ui` went red on `main` at `243dced`: `tests/e2e/f79-google-simple.spec.ts` saw **12 result cards where its fixture backend serves 2**, never showed the empty state for `xyz`, and timed out | the app ships a **client provider lane** that queries the real providers from the browser. The F78/F79 lane runs the production bundle against a *fixture* backend that deliberately answers with two fixed rows, and the Playwright runner has working egress, so ten **live** GitHub rows were merged into the two fixture rows (`toHaveCount(2)` → 12) and `xyz` stopped being empty. Real result silently replacing a fixture — the mirror of the defect the brief forbids | `ghrdp:search.lane = "off"` is now a documented, read-once switch in `src/lib/search/providerLane.ts › resolveLaneEnabled()`, and `playwright.e2e-ui.config.ts` sets it for every spec through `tests/e2e/fixtures/lane-off.storage.json`. The lane stays ON for real sessions (default) and keeps its own deterministic + live suites. Pinned by three tests in `src/tests/providers/lane-and-stores.test.ts` |
 
 ---
 
@@ -185,3 +186,28 @@ provider results.
   defaults without touching the server registry.
 
 See `README-si.md` for the Sinhala summary of this document.
+
+---
+
+## 9. Lane kill switch (operator + CI)
+
+The client-side provider lane (`src/lib/search/providerLane.ts`) is what makes
+Search query Open Culture, the Internet Archive, Openverse and GitHub straight
+from the browser. It is **on by default**; there is no UI toggle, because it is
+the feature.
+
+Two documented ways to switch it off, both read **once at page load** by
+`resolveLaneEnabled()`:
+
+```js
+localStorage.setItem("ghrdp:search.lane", "off"); // documented value
+window.__GHRDP_PROVIDER_LANE__ = false;           // page-level override (before boot)
+```
+
+Anything else — absent, `"on"`, an unrelated string, storage that throws in
+private mode — leaves the lane **on**. The only in-repo user is the hermetic
+Chromium lane (`playwright.e2e-ui.config.ts` +
+`tests/e2e/fixtures/lane-off.storage.json`), which compares the production bundle
+against a fixed fixture backend and must not have real provider rows mixed into
+its expected counts. The switch is registered in `src/lib/ci/storageInventory.json`
+as a `dead-read` surface, deliberately: the app never writes it.

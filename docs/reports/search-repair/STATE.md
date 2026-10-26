@@ -110,3 +110,35 @@ node scripts/provider-live-probe.mjs --out docs/reports/search-repair/evidence/l
 
 The last committed probe evidence (`evidence/live-probe.json`, run 40255818095)
 covers 15 real endpoints and is what §3 of the README cites.
+
+## Post-merge defect found by CI, and its repair
+
+`e2e-ui` on `main` at `243dced` was **red**: `tests/e2e/f79-google-simple.spec.ts`
+failed five assertions. The annotations the workflow emits (the step log itself is
+not retrievable from this sandbox — `results-receiver.actions.githubusercontent.com`
+is outside the allowed egress) read:
+
+```text
+F79-E2E-FAIL1 :: zero results names xyz ... Test timeout of 60000ms exceeded.
+                 Expected substring: "No results for 'xyz'. Try broader terms or"
+F79-E2E-FAIL2 :: Classifier... :: expect(locator).toHaveCount(expected) failed
+                 :: Expected: 2 | Received: 12
+F79-E2E-FAIL3 :: result typography ... :: Expected: 2 | Received: 12
+```
+
+Cause (demonstrated, not guessed): the client provider lane is ON in the
+production bundle, the F79 fixture backend answers "tls" with exactly two rows,
+and the Playwright runner has egress — so ten live GitHub rows were merged in on
+top of the two fixture rows, and "xyz" stopped being empty because GitHub really
+does return repositories for it. The fixture lane is hermetic by design; the
+production path is correct and stays on by default.
+
+Repair: `resolveLaneEnabled()` in `src/lib/search/providerLane.ts` honours
+`localStorage["ghrdp:search.lane"] === "off"` and a
+`window.__GHRDP_PROVIDER_LANE__ = false` override, read once at load; the E2E
+config switches it off for every spec via
+`tests/e2e/fixtures/lane-off.storage.json`. Three new tests in
+`src/tests/providers/lane-and-stores.test.ts` pin the resolver *and* assert the
+config + state file still agree with it. Evidence for the repair itself: the
+`e2e-ui` run on the repair revision (see the PR), because a browser lane cannot be
+executed in this sandbox (no Chromium binary, no browser egress).

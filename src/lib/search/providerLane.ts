@@ -113,6 +113,40 @@ export function setProviderLaneEnabled(enabled: boolean): void {
   laneEnabled = enabled;
 }
 
+/**
+ * The storage key an operator (or a hermetic E2E lane) sets to `off` to keep the
+ * browser from querying the public providers directly.
+ *
+ * WHY IT MUST EXIST AND WHY IT IS NOT A TOGGLE IN THE UI: the client lane is the
+ * feature - it is ON in every real session. But the F78/F79 Chromium lane runs
+ * the PRODUCTION bundle against a FIXTURE backend that returns a fixed two-row
+ * answer on purpose, and Playwright's runner has working internet egress: with
+ * the lane unconditionally on, ten real GitHub rows landed on top of the two
+ * fixture rows, so `toHaveCount(2)` saw 12 and the "xyz returns nothing" state
+ * never appeared. That is the same dishonesty as a fixture silently replacing a
+ * production result, just mirrored - a real result silently replacing the
+ * fixture of a hermetic test. The switch lives here, is read once at load, and
+ * is documented in docs/reports/search-repair/README.md §"Lane kill switch".
+ */
+export const SEARCH_LANE_STORAGE_KEY = "ghrdp:search.lane";
+
+/** Resolve the lane's initial state from the environment it is loaded in. */
+export function resolveLaneEnabled(win?: { localStorage?: Storage; __GHRDP_PROVIDER_LANE__?: unknown } | null): boolean {
+  const w = win === undefined ? (typeof window === "undefined" ? null : (window as unknown as { localStorage?: Storage; __GHRDP_PROVIDER_LANE__?: unknown })) : win;
+  if (!w) return true;
+  // A page-level override wins (a spec can set it before the bundle boots).
+  if (w.__GHRDP_PROVIDER_LANE__ === false) return false;
+  try {
+    const store = w.localStorage;
+    if (store && store.getItem(SEARCH_LANE_STORAGE_KEY) === "off") return false;
+  } catch {
+    // private mode / disabled storage: the lane stays on, which is the safe default
+  }
+  return true;
+}
+
+laneEnabled = resolveLaneEnabled();
+
 export function isProviderLaneEnabled(): boolean {
   return laneEnabled;
 }

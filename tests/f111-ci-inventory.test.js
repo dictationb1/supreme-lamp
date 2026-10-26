@@ -369,9 +369,9 @@ test("F111-e: the declared storage inventory equals what the tree really persist
   // src/lib/glass/quality.ts is IN MEMORY, so it adds no surface. 24 + 1 = 25.
   // [SEARCH-REPAIR] re-MEASURED (not incremented): + ghrdp:searchSources and
   // ghrdp:providerTokens, both localStorage, both declared with addedBy:"F-SEARCH-REPAIR".
-  // 26 + 2 = 28.
-  assert.equal(scan.keys.length, 28, "derived surface count moved - re-measure and update the declaration");
-  assert.deepEqual(byClass, { live: 24, migration: 1, purged: 3 }, "classification census moved"); // [SEARCH-REPAIR] + 2 live
+  // 26 + 2 = 28, plus the read-only lane switch (dead-read) = 29.
+  assert.equal(scan.keys.length, 29, "derived surface count moved - re-measure and update the declaration");
+  assert.deepEqual(byClass, { live: 24, "dead-read": 1, migration: 1, purged: 3 }, "classification census moved"); // [SEARCH-REPAIR] + 2 live
   assert.equal(scan.keys.filter((k) => k.kind === "indexedDB").length, 2, "two IndexedDB surfaces (ghrdp-dvr, ghrdp-patches)");
   assert.equal(diff.agreed.length, declared.keys.length, "every declared key must be fully agreed, not just present");
 

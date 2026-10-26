@@ -539,7 +539,7 @@ test("F110-j: 0 dependencies, 0 i18n keys, 0 new registry sections, and both per
   // preference in prefsStore). The performance latch in lib/glass/quality.ts is
   // deliberately IN MEMORY, not a storage key: it only has to hold for the rest
   // of the page load, so persisting it would add a surface for no benefit.
-  assert.equal(scan.keys.length, 28, "the derived count this step moved: 23 -> 25, then M4 removed the dead read: 24, then R-GLASS declared 1: 25, then F-V4 declared ghrdp:incidentAcks: 26, then F-SEARCH-REPAIR declared ghrdp:searchSources + ghrdp:providerTokens: 28");
+  assert.equal(scan.keys.length, 29, "the derived count this step moved: 23 -> 25, then M4 removed the dead read: 24, then R-GLASS declared 1: 25, then F-V4 declared ghrdp:incidentAcks: 26, then F-SEARCH-REPAIR declared ghrdp:searchSources + ghrdp:providerTokens + the read-only ghrdp:search.lane switch: 29");
   // and the ledger records the carrier, with the id the title names
   const ledger = readJson("src/lib/ci/stepLedger.json");
   const e9 = ledger.entries.find((e) => Number(e.step) === 9);

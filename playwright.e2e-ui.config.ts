@@ -16,6 +16,17 @@ export default defineConfig({
     baseURL: process.env.F78_BASE_URL || "http://127.0.0.1:5173",
     headless: true,
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined },
+    // [SEARCH-REPAIR] This lane compares the production bundle against a FIXTURE
+    // backend with a fixed answer set (two rows for "tls", nothing for "xyz").
+    // The app also ships a client-side provider lane that queries the real
+    // providers from the browser; run from a Playwright runner with egress it
+    // mixed ten live GitHub rows into the two fixture rows and the deterministic
+    // assertions (toHaveCount(2), the empty state) failed. The storageState below
+    // switches that lane off for every spec in this config, so this lane tests
+    // the SERVER contract only. The client lane has its own deterministic suites
+    // (src/tests/providers/*, src/tests/smoke/search-repair-ui.test.tsx) and its
+    // own live probe, so nothing here hides a production path.
+    storageState: "tests/e2e/fixtures/lane-off.storage.json",
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     navigationTimeout: 30000,

@@ -330,3 +330,48 @@ describe("pasted-URL inspection", () => {
     expect(useUrlImportStore.getState().status).toBe("ready");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The lane kill switch (FIXTURE evidence, not a live probe)
+//
+// WHY THIS EXISTS: e2e-ui run 40263554441 on the merged revision was RED in
+// tests/e2e/f79-google-simple.spec.ts - 12 result cards where the fixture
+// backend serves 2, and no empty state for "xyz" - because the PRODUCTION
+// bundle queried the real providers from the Playwright runner and mixed ten
+// live GitHub rows into the two fixture rows. The lane is now switched off for
+// that hermetic config through localStorage, and this pins the resolver so the
+// switch cannot silently stop working (which would bring the same red back with
+// no clue attached).
+// ---------------------------------------------------------------------------
+describe("resolveLaneEnabled (the hermetic-lane switch)", () => {
+  it("defaults ON: no window, no key, unrelated value, or throwing storage", async () => {
+    const lane = await import("@/lib/search/providerLane");
+    expect(lane.SEARCH_LANE_STORAGE_KEY).toBe("ghrdp:search.lane");
+    expect(lane.resolveLaneEnabled(null)).toBe(true);
+    const store = (value: string | null) => ({ getItem: () => value }) as unknown as Storage;
+    expect(lane.resolveLaneEnabled({ localStorage: store(null) })).toBe(true);
+    expect(lane.resolveLaneEnabled({ localStorage: store("on") })).toBe(true);
+    expect(lane.resolveLaneEnabled({})).toBe(true);
+    const throwing = { getItem: () => { throw new Error("denied"); } } as unknown as Storage;
+    expect(lane.resolveLaneEnabled({ localStorage: throwing })).toBe(true);
+  });
+
+  it("switches OFF for the documented value and for a page-level override", async () => {
+    const lane = await import("@/lib/search/providerLane");
+    const store = (value: string) => ({ getItem: () => value }) as unknown as Storage;
+    expect(lane.resolveLaneEnabled({ localStorage: store("off") })).toBe(false);
+    expect(lane.resolveLaneEnabled({ localStorage: store("on"), __GHRDP_PROVIDER_LANE__: false })).toBe(false);
+  });
+
+  it("the hermetic Playwright lane really sets the documented value", () => {
+    // The config and the state file must agree with the resolver, or the E2E
+    // lane goes nondeterministic again with no test failing here.
+    const config = readFileSync(join(process.cwd(), "playwright.e2e-ui.config.ts"), "utf8");
+    expect(config).toContain("lane-off.storage.json");
+    const state = JSON.parse(readFileSync(join(process.cwd(), "tests/e2e/fixtures/lane-off.storage.json"), "utf8")) as {
+      origins: { origin: string; localStorage: { name: string; value: string }[] }[];
+    };
+    const entry = state.origins.flatMap((o) => o.localStorage).find((e) => e.name === "ghrdp:search.lane");
+    expect(entry?.value).toBe("off");
+  });
+});
