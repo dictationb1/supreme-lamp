@@ -1,0 +1,33 @@
+name: search-provider-probe
+on:
+  workflow_dispatch:
+  push:
+    branches: ['arena/**']
+    paths: ['.github/workflows/search-provider-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Provider reachability + CORS probe
+        run: |
+          set -u
+          probe() {
+            url="$1"
+            echo "### $url"
+            curl -sS -o /tmp/body -D /tmp/hdr -L --max-time 25 -A 'SupremeLampProviderCheck/1.0' "$url" || echo "CURL_FAIL $?"
+            echo "--- status/headers (selected)"
+            grep -iE '^(HTTP/|content-type|access-control-allow-origin|location|retry-after|x-ratelimit)' /tmp/hdr || true
+            echo "--- bytes: $(wc -c < /tmp/body)"
+            head -c 300 /tmp/body | tr -d '\r' ; echo
+          }
+          probe 'https://www.openculture.com/?s=Walter+Kaufmann'
+          probe 'https://archive.org/advancedsearch.php?q=subject%3A%22librivox%22&fl%5B%5D=identifier&fl%5B%5D=title&rows=2&page=1&output=json'
+          probe 'https://api.openverse.org/v1/images/?q=saturn&page_size=2'
+          probe 'https://api.github.com/repos/sindresorhus/awesome/readme'
+          probe 'https://api.github.com/repos/mfkl/awesome-vlc'
+          probe 'https://awesome.re/'
+          probe 'https://github.com/ChessMax/awesome-programming-languages'
+          probe 'https://fmhy.net/misc'
