@@ -142,3 +142,48 @@ config switches it off for every spec via
 config + state file still agree with it. Evidence for the repair itself: the
 `e2e-ui` run on the repair revision (see the PR), because a browser lane cannot be
 executed in this sandbox (no Chromium binary, no browser egress).
+
+## REPAIR MERGED — final state of the search-repair work
+
+| Field | Value |
+|---|---|
+| PR #102 (the repair) | merged 2026-10-26T03:20:02Z as `243dced` |
+| PR #103 (merged-revision evidence) | merged 2026-10-26T03:31Z as `be78683` |
+| PR #104 (**the `e2e-ui` repair, D13**) | merged 2026-10-26T04:02:08Z as `8c238cc655511cb47fbfa247a0ffef84b0afd95f` |
+| `main` head after the repair | `8c238cc` |
+
+CI on the repair revision `d27d3e6` (the tree that became `8c238cc`):
+
+| Workflow | Conclusion |
+|---|---|
+| `e2e-ui` (full Chromium lane — 5 F79 assertions had been failing) | **success** (run 40265711519) |
+| `launch-gates` | success (pull_request run and push run) |
+| `autologin-lab` | success |
+| `F59 build-ui` | success |
+
+Re-checked on a fresh worktree of the merge commit `8c238cc` itself:
+
+```text
+node --test tests/*.test.js                       -> 931 pass / 0 fail
+npx vitest run --config vitest.providers.config.ts -> 39 pass, 11 live skipped
+                                                      (lane-and-stores is now 18)
+```
+
+`replay viewer` remains red on its own `schedule` trigger at `3cda15e`; it is a
+pre-existing Pages-publishing job, unrelated to Search and untouched by this work.
+
+### What is still NOT verified (unchanged, and it is a VM-only boundary)
+
+1. Live non-GitHub providers from this sandbox (Open Culture / Internet Archive /
+   Openverse / fmhy / rentry egress is blocked here; the last committed probe
+   evidence is `evidence/live-probe.json`, 15 endpoints HTTP 200 — it proves the
+   URLs are alive, not that the parsers run green against them on a networked
+   machine).
+2. The three `payloads/ghrdp-server.ps1` ROUTES (`/api/providers/relay`, the
+   `PATCH /api/f58/sources/<id>` behaviour, `notes`/`enabled` on `POST`). The file
+   is parsed by the PowerShell parser on the Windows-native job, so a syntax error
+   is ruled out; request/response behaviour is not.
+3. Browser scenarios A–M on a real Windows VM with the real server (§4 of
+   `LAB-VERIFICATION-PROMPT.md`). The six Chromium scenarios that already exist in
+   CI are green, but they run against a fixture backend, not the real PowerShell
+   server.
