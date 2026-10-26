@@ -65,3 +65,48 @@ PowerShell Parser": the repo's own gates (i18n key lock, storage inventory, the
 data-testid rule) had not yet been updated for the new surfaces. `9afc508` fixes
 exactly that and the gate is green — which is why the pinned counts in §"Gates"
 above are re-measured here rather than incremented.
+
+## MERGED — verification of the merged revision
+
+| Field | Value |
+|---|---|
+| Pull request | #102 — https://github.com/dictationb1/supreme-lamp/pull/102 |
+| Merged at | 2026-10-26T03:20:02Z |
+| Merge commit | `243dced82a2f72e28b0f43908121f2c9c417b8bb` |
+| Branch head that was merged | `0d7b08d` (identical tree to `9afc508` except this directory) |
+| Base at merge | `main` `dca68a5` |
+
+Checked **at the merge commit** (fresh worktree of `243dced`, node_modules linked):
+
+```text
+node --test tests/*.test.js               -> 931 pass / 0 fail
+npx tsc -p tsconfig.build.json --noEmit   -> 0 errors
+npx vitest run --config vitest.providers.config.ts
+                                          -> 36 pass, 11 live skipped
+node scripts/run-provider-live.mjs (github-live + search-store-live)
+                                          -> 11 pass against real api.github.com
+```
+
+CI at `243dced` (main): `F59 build-ui` success, `autologin-lab` success,
+`launch-gates` and `e2e-ui` running when this line was written — see the
+workflow list for their conclusions; the same jobs were green on `9afc508`
+(launch-gates 40261801235, autologin-lab 40261801144, F59 40261801148) and
+`9afc508` differs from the merged tree only by documentation.
+
+### Fresh dispatch of the live probe
+
+`gh workflow run search-provider-probe.yml` returns **HTTP 403** for this token
+(recorded earlier in this session): the dispatcher is not permitted on this
+repository. The workflow is push-triggered on
+`.github/workflows/search-provider-probe.yml` and
+`scripts/provider-live-probe.mjs`. Exact operator action:
+
+```bash
+# either touch the workflow to trigger it on a branch/PR
+git commit --allow-empty -m "ci: re-run the live provider probe"   && gh api -X POST repos/dictationb1/supreme-lamp/actions/workflows/search-provider-probe.yml/dispatches        -f ref=<branch>        # needs a token with `actions:write`
+# or run the same script by hand on any networked machine
+node scripts/provider-live-probe.mjs --out docs/reports/search-repair/evidence/live-probe.json
+```
+
+The last committed probe evidence (`evidence/live-probe.json`, run 40255818095)
+covers 15 real endpoints and is what §3 of the README cites.
