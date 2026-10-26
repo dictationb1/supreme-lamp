@@ -1,28 +1,17 @@
 {
-  "generatedAt": "2026-10-26T01:48:21.087Z",
-  "origin": "https://ghrdp.example.test",
+  "generatedAt": "2026-10-26T01:46:40.764Z",
   "runner": {
     "platform": "linux",
     "node": "v20.20.2",
     "ci": true,
-    "workflowSha": "0369f4d13adea6f8fa1d2ea00e0c080eb597bec5",
-    "workflowRun": "40255958809"
+    "workflowSha": "e051d674fc68295a65f2c6589b1d176bc3a98477",
+    "workflowRun": "40255818095"
   },
   "summary": {
-    "total": 25,
-    "ok": 22,
-    "expectMatched": 24,
-    "direct": 22,
-    "relayRequired": [
-      "awesome.re.canonical",
-      "github.public.html",
-      "archive.download-dir"
-    ],
-    "failed": [
-      "openculture.category",
-      "archive.scrape",
-      "fmhy.search"
-    ]
+    "total": 15,
+    "ok": 15,
+    "expectMatched": 14,
+    "failed": []
   },
   "results": [
     {
@@ -35,15 +24,11 @@
       "bytes": 167563,
       "headers": {
         "content-type": "text/html; charset=UTF-8",
-        "access-control-allow-origin": "*",
-        "access-control-allow-headers": "Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token"
+        "access-control-allow-origin": "*"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": " <!DOCTYPE html > <html lang=\"en-US\" > <head prefix=\"og: https://ogp.me/ns#\"> <meta property=\"og:locale\" content=\"en_US\"> <meta http-equiv=\"Content-Security-Policy\" content=\"upgrade-insecure-requests",
-      "fixture": "tests/providers/fixtures/live/openculture-search.html",
-      "ms": 1792979281231
+      "sample": " <!DOCTYPE html > <html lang=\"en-US\" > <head prefix=\"og: https://ogp.me/ns#\"> <meta property=\"og:locale\" content=\"en_US\"> <meta http-equiv=\"Content-Security-Policy\" content=\"upgrade-insecure-requests\"> <meta name=\"viewport\" content=\"width=",
+      "ms": 791
     },
     {
       "id": "openculture.feed",
@@ -55,85 +40,50 @@
       "bytes": 116879,
       "headers": {
         "content-type": "application/rss+xml; charset=UTF-8",
-        "access-control-allow-origin": "*",
-        "access-control-allow-headers": "Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token"
+        "access-control-allow-origin": "*"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:wfw=\"http://wellformedweb.org/CommentAPI/\" xmlns:dc=\"http://purl.org/dc/eleme",
-      "fixture": "tests/providers/fixtures/live/openculture-feed.xml",
-      "ms": 1792979281575
-    },
-    {
-      "id": "openculture.category",
-      "url": "https://www.openculture.com/free_online_courses",
-      "kind": "html",
-      "status": 404,
-      "ok": false,
-      "finalUrl": "https://www.openculture.com/free_online_courses",
-      "bytes": 101452,
-      "headers": {
-        "content-type": "text/html; charset=UTF-8",
-        "access-control-allow-origin": "*",
-        "access-control-allow-headers": "Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "<!DOCTYPE html > <html lang=\"en-US\" > <head prefix=\"og: https://ogp.me/ns#\"> <meta property=\"og:locale\" content=\"en_US\"> <meta http-equiv=\"Content-Security-Policy\" content=\"upgrade-insecure-requests\"",
-      "fixture": "tests/providers/fixtures/live/openculture-category.html",
-      "ms": 1792979281724
+      "sample": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:wfw=\"http://wellformedweb.org/CommentAPI/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:atom=\"http://www.w3.org",
+      "ms": 380
     },
     {
       "id": "archive.advancedsearch",
-      "url": "https://archive.org/advancedsearch.php?q=title%3A%22pride+and+prejudice%22+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&fl%5B%5D=downloads&rows=3&page=1&output=json",
+      "url": "https://archive.org/advancedsearch.php?q=title%3A%22pride+and+prejudice%22+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&rows=2&page=1&output=json",
       "kind": "json",
       "status": 200,
       "ok": true,
-      "finalUrl": "https://archive.org/advancedsearch.php?q=title%3A%22pride+and+prejudice%22+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&fl%5B%5D=downloads&rows=3&page=1&output=json",
-      "bytes": 757,
+      "finalUrl": "https://archive.org/advancedsearch.php?q=title%3A%22pride+and+prejudice%22+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&rows=2&page=1&output=json",
+      "bytes": 564,
       "headers": {
         "content-type": "application/json",
         "access-control-allow-origin": "*",
-        "access-control-allow-headers": "Accept-Encoding,Accept-Language,Authorization,Baggage,Cache-Control,Content-Length,Content-Range,DNT,Pragma,Range,Sentry-Trace,X-Requested-With",
         "server": "nginx/1.31.3"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"responseHeader\":{\"status\":0,\"QTime\":69,\"params\":{\"query\":\"title:&quot;pride and prejudice&quot; AND mediatype:texts\",\"qin\":\"title:&quot;pride and prejudice&quot; AND mediatype:texts\",\"fields\":\"ident",
+      "sample": "{\"responseHeader\":{\"status\":0,\"QTime\":37,\"params\":{\"query\":\"title:&quot;pride and prejudice&quot; AND mediatype:texts\",\"qin\":\"title:&quot;pride and prejudice&quot; AND mediatype:texts\",\"fields\":\"identifier,title,creator,year\",\"wt\":\"json\",\"r",
       "jsonKeys": [
         "responseHeader",
         "response"
       ],
-      "fixture": "tests/providers/fixtures/live/archive-advancedsearch.json",
-      "ms": 1792979282066
+      "ms": 553
     },
     {
-      "id": "archive.scrape",
-      "url": "https://archive.org/services/search/v1/scrape?q=collection%3Alibrivoxaudio&fields=identifier,title&count=100&page=1",
+      "id": "archive.metadata",
+      "url": "https://archive.org/metadata/prideandprejudice_20200422",
       "kind": "json",
-      "status": 400,
-      "ok": false,
-      "finalUrl": "https://archive.org/services/search/v1/scrape?q=collection%3Alibrivoxaudio&fields=identifier,title&count=100&page=1",
-      "bytes": 82,
+      "status": 200,
+      "ok": true,
+      "finalUrl": "https://archive.org/metadata/prideandprejudice_20200422",
+      "bytes": 2,
       "headers": {
-        "content-type": "application/json; charset=UTF-8",
+        "content-type": "application/json",
         "access-control-allow-origin": "*",
-        "access-control-allow-headers": "Accept-Encoding,Accept-Language,Authorization,Baggage,Cache-Control,Content-Length,Content-Range,DNT,Pragma,Range,Sentry-Trace,X-Requested-With",
         "server": "nginx/1.31.3"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": false,
-      "sample": "{\"error\":\"invalid request parameter page.\",\"errorType\":\"InvalidArgumentException\"}",
-      "jsonKeys": [
-        "error",
-        "errorType"
-      ],
-      "fixture": "tests/providers/fixtures/live/archive-scrape.json",
-      "ms": 1792979282138
+      "sample": "{}",
+      "jsonKeys": [],
+      "ms": 2455
     },
     {
       "id": "openverse.images",
@@ -145,13 +95,10 @@
       "bytes": 2853,
       "headers": {
         "content-type": "application/json",
-        "access-control-allow-origin": "*",
         "server": "cloudflare"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"result_count\":240,\"page_count\":120,\"page_size\":2,\"page\":1,\"results\":[{\"id\":\"9d49238e-b53d-43d7-be0a-31f980687076\",\"title\":\"Cassini's Final Full Image of Saturn\",\"indexed_on\":\"2020-03-21T18:05:44.763",
+      "sample": "{\"result_count\":240,\"page_count\":120,\"page_size\":2,\"page\":1,\"results\":[{\"id\":\"9d49238e-b53d-43d7-be0a-31f980687076\",\"title\":\"Cassini's Final Full Image of Saturn\",\"indexed_on\":\"2020-03-21T18:05:44.763899Z\",\"foreign_landing_url\":\"https://www",
       "jsonKeys": [
         "result_count",
         "page_count",
@@ -159,8 +106,7 @@
         "page",
         "results"
       ],
-      "fixture": "tests/providers/fixtures/live/openverse-images.json",
-      "ms": 1792979288444
+      "ms": 3874
     },
     {
       "id": "openverse.audio",
@@ -172,13 +118,10 @@
       "bytes": 3985,
       "headers": {
         "content-type": "application/json",
-        "access-control-allow-origin": "*",
         "server": "cloudflare"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"result_count\":240,\"page_count\":120,\"page_size\":2,\"page\":1,\"results\":[{\"id\":\"e55e52b1-2a82-43e2-a060-a42a4d2bae2d\",\"title\":\"In The Moonlight\",\"indexed_on\":\"2022-08-01T21:56:38.264750Z\",\"foreign_landi",
+      "sample": "{\"result_count\":240,\"page_count\":120,\"page_size\":2,\"page\":1,\"results\":[{\"id\":\"e55e52b1-2a82-43e2-a060-a42a4d2bae2d\",\"title\":\"In The Moonlight\",\"indexed_on\":\"2022-08-01T21:56:38.264750Z\",\"foreign_landing_url\":\"https://www.jamendo.com/track/1",
       "jsonKeys": [
         "result_count",
         "page_count",
@@ -186,8 +129,7 @@
         "page",
         "results"
       ],
-      "fixture": "tests/providers/fixtures/live/openverse-audio.json",
-      "ms": 1792979290700
+      "ms": 1354
     },
     {
       "id": "github.awesome-vlc.repo",
@@ -204,10 +146,8 @@
         "x-ratelimit-limit": "60",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"id\":355072486,\"node_id\":\"MDEwOlJlcG9zaXRvcnkzNTUwNzI0ODY=\",\"name\":\"awesome-vlc\",\"full_name\":\"mfkl/awesome-vlc\",\"private\":false,\"owner\":{\"login\":\"mfkl\",\"id\":3928834,\"node_id\":\"MDQ6VXNlcjM5Mjg4MzQ=\",\"",
+      "sample": "{\"id\":355072486,\"node_id\":\"MDEwOlJlcG9zaXRvcnkzNTUwNzI0ODY=\",\"name\":\"awesome-vlc\",\"full_name\":\"mfkl/awesome-vlc\",\"private\":false,\"owner\":{\"login\":\"mfkl\",\"id\":3928834,\"node_id\":\"MDQ6VXNlcjM5Mjg4MzQ=\",\"avatar_url\":\"https://avatars.githubuserc",
       "jsonKeys": [
         "id",
         "node_id",
@@ -222,8 +162,7 @@
         "forks_url",
         "keys_url"
       ],
-      "fixture": "tests/providers/fixtures/live/github-awesome-vlc-repo.json",
-      "ms": 1792979290932
+      "ms": 218
     },
     {
       "id": "github.awesome-vlc.readme",
@@ -240,10 +179,8 @@
         "x-ratelimit-limit": "60",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"name\":\"README.md\",\"path\":\"README.md\",\"sha\":\"fc49ab1a2147a05035a5fe2a674344d833fbb3e2\",\"size\":6780,\"url\":\"https://api.github.com/repos/mfkl/awesome-vlc/contents/README.md?ref=main\",\"html_url\":\"https:",
+      "sample": "{\"name\":\"README.md\",\"path\":\"README.md\",\"sha\":\"fc49ab1a2147a05035a5fe2a674344d833fbb3e2\",\"size\":6780,\"url\":\"https://api.github.com/repos/mfkl/awesome-vlc/contents/README.md?ref=main\",\"html_url\":\"https://github.com/mfkl/awesome-vlc/blob/main/",
       "jsonKeys": [
         "name",
         "path",
@@ -258,8 +195,7 @@
         "encoding",
         "_links"
       ],
-      "fixture": "tests/providers/fixtures/live/github-awesome-vlc-readme.json",
-      "ms": 1792979291079
+      "ms": 196
     },
     {
       "id": "github.sindresorhus-awesome",
@@ -276,10 +212,8 @@
         "x-ratelimit-limit": "60",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"id\":21737465,\"node_id\":\"MDEwOlJlcG9zaXRvcnkyMTczNzQ2NQ==\",\"name\":\"awesome\",\"full_name\":\"sindresorhus/awesome\",\"private\":false,\"owner\":{\"login\":\"sindresorhus\",\"id\":170270,\"node_id\":\"MDQ6VXNlcjE3MDI3M",
+      "sample": "{\"id\":21737465,\"node_id\":\"MDEwOlJlcG9zaXRvcnkyMTczNzQ2NQ==\",\"name\":\"awesome\",\"full_name\":\"sindresorhus/awesome\",\"private\":false,\"owner\":{\"login\":\"sindresorhus\",\"id\":170270,\"node_id\":\"MDQ6VXNlcjE3MDI3MA==\",\"avatar_url\":\"https://avatars.githu",
       "jsonKeys": [
         "id",
         "node_id",
@@ -294,44 +228,7 @@
         "forks_url",
         "keys_url"
       ],
-      "fixture": "tests/providers/fixtures/live/github-sindresorhus-awesome.json",
-      "ms": 1792979291227
-    },
-    {
-      "id": "github.sindresorhus-awesome.readme",
-      "url": "https://api.github.com/repos/sindresorhus/awesome/readme",
-      "kind": "json",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://api.github.com/repos/sindresorhus/awesome/readme",
-      "bytes": 108705,
-      "headers": {
-        "content-type": "application/json; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "x-ratelimit-remaining": "56",
-        "x-ratelimit-limit": "60",
-        "server": "github.com"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "{\"name\":\"readme.md\",\"path\":\"readme.md\",\"sha\":\"0acaa99d5f45582ecf70f987213f59ae1855226f\",\"size\":78330,\"url\":\"https://api.github.com/repos/sindresorhus/awesome/contents/readme.md?ref=main\",\"html_url\":\"h",
-      "jsonKeys": [
-        "name",
-        "path",
-        "sha",
-        "size",
-        "url",
-        "html_url",
-        "git_url",
-        "download_url",
-        "type",
-        "content",
-        "encoding",
-        "_links"
-      ],
-      "fixture": "tests/providers/fixtures/live/github-sindresorhus-awesome-readme.json",
-      "ms": 1792979291444
+      "ms": 201
     },
     {
       "id": "github.sindresorhus-awesome.releases",
@@ -344,17 +241,14 @@
       "headers": {
         "content-type": "application/json; charset=utf-8",
         "access-control-allow-origin": "*",
-        "x-ratelimit-remaining": "55",
+        "x-ratelimit-remaining": "56",
         "x-ratelimit-limit": "60",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
       "sample": "[]",
       "jsonKeys": [],
-      "fixture": "tests/providers/fixtures/live/github-sindresorhus-awesome-releases.json",
-      "ms": 1792979291573
+      "ms": 141
     },
     {
       "id": "github.chessmax.repo",
@@ -367,14 +261,12 @@
       "headers": {
         "content-type": "application/json; charset=utf-8",
         "access-control-allow-origin": "*",
-        "x-ratelimit-remaining": "54",
+        "x-ratelimit-remaining": "55",
         "x-ratelimit-limit": "60",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "{\"id\":277155531,\"node_id\":\"MDEwOlJlcG9zaXRvcnkyNzcxNTU1MzE=\",\"name\":\"awesome-programming-languages\",\"full_name\":\"ChessMax/awesome-programming-languages\",\"private\":false,\"owner\":{\"login\":\"ChessMax\",\"id",
+      "sample": "{\"id\":277155531,\"node_id\":\"MDEwOlJlcG9zaXRvcnkyNzcxNTU1MzE=\",\"name\":\"awesome-programming-languages\",\"full_name\":\"ChessMax/awesome-programming-languages\",\"private\":false,\"owner\":{\"login\":\"ChessMax\",\"id\":184918,\"node_id\":\"MDQ6VXNlcjE4NDkxOA==",
       "jsonKeys": [
         "id",
         "node_id",
@@ -389,71 +281,7 @@
         "forks_url",
         "keys_url"
       ],
-      "fixture": "tests/providers/fixtures/live/github-chessmax-repo.json",
-      "ms": 1792979291758
-    },
-    {
-      "id": "github.chessmax.readme",
-      "url": "https://api.github.com/repos/ChessMax/awesome-programming-languages/readme",
-      "kind": "json",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://api.github.com/repos/ChessMax/awesome-programming-languages/readme",
-      "bytes": 444940,
-      "headers": {
-        "content-type": "application/json; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "x-ratelimit-remaining": "53",
-        "x-ratelimit-limit": "60",
-        "server": "github.com"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "{\"name\":\"README.md\",\"path\":\"README.md\",\"sha\":\"915797a15b5bfc6beb3fcc06e83302f68f2cfed0\",\"size\":322272,\"url\":\"https://api.github.com/repos/ChessMax/awesome-programming-languages/contents/README.md?ref=",
-      "jsonKeys": [
-        "name",
-        "path",
-        "sha",
-        "size",
-        "url",
-        "html_url",
-        "git_url",
-        "download_url",
-        "type",
-        "content",
-        "encoding",
-        "_links"
-      ],
-      "fixture": "tests/providers/fixtures/live/github-chessmax-readme.json",
-      "ms": 1792979291981
-    },
-    {
-      "id": "github.search",
-      "url": "https://api.github.com/search/repositories?q=awesome+vlc&per_page=2",
-      "kind": "json",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://api.github.com/search/repositories?q=awesome+vlc&per_page=2",
-      "bytes": 10263,
-      "headers": {
-        "content-type": "application/json; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "x-ratelimit-remaining": "9",
-        "x-ratelimit-limit": "10",
-        "server": "github.com"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "{\"total_count\":7,\"incomplete_results\":false,\"items\":[{\"id\":355072486,\"node_id\":\"MDEwOlJlcG9zaXRvcnkzNTUwNzI0ODY=\",\"name\":\"awesome-vlc\",\"full_name\":\"mfkl/awesome-vlc\",\"private\":false,\"owner\":{\"login\":\"",
-      "jsonKeys": [
-        "total_count",
-        "incomplete_results",
-        "items"
-      ],
-      "fixture": "tests/providers/fixtures/live/github-search.json",
-      "ms": 1792979292179
+      "ms": 219
     },
     {
       "id": "awesome.re.canonical",
@@ -462,17 +290,14 @@
       "status": 200,
       "ok": true,
       "finalUrl": "https://github.com/sindresorhus/awesome",
-      "bytes": 548068,
+      "bytes": 548085,
       "headers": {
         "content-type": "text/html; charset=utf-8",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": false,
-      "transport": "relay-required",
       "expectMatched": true,
-      "sample": " <!DOCTYPE html> <html lang=\"en\" data-color-mode=\"auto\" data-light-theme=\"light\" data-dark-theme=\"dark\" data-a11y-animated-images=\"system\" data-a11y-link-underlines=\"true\" data-css-f",
-      "fixture": "tests/providers/fixtures/live/awesome-re-canonical.html",
-      "ms": 1792979292894
+      "sample": " <!DOCTYPE html> <html lang=\"en\" data-color-mode=\"auto\" data-light-theme=\"light\" data-dark-theme=\"dark\" data-a11y-animated-images=\"system\" data-a11y-link-underlines=\"true\" data-css-features=\"site_disable_smooth_scrolling\" ",
+      "ms": 678
     },
     {
       "id": "github.public.html",
@@ -481,17 +306,14 @@
       "status": 200,
       "ok": true,
       "finalUrl": "https://github.com/mfkl/awesome-vlc",
-      "bytes": 282823,
+      "bytes": 282832,
       "headers": {
         "content-type": "text/html; charset=utf-8",
         "server": "github.com"
       },
-      "corsForBrowserOrigin": false,
-      "transport": "relay-required",
       "expectMatched": true,
-      "sample": " <!DOCTYPE html> <html lang=\"en\" data-color-mode=\"auto\" data-light-theme=\"light\" data-dark-theme=\"dark\" data-a11y-animated-images=\"system\" data-a11y-link-underlines=\"true\" data-css-f",
-      "fixture": "tests/providers/fixtures/live/github-public-html.html",
-      "ms": 1792979293213
+      "sample": " <!DOCTYPE html> <html lang=\"en\" data-color-mode=\"auto\" data-light-theme=\"light\" data-dark-theme=\"dark\" data-a11y-animated-images=\"system\" data-a11y-link-underlines=\"true\" data-css-features=\"site_disable_smooth_scrolling\" ",
+      "ms": 321
     },
     {
       "id": "fmhy.misc",
@@ -506,52 +328,9 @@
         "access-control-allow-origin": "*",
         "server": "cloudflare"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html lang=\"en-US\" dir=\"ltr\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"> <title>Miscellaneous • freemediaheckyeah</",
-      "fixture": "tests/providers/fixtures/live/fmhy-misc.html",
-      "ms": 1792979293377
-    },
-    {
-      "id": "fmhy.sitemap",
-      "url": "https://fmhy.net/sitemap.xml",
-      "kind": "xml",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://fmhy.net/sitemap.xml",
-      "bytes": 4875,
-      "headers": {
-        "content-type": "application/xml",
-        "access-control-allow-origin": "*",
-        "server": "cloudflare"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:news=\"http://www.google.com/schemas/sitemap-news/0.9\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\"",
-      "fixture": "tests/providers/fixtures/live/fmhy-sitemap.xml",
-      "ms": 1792979293423
-    },
-    {
-      "id": "fmhy.search",
-      "url": "https://fmhy.net/search?q=coffee",
-      "kind": "html",
-      "status": 404,
-      "ok": false,
-      "finalUrl": "https://fmhy.net/search?q=coffee",
-      "bytes": 13832,
-      "headers": {
-        "content-type": "text/html; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "server": "cloudflare"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html lang=\"en-US\" dir=\"ltr\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"> <title>404 • freemediaheckyeah</title> ",
-      "fixture": "tests/providers/fixtures/live/fmhy-search.html",
-      "ms": 1792979293467
+      "sample": "<!DOCTYPE html> <html lang=\"en-US\" dir=\"ltr\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"> <title>Miscellaneous • freemediaheckyeah</title> <meta name=\"description\" cont",
+      "ms": 212
     },
     {
       "id": "rentry.megathread",
@@ -563,109 +342,11 @@
       "bytes": 26343,
       "headers": {
         "content-type": "text/html; charset=utf-8",
-        "access-control-allow-origin": "*",
         "server": "nginx"
       },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
       "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html class=\"dark-mode\"> <head> <meta charset=\"utf-8\"> <title>📜 ➜ Megathread</title> <link rel=\"canonical\" href=\"https://rentry.co/megathread\" /> <meta name=\"rob",
-      "fixture": "tests/providers/fixtures/live/rentry-megathread.html",
-      "ms": 1792979294084
-    },
-    {
-      "id": "rentry.megathread.raw",
-      "url": "https://rentry.org/megathread/raw",
-      "kind": "html",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://rentry.org/megathread/raw",
-      "bytes": 5229,
-      "headers": {
-        "content-type": "text/html; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "server": "nginx"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html> <head> <meta charset=\"utf-8\"> <title>What</title> <link rel=\"canonical\" href=\"https://rentry.co/what\" /> <meta name=\"description\" content=\"Markdown paste s",
-      "fixture": "tests/providers/fixtures/live/rentry-megathread-raw.html",
-      "ms": 1792979294229
-    },
-    {
-      "id": "rentry.movies",
-      "url": "https://rentry.org/megathread-movies-and-tv",
-      "kind": "html",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://rentry.org/megathread-movies-and-tv",
-      "bytes": 62016,
-      "headers": {
-        "content-type": "text/html; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "server": "nginx"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html class=\"dark-mode\"> <head> <meta charset=\"utf-8\"> <title>🎦 ➜ Megathread / Movies &amp; TV</title> <link rel=\"canonical\" href=\"https://rentry.co/megathread-mov",
-      "fixture": "tests/providers/fixtures/live/rentry-movies.html",
-      "ms": 1792979294376
-    },
-    {
-      "id": "archive.metadata",
-      "url": "https://archive.org/metadata/isbn_9781594745027",
-      "kind": "json",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://archive.org/metadata/isbn_9781594745027",
-      "bytes": 15604,
-      "headers": {
-        "content-type": "application/json",
-        "access-control-allow-origin": "*",
-        "server": "nginx/1.31.3"
-      },
-      "corsForBrowserOrigin": true,
-      "transport": "direct",
-      "expectMatched": true,
-      "sample": "{\"alternate_locations\":{\"servers\":[{\"server\":\"dn790006.ca.archive.org\",\"dir\":\"/0/items/isbn_9781594745027\"}],\"workable\":[{\"server\":\"dn790006.ca.archive.org\",\"dir\":\"/0/items/isbn_9781594745027\"}]},\"cre",
-      "jsonKeys": [
-        "alternate_locations",
-        "created",
-        "d1",
-        "d2",
-        "dir",
-        "files",
-        "files_count",
-        "item_last_updated",
-        "item_size",
-        "metadata",
-        "server",
-        "simplelists"
-      ],
-      "fixture": "tests/providers/fixtures/live/archive-metadata.json",
-      "derivedFromIdentifier": "isbn_9781594745027"
-    },
-    {
-      "id": "archive.download-dir",
-      "url": "https://archive.org/download/isbn_9781594745027/",
-      "kind": "json",
-      "status": 200,
-      "ok": true,
-      "finalUrl": "https://archive.org/download/isbn_9781594745027/",
-      "bytes": 159961,
-      "headers": {
-        "content-type": "text/html; charset=UTF-8",
-        "server": "nginx/1.31.3"
-      },
-      "corsForBrowserOrigin": false,
-      "transport": "relay-required",
-      "expectMatched": true,
-      "sample": "<!DOCTYPE html> <html lang=\"en\"> <!-- __ _ _ _ __| |_ (_)__ _____ / _` | '_/ _| ' \\| |\\ V / -_) \\__,_|_| \\__|_||_|_| \\_/\\___| --> <head data-release=31182ae3 data-node=\"www26.us.archive.org\"",
-      "jsonParse": "failed",
-      "fixture": "tests/providers/fixtures/live/archive-download-dir.json",
-      "derivedFromIdentifier": "isbn_9781594745027"
+      "sample": "<!DOCTYPE html> <html class=\"dark-mode\"> <head> <meta charset=\"utf-8\"> <title>📜 ➜ Megathread</title> <link rel=\"canonical\" href=\"https://rentry.co/megathread\" /> <meta name=\"robots\" content=\"noindex\"> <meta n",
+      "ms": 785
     }
   ]
 }

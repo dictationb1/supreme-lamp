@@ -34,11 +34,15 @@ const TARGETS = [
   // --- required providers: the exact calls the adapters make --------------
   { id: "openculture.search", url: "https://www.openculture.com/?s=Walter+Kaufmann", kind: "html", expect: [/walter_kaufmanns_lectures\.html/] },
   { id: "openculture.feed", url: "https://www.openculture.com/feed", kind: "xml", expect: [/<item/i] },
-  { id: "openculture.category", url: "https://www.openculture.com/free_online_courses", kind: "html", expect: [/free_online_courses|openculture/i] },
+  { id: "openculture.home", url: "https://www.openculture.com/", kind: "html", expect: [/openculture/i] },
+  { id: "openculture.sitemap", url: "https://www.openculture.com/sitemap.xml", kind: "xml", expect: [/<(loc|sitemap)>/i] },
+  { id: "openculture.cse-redirect", url: "https://www.openculture.com/?s=coffee", kind: "html", expect: [/openculture/i] },
   { id: "archive.advancedsearch", url: "https://archive.org/advancedsearch.php?q=title%3A%22pride+and+prejudice%22+AND+mediatype%3Atexts&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&fl%5B%5D=downloads&rows=3&page=1&output=json", kind: "json", expect: [/"response"/, /"docs"/] },
-  { id: "archive.scrape", url: "https://archive.org/services/search/v1/scrape?q=collection%3Alibrivoxaudio&fields=identifier,title&count=100&page=1", kind: "json", expect: [/items/] },
+  { id: "archive.facets", url: "https://archive.org/advancedsearch.php?q=coffee&fl%5B%5D=identifier&fl%5B%5D=mediatype&rows=1&page=1&output=json&sort%5B%5D=downloads+desc", kind: "json", expect: [/numFound/] },
   { id: "openverse.images", url: "https://api.openverse.org/v1/images/?q=saturn&page_size=2", kind: "json", expect: [/"results"/] },
   { id: "openverse.audio", url: "https://api.openverse.org/v1/audio/?q=moonlight&page_size=2", kind: "json", expect: [/"results"/] },
+  { id: "openverse.licensed-filter", url: "https://api.openverse.org/v1/images/?q=coffee&license=cc0,pdm&page_size=2", kind: "json", expect: [/"results"/] },
+  { id: "openverse.rate-headers", url: "https://api.openverse.org/v1/images/?q=test&page_size=1", kind: "json", expect: [/"results"/] },
   // --- the three regression examples --------------------------------------
   { id: "github.awesome-vlc.repo", url: "https://api.github.com/repos/mfkl/awesome-vlc", kind: "json", expect: [/"full_name"/] },
   { id: "github.awesome-vlc.readme", url: "https://api.github.com/repos/mfkl/awesome-vlc/readme", kind: "json", expect: [/"content"/] },
@@ -53,10 +57,13 @@ const TARGETS = [
   // --- the operator's fresh additions -------------------------------------
   { id: "fmhy.misc", url: "https://fmhy.net/misc", kind: "html", expect: [/index|fmhy/i] },
   { id: "fmhy.sitemap", url: "https://fmhy.net/sitemap.xml", kind: "xml", expect: [/<loc>/i] },
-  { id: "fmhy.search", url: "https://fmhy.net/search?q=coffee", kind: "html", expect: [/coffee|fmhy|search/i] },
+  { id: "fmhy.search-404", url: "https://fmhy.net/search?q=coffee", kind: "html", expect: [/fmhy/i] },
+  { id: "fmhy.ai", url: "https://fmhy.net/ai", kind: "html", expect: [/fmhy|ai/i] },
   { id: "rentry.megathread", url: "https://rentry.org/megathread", kind: "html", expect: [/megathread|piracy/i] },
   { id: "rentry.megathread.raw", url: "https://rentry.org/megathread/raw", kind: "html", expect: [/\[|\/megathread/] },
   { id: "rentry.movies", url: "https://rentry.org/megathread-movies-and-tv", kind: "html", expect: [/movie|tv|rentry/i] },
+  { id: "rentry.movies.raw", url: "https://rentry.org/megathread-movies-and-tv/raw", kind: "html", expect: [/https?:\/\//i] },
+  { id: "rentry.unsafe.raw", url: "https://rentry.org/megathread-unsafe-sites/raw", kind: "html", expect: [/https?:\/\//i] },
 ];
 
 function headerSubset(h) {

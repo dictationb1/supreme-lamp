@@ -29,7 +29,7 @@ jobs:
           fi
           git config user.name "search-repair-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/reports/search-repair/evidence/live-probe.json
+          git add docs/reports/search-repair/evidence/live-probe.json tests/providers/fixtures/live
           git commit -m "evidence(search): live provider probe [skip ci]"
           git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
