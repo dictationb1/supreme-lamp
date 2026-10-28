@@ -53,6 +53,17 @@ test("BRIDGE-3: produces sanitized API payload with sourceContext and required f
   }
 });
 
+test("BRIDGE-6: fetchTriggerRunLogs asserts command on failure", async () => {
+  const { fetchTriggerRunLogs } = await import("../scripts/jules-repair-bridge.mjs");
+
+  process.env.GH_TOKEN = "dummy-token";
+  const runId = "123456789";
+  const repo = "dummy/repo";
+  const logs = fetchTriggerRunLogs(runId, repo);
+
+  assert.ok(logs.includes(`gh run view ${runId} --log -R "${repo}"`));
+});
+
 test("BRIDGE-4: performs HTTP POST dispatch and handles 201 response", async () => {
   const { dispatchJulesSession } = await import("../scripts/jules-repair-bridge.mjs");
   const tmpTracker = path.join(__dirname, "tmp-incidents-2.json");
