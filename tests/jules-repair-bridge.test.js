@@ -15,6 +15,20 @@ test("BRIDGE-1: returns BRIDGE_NOT_CONFIGURED when JULES_API_KEY is missing", as
   assert.ok(res.activationStepsSi.length > 0);
 });
 
+test("BRIDGE-6: fetchTriggerRunLogs attempts to call gh run view", async () => {
+  const { fetchTriggerRunLogs } = await import("../scripts/jules-repair-bridge.mjs");
+  process.env.GH_TOKEN = "dummy-token";
+
+  const res = fetchTriggerRunLogs("123456", "dictationb1/supreme-lamp");
+
+  // Clean up environment
+  delete process.env.GH_TOKEN;
+
+  // Since 'gh' CLI tool is not available in the local sandbox, it will throw an error.
+  // We assert that the caught error message contains the expected command string.
+  assert.ok(res.includes("gh run view 123456 --log -R \"dictationb1/supreme-lamp\""));
+});
+
 test("BRIDGE-2: respects bridgeEnabled=false disable switch", async () => {
   const { evaluateBridgeDispatch } = await import("../scripts/jules-repair-bridge.mjs");
   const res = evaluateBridgeDispatch({ apiKey: "some-key", bridgeEnabled: false });
