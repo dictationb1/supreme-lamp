@@ -208,7 +208,7 @@ export function checkDependencies(options = {}) {
   return result;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const options = parseArgs();
   const depResult = checkDependencies(options);
 
