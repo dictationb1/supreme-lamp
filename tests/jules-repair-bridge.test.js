@@ -103,6 +103,17 @@ test("BRIDGE-4: performs HTTP POST dispatch and handles 201 response", async () 
   }
 });
 
+test("BRIDGE-6: fetchTriggerRunLogs executes correct gh run view command", async () => {
+  const { fetchTriggerRunLogs } = await import("../scripts/jules-repair-bridge.mjs");
+  process.env.GH_TOKEN = "dummy-token";
+
+  const result = fetchTriggerRunLogs("12345", "dictationb1/supreme-lamp");
+
+  // Since gh is not available in CI, it should fail with a command error
+  assert.ok(result.includes("Could not fetch logs for run 12345"));
+  assert.ok(result.includes("gh run view 12345 --log -R \"dictationb1/supreme-lamp\""));
+});
+
 test("BRIDGE-5: handles 401/403 auth errors and 429 rate limiting", async () => {
   const { dispatchJulesSession } = await import("../scripts/jules-repair-bridge.mjs");
   const tmpTracker = path.join(__dirname, "tmp-incidents-3.json");
