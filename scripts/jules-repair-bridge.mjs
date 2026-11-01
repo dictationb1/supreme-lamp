@@ -2,6 +2,7 @@
 // scripts/jules-repair-bridge.mjs
 // Event-driven Jules API repair bridge logic with HTTP dispatch, durable deduplication, and secret protection.
 
+import { pathToFileURL } from 'node:url';
 import { redactSecrets } from "./rdp-evidence.mjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -228,7 +229,7 @@ export async function dispatchJulesSession(input = {}, fetchFn = globalThis.fetc
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   dispatchJulesSession().then((res) => {
     console.log(`[jules-repair-bridge] Result Status: ${res.status}`);
 
