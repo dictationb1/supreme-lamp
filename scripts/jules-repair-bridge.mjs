@@ -5,6 +5,7 @@
 import { redactSecrets } from "./rdp-evidence.mjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const INCIDENTS_FILE = process.env.INCIDENTS_TRACKING_FILE || "jules-repair-incidents.json";
 
@@ -34,20 +35,13 @@ export function fetchTriggerRunLogs(runId, repo = "dictationb1/supreme-lamp") {
   }
 
   try {
-    const cmd = `gh api -X GET "repos/${repo}/actions/runs/${runId}/logs"`;
-    // The previous implementation assumed plain text, but run logs are often zip archives.
+    const cmd = `gh run view ${runId} --log -R "${repo}"`;
     const res = execSync(cmd, {
-      encoding: "buffer",
+      encoding: "utf8",
       env: { ...process.env, GH_TOKEN: token },
     });
 
-    // Check if it's a zip by magic number (PK\x03\x04)
-    if (res.length >= 4 && res[0] === 0x50 && res[1] === 0x4B && res[2] === 0x03 && res[3] === 0x04) {
-      return "Logs are in ZIP format. Log content extraction not fully implemented here yet, please check manually.";
-    }
-
-    const textRes = res.toString("utf8");
-    return redactSecrets(textRes.slice(0, 4000));
+    return redactSecrets(res.slice(0, 4000));
   } catch (err) {
     return `Could not fetch logs for run ${runId}: ${err.message}`;
   }
@@ -228,7 +222,7 @@ export async function dispatchJulesSession(input = {}, fetchFn = globalThis.fetc
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   dispatchJulesSession().then((res) => {
     console.log(`[jules-repair-bridge] Result Status: ${res.status}`);
 
