@@ -89,7 +89,7 @@ export function createEvidenceRecord(input = {}) {
   return finalRecord;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const outputPath = process.argv[2] || "rdp-lab-evidence.json";
   let input = {
     phase: process.env.LAB_PHASE || "live-check",
