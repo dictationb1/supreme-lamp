@@ -103,6 +103,19 @@ test("BRIDGE-4: performs HTTP POST dispatch and handles 201 response", async () 
   }
 });
 
+test("BRIDGE-6: fetchTriggerRunLogs constructs correct gh run view command", async () => {
+  const { fetchTriggerRunLogs } = await import("../scripts/jules-repair-bridge.mjs");
+  process.env.GH_TOKEN = "dummy-token";
+  const result = fetchTriggerRunLogs("12345", "test/repo");
+
+  // Since 'gh' is not available in the test environment, execSync will throw.
+  // We can assert against the command string embedded in the error message.
+  assert.ok(
+    result.includes("gh run view 12345 --log -R \"test/repo\""),
+    "fetchTriggerRunLogs should construct the expected command"
+  );
+});
+
 test("BRIDGE-5: handles 401/403 auth errors and 429 rate limiting", async () => {
   const { dispatchJulesSession } = await import("../scripts/jules-repair-bridge.mjs");
   const tmpTracker = path.join(__dirname, "tmp-incidents-3.json");
